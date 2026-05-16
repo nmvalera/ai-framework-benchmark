@@ -1,0 +1,63 @@
+[submodule "frameworks/adk-go"]
+	path = frameworks/adk-go
+	url = https://github.com/google/adk-go
+[submodule "frameworks/agno"]
+	path = frameworks/agno
+	url = https://github.com/agno-agi/agno
+[submodule "frameworks/autoagents"]
+	path = frameworks/autoagents
+	url = https://github.com/liquidos-ai/AutoAgents
+[submodule "frameworks/claude-agent-sdk-python"]
+	path = frameworks/claude-agent-sdk-python
+	url = https://github.com/anthropics/claude-agent-sdk-python
+[submodule "frameworks/claude-agent-sdk-typescript"]
+	path = frameworks/claude-agent-sdk-typescript
+	url = https://github.com/anthropics/claude-agent-sdk-typescript
+[submodule "frameworks/crewai"]
+	path = frameworks/crewai
+	url = https://github.com/crewAIInc/crewAI
+[submodule "frameworks/eino"]
+	path = frameworks/eino
+	url = https://github.com/cloudwego/eino
+[submodule "frameworks/eino-ext"]
+	path = frameworks/eino-ext
+	url = https://github.com/cloudwego/eino-ext
+[submodule "frameworks/genkit"]
+	path = frameworks/genkit
+	url = https://github.com/firebase/genkit
+[submodule "frameworks/langgraph"]
+	path = frameworks/langgraph
+	url = https://github.com/langchain-ai/langgraph
+[submodule "frameworks/llamaindex"]
+	path = frameworks/llamaindex
+	url = https://github.com/run-llama/llama_index
+[submodule "frameworks/mastra"]
+	path = frameworks/mastra
+	url = https://github.com/mastra-ai/mastra
+[submodule "frameworks/openai-agents-python"]
+	path = frameworks/openai-agents-python
+	url = https://github.com/openai/openai-agents-python
+[submodule "frameworks/openai-agents-js"]
+	path = frameworks/openai-agents-js
+	url = https://github.com/openai/openai-agents-js
+[submodule "frameworks/pydantic-ai"]
+	path = frameworks/pydantic-ai
+	url = https://github.com/pydantic/pydantic-ai
+[submodule "frameworks/rig"]
+	path = frameworks/rig
+	url = https://github.com/0xPlaygrounds/rig
+[submodule "frameworks/strands-agents-sdk-python"]
+	path = frameworks/strands-agents-sdk-python
+	url = https://github.com/strands-agents/sdk-python
+[submodule "frameworks/strands-agents-tools"]
+	path = frameworks/strands-agents-tools
+	url = https://github.com/strands-agents/tools
+[submodule "frameworks/strands-agents-sdk-typescript"]
+	path = frameworks/strands-agents-sdk-typescript
+	url = https://github.com/strands-agents/sdk-typescript
+[submodule "frameworks/vercel-ai"]
+	path = frameworks/vercel-ai
+	url = https://github.com/vercel/ai
+[submodule "frameworks/microsoft-agent-framework"]
+	path = frameworks/microsoft-agent-framework
+	url = https://github.com/microsoft/agent-framework

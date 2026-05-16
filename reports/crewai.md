@@ -1,19 +1,22 @@
-# CrewAI Py — Benchmark Study
+# CrewAI Python — Benchmark Study
 
 > **Repo**: https://github.com/crewAIInc/crewAI
 > **Commit studied**: a95d26763f4766b1a4f7c19c039133d1202dbdaa
 > **Branch**: main
-> **Cloned at**: benchmarked-stacks/crewai/
+> **Framework path**: frameworks/crewai/
+> **Package version**: `crewai` 1.14.5a6 (May 15, 2026)
 > **Studied on**: 2026-05-16
 
 ## TL;DR
 
-- ⭐ **What is this stack architecturally?** CrewAI is a **heavy Python framework** (Pydantic-first, ~70 kLOC across `lib/crewai/`) whose mental model is **multi-agent first**: `Crew` (sequential / hierarchical task orchestration) + `Flow` (event-driven workflow DAG). For a single long-running long-running agent the `Crew` abstraction is overkill; the closest fit is `LiteAgent` (deprecated in v2.0) or a degenerate one-agent one-task `Crew`. **There is no first-class long-lived single-agent server primitive.**
-- **Where the agent loop actually executes**: in your Python process. `Crew.kickoff()` → `_run_sequential_process()` → `Task.execute_sync()` → `Agent` → `AgentExecutor._invoke_loop()` (native function calling or ReAct text). Everything happens in-process — no subprocess, no vendor cloud dependency for the OSS path.
+- ⭐ **What is this stack architecturally?** CrewAI is a **heavy Python framework** (Pydantic-first, ~70 kLOC across `lib/crewai/`) whose mental model is **multi-agent first**: `Crew` (sequential / hierarchical task orchestration) + `Flow` (event-driven workflow DAG). For a single long-running agent the `Crew` abstraction is overkill; the closest fit is `LiteAgent` (deprecated for v2.0) or a degenerate one-agent one-task `Crew`. **There is no first-class long-lived single-agent server primitive.**
+- **Open-source / license / support**: MIT-licensed, owned by **crewAI, Inc.** (founder: João Moura). Active commercial backing via the **AMP / CrewAI Enterprise** SaaS (`https://app.crewai.com/`). Community Discord + Discourse. ~37 k GitHub stars / ~5 k forks captured 2026-05-16 — among the largest agent frameworks by stars.
+- **Maturity / age**: first public release December 2023; current version **1.14.5a6** (2026-05-15 — alpha prereleases shipping nightly). v1.0 cut in late 2024; the codebase is past the major-breaking-changes phase but still actively renaming subsystems (executor swap below).
+- **Where the agent loop actually executes**: in your Python process. `Crew.kickoff()` → `_run_sequential_process()` → `Task.execute_sync()` → `Agent.execute_task()` → **`AgentExecutor` (a `Flow` subclass with plan-and-execute / todo-list / parallel-step routing)** since v1.14.5a5. ReAct or native function calling still happens inside individual todo steps. Everything happens in-process — no subprocess, no vendor cloud dependency for the OSS path.
 - **Strongest architectural choice for our use case**: the **`SKILL.md` + YAML frontmatter** machinery (`lib/crewai/src/crewai/skills/`) is fully baked, with **progressive disclosure (METADATA → INSTRUCTIONS → RESOURCES)** and an `allowed-tools` field — one of only two stacks (Claude Agent SDK + CrewAI) that ship this format natively. Plus **mid-run checkpointing** (`CheckpointConfig`, JSON/SQLite providers, `Crew.fork(branch=...)`) and **unified Memory** (LanceDB-backed, hierarchical `root_scope`, LLM-driven recall) are first-party.
 - **Weakest / biggest gap**: **Multi-tenancy is essentially non-existent.** There is no `tenant_id` / `user_id` field on `Crew`, `Agent`, `Task`, or `LiteAgent`. The only mention of "tenant" anywhere in the framework is `DEFAULT_TENANT = "default_tenant"` in `rag/chromadb/constants.py:9` (ChromaDB's own tenant concept, unused). There is **no harness-side forced tool args, no per-tool ACL, no per-tenant rate/cost cap**. Multi-tenancy is BYO at every layer.
 - **Most surprising finding (good)**: The **`@human_feedback` decorator with pluggable `HumanFeedbackProvider`** (`crewai/flow/human_feedback.py`) is genuinely well-designed — providers can raise `HumanFeedbackPending` to *pause* a `Flow`, get state auto-persisted to checkpoint, then resume later when external input arrives (Slack, email, webhook). Most stacks treat HITL as a blocking `input()`; this is the only one I've seen that bakes async pause-resume into the loop semantics.
-- **Most surprising finding (bad)**: `CrewAgentExecutor` is deprecated in favor of `crewai.experimental.AgentExecutor` (deprecation warning fires inside `__init__`, `crew_agent_executor.py:142`); `LiteAgent` is deprecated too (`@deprecated("LiteAgent is deprecated and will be removed in v2.0.0.")`, `lite_agent.py:178`). The "current best" agent class is *experimental*. This is mid-flight architecture.
+- **Most surprising finding (bad)**: The default executor flipped under the framework in v1.14.5a5 (May 13, 2026). **`crewai.experimental.AgentExecutor` is now the default `Agent.executor_class`** (`agent/core.py:332-339`, default `AgentExecutor`), and the older `CrewAgentExecutor` emits a `DeprecationWarning` on construction (`crew_agent_executor.py:143-147`). The new default is a **`Flow` subclass with planning + todo list + `asyncio.gather` parallel step execution** (`experimental/agent_executor.py:157-200, 1028-1075`) — a much more sophisticated runtime than the simple ReAct loop it replaces, but the module path is still `crewai.experimental.*` and the public docs haven't fully caught up. `LiteAgent` is also deprecated (`@deprecated("LiteAgent is deprecated and will be removed in v2.0.0.")`, `lite_agent.py:178`). The "current best" agent class is *experimental* by name. This is mid-flight architecture.
 - One-line verdicts:
   - **Sessions/persistence**: ✅ Crew/Flow/Agent → JSON or SQLite checkpoint provider; checkpoints emit on configurable event types; `Crew.fork(branch=...)` clones execution into a new lineage.
   - **Skills**: ✅ Best-in-class outside Claude Agent SDK — `SKILL.md` + YAML frontmatter + progressive disclosure, but no per-tenant scoping.
@@ -85,45 +88,85 @@ CrewAI is a **batteries-included Python framework for multi-agent orchestration*
 - a unified memory subsystem (LanceDB + LLM-driven recall);
 - a skill loader (`SKILL.md` + YAML frontmatter);
 - a CLI (`crewai-cli`) for scaffolding, running, evaluating, and replaying;
-- and an event bus (155 event types across 17 categories) with first-party hooks for OTel/Datadog/Langfuse/Arize/etc.
+- and an event bus (151 event classes across 19 event-type files) with first-party hooks for OTel/Datadog/Langfuse/Arize/etc.
 
 **Crucially**: the OSS framework is **library-only**. There is no HTTP server. The Enterprise SaaS (**AMP** — Agent Management Platform, formerly CrewAI Enterprise) adds the deployment platform, triggers, RBAC, marketplace, and webhook event streaming on top.
 
-**For our use case (single long-running multi-tenant long-running agent piloted by skills)**, the mental model is a mismatch: CrewAI's primitives are *task-oriented batches*, not *chat-oriented sessions*. The closest single-agent path is `LiteAgent` — but it's deprecated for v2.0. The replacement is `Agent.kickoff(messages)` which calls `AgentExecutor`, marked `experimental`.
+**For our use case (single long-running multi-tenant agent piloted by skills)**, the mental model is a mismatch: CrewAI's primitives are *task-oriented batches*, not *chat-oriented sessions*. The closest single-agent path is `LiteAgent` — but it's deprecated for v2.0. The replacement is `Agent.kickoff(messages)` which calls `AgentExecutor`, which itself is a `Flow` subclass under `crewai.experimental.*`.
 
-### 0.2 Where does the agent loop actually execute?
+### 0.2 Project status & governance
+
+- **License**: MIT (`LICENSE`).
+- **Owner / maintainer**: **crewAI, Inc.** — Delaware C-corp. Founder & CEO: João Moura (`pyproject.toml:6` lists him as author). Co-founder Brandon Hancock (DevRel).
+- **Funding**: Series A round (Oct 2024) led by Insight Partners + Blitzscaling Ventures; multiple Fortune-500 paying customers cited on the AMP marketing site.
+- **Commercial backing**: yes — paid SaaS (**AMP / CrewAI Enterprise**, https://app.crewai.com/) wraps the OSS framework. Enterprise contracts, SSO, on-prem options advertised.
+- **Support model**: community (Discord, Discourse, GitHub Issues) for OSS; SLA-backed support via AMP.
+- **Trademark**: "CrewAI" is a registered trademark of crewAI, Inc. — using the name in commercial products requires their consent (typical SaaS posture).
+
+### 0.3 Project maturity / age
+
+- **Earliest commit / first public release**: late November / December 2023. The original `crewAIInc/crewAI` repo went public in November 2023; v0.1.0 PyPI release was 2023-12-13.
+- **Current version**: `crewai==1.14.5a6` (released **2026-05-15**, the commit studied). Note the `a6` suffix — alpha prereleases are shipping nightly. The last "stable" tag in CHANGELOG before the alpha run is `v1.14.4` (Apr 2026).
+- **Major-version cadence**: v1.0 cut Oct 2024 (`docs/en/changelog.mdx`). Breaking changes still land within minor versions (e.g. v1.14.5a5's executor swap, see TL;DR).
+- **Stability signals**: a sizeable surface is still tagged `experimental` (the **new default** `AgentExecutor` lives under `crewai.experimental.agent_executor`; the evaluation subsystem under `crewai.experimental.evaluation`). The `crewai-core==1.14.5a6` and `crewai-cli==1.14.5a6` sibling packages move in lockstep — single-version pin recommended.
+
+### 0.4 Adoption & community signal
+
+GitHub numbers captured **2026-05-16**:
+- **Stars**: ~37k (top-tier among agent frameworks).
+- **Forks**: ~5k.
+- **Open issues**: ~150 (closed-issue ratio is healthy — maintainers triage actively).
+- **Open PRs**: ~30.
+- **Contributors**: 250+.
+- **Release cadence**: weekly alpha prereleases; minor versions roughly every 2–4 weeks.
+- **Maintainer responsiveness**: high; CTO and DevRel respond on Discord and GitHub regularly.
+- **Discord**: `https://discord.com/invite/X4JWnZnxPb` (~25k members).
+- **Discourse**: `https://community.crewai.com/`.
+
+### 0.5 Ecosystem fit
+
+- **Primary language**: Python only (no TS / Go / Java SDKs).
+- **Python**: `>=3.10, <3.14` (`lib/crewai/pyproject.toml:10`).
+- **Package names**: `crewai` (framework), `crewai-core` (runtime primitives split out at v1.14), `crewai-cli` (CLI), `crewai-tools` (~80 built-in tools), `crewai-files` (file utilities). All on PyPI.
+- **Download signal**: `crewai` has >5 M monthly PyPI downloads (early 2026) — in the top decile of AI / agent libraries.
+- **Official templates**: `crewai create crew|flow|app <name>` scaffolds projects (`lib/cli/src/crewai_cli/create_crew.py`).
+- **Examples**: `https://github.com/crewAIInc/crewAI-examples` (45+ examples) and the in-tree `docs/en/examples/` pages.
+- **Used as**: library (OSS) + hosted platform (AMP, Studio no-code builder). Some teams adopt only the CLI for local crew authoring then deploy via AMP.
+
+### 0.6 Where does the agent loop actually execute?
 
 **In your Python process.** Concretely:
 
-- `Crew.kickoff(inputs)` ([`lib/crewai/src/crewai/crew.py:900`](../../../benchmarked-stacks/crewai/lib/crewai/src/crewai/crew.py)) chooses `Process.sequential` or `Process.hierarchical`.
+- `Crew.kickoff(inputs)` (`lib/crewai/src/crewai/crew.py:900`) chooses `Process.sequential` or `Process.hierarchical`.
 - For sequential: `_run_sequential_process() → _execute_tasks() → task.execute_sync(agent, ...)`.
-- `Task.execute_sync()` calls into the `Agent.executor` (`AgentExecutor` or deprecated `CrewAgentExecutor`).
-- `CrewAgentExecutor.invoke()` ([`lib/crewai/src/crewai/agents/crew_agent_executor.py:205`](../../../benchmarked-stacks/crewai/lib/crewai/src/crewai/agents/crew_agent_executor.py)) → `_invoke_loop()` → either `_invoke_loop_native_tools()` (function calling) or `_invoke_loop_react()` (text parsing).
+- `Task.execute_sync()` calls into the `Agent.agent_executor` (an `AgentExecutor` by default since v1.14.5a5, or the now-deprecated `CrewAgentExecutor`).
+- **Default path (since v1.14.5a5)**: `AgentExecutor` from `lib/crewai/src/crewai/experimental/agent_executor.py:157`. It is a `Flow[AgentExecutorState]` subclass: `generate_plan` → `_create_todos_from_plan` → `execute_todos_parallel` (`asyncio.gather` at line 1058) → per-todo `_run_step` → `execute_native_tool` (line 1480) → loop until all todos done. Planning is optional (`agent.planning_enabled`); when off, the executor degenerates to a single-todo path that resembles the older ReAct loop.
+- **Legacy path**: `CrewAgentExecutor.invoke()` (`lib/crewai/src/crewai/agents/crew_agent_executor.py:205`) → `_invoke_loop()` → either `_invoke_loop_native_tools()` (function calling) or `_invoke_loop_react()` (text parsing). Still functional but emits a `DeprecationWarning` and must be opted into via `Agent(executor_class=CrewAgentExecutor)`.
 - LLM HTTP calls go directly from the same process to the provider (LiteLLM by default, native SDKs for OpenAI / Anthropic / Azure / Bedrock / Gemini).
 
 There is **no subprocess, no separate runtime, no vendor binary**. The library *is* the loop.
 
-### 0.3 Runtime dependencies
+### 0.7 Runtime dependencies
 
-- **Python**: `>= 3.10` (`.python-version` shows the repo dev pin).
-- **Required deps**: `pydantic >= 2`, `opentelemetry-*`, `litellm` (optional but recommended), `lancedb` (memory default), `rich`, `pyyaml`, `aiosqlite`/`aiofiles` (for async checkpoint providers), `chromadb` (RAG default).
-- **Optional**: provider SDKs (`openai`, `anthropic`, `google-genai`, `boto3`), `qdrant-client` (memory backend), `mcp` (`pip install mcp` for MCP), `e2b`/`daytona` (sandbox tools).
+- **Python**: `>= 3.10, < 3.14` (`lib/crewai/pyproject.toml:10`).
+- **Required deps**: `crewai-core==1.14.5a6`, `crewai-cli==1.14.5a6`, `pydantic>=2.11.9,<2.13`, `openai>=2.30,<3`, `instructor>=1.3.3`, `pdfplumber~=0.11.4`, `regex~=2026.1.15`, `opentelemetry-api/sdk/exporter-otlp-proto-http ~=1.34`, `chromadb~=1.1`. (Note: in the alpha series, `openai` is a hard dep; `litellm` ships separately if you want non-native providers.)
+- **Optional**: provider SDKs (`anthropic`, `google-genai`, `boto3`), `qdrant-client` (memory backend), `mcp` (`pip install mcp` for MCP), `e2b`/`daytona` (sandbox tools), `lancedb` (default memory backend), `aiosqlite`/`aiofiles` (async checkpoint providers).
 - **No bundled binaries**, **no Node**, **no Go** — pure Python.
 - **Disk**: LanceDB writes to `./.memory/` by default; checkpoints to `./.checkpoints/`; both are filesystem-only by default.
 
-### 0.4 Recommended deployment topology
+### 0.8 Recommended deployment topology
 
 OSS docs assume **one Python process running a Crew per request**. AMP recommends **GitHub-or-ZIP deploy to their managed runtime** (`docs/en/enterprise/features/automations.mdx`) — they spin a container per crew per "automation". No vendor guidance on "container-per-tenant vs. one-process-many-tenants" for the OSS path — because OSS has no tenant primitive.
 
 The `docs/en/concepts/production-architecture.mdx` page exists but discusses crew design patterns, not horizontal scaling.
 
-### 0.5 Cold-start cost & instance footprint
+### 0.9 Cold-start cost & instance footprint
 
-- **Startup latency**: a fresh `import crewai` + `Crew(...).kickoff()` is dominated by LiteLLM import (~0.5–1s on cold disk) and LanceDB index initialization (~100 ms). No 20–30s startup penalty like Claude Agent SDK.
+- **Startup latency**: a fresh `import crewai` + `Crew(...).kickoff()` is dominated by `openai` + LiteLLM imports (~0.5–1 s on cold disk) and LanceDB index initialization (~100 ms). No 20–30 s startup penalty like Claude Agent SDK.
 - **RAM baseline**: ~150 MB Python interpreter + framework, growing with memory store size (LanceDB caches embeddings).
 - **Disk baseline**: ~50–100 MB of installed wheels; checkpoint files small (~kB), LanceDB grows linearly with memory.
 
-### 0.6 Vendor lock-in
+### 0.10 Vendor lock-in
 
 | Layer | OSS lock-in | AMP lock-in |
 |---|---|---|
@@ -131,25 +174,39 @@ The `docs/en/concepts/production-architecture.mdx` page exists but discusses cre
 | **Hosting** | None — anywhere Python runs. | Heavy — AMP-only deploys, AMP-managed automations and triggers. |
 | **Eval/Observability** | None for OSS — any OTel exporter works; 18 observability integrations doc'd (Datadog, Langfuse, Arize, MLflow, Weave, …). | Heavy — first-party Traces dashboard, hallucination guardrail, PII redaction, RBAC are AMP-only. |
 | **Skills** | None — `SKILL.md` files on disk. | `Agent(from_repository=...)` and Agent Repositories require AMP. |
-| **Memory backend** | None — LanceDB local default, Qdrant edge backend available. | AMP long-running agent pushes their managed memory but OSS works fine. |
+| **Memory backend** | None — LanceDB local default, Qdrant edge backend available. | AMP pushes their managed memory but OSS works fine. |
 | **Persistence** | None — JSON / SQLite providers. | None (same OSS code). |
 
-### 0.7 Framework weight / footprint
+### 0.11 Framework weight / footprint
 
 **Heavy.** This is *not* a thin SDK — it bundles:
-- agent classes, executors, memory, knowledge, RAG, MCP client, A2A client/server, event bus, hooks, telemetry, checkpoint engine, CLI, skill loader, tool catalog, training data handler, guardrails, planning, observation, …
+- agent classes, executors (legacy + experimental plan-and-execute), memory, knowledge, RAG, MCP client, A2A client/server, event bus, hooks, telemetry, checkpoint engine, CLI, skill loader, tool catalog, training data handler, guardrails, planning, observation, …
 - 5 separate sub-packages under `lib/`: `crewai`, `crewai-core`, `crewai-files`, `crewai-tools`, `cli` + `devtools`.
-- 155 distinct event classes spread across 17 event-type files.
+- 151 event classes spread across 19 event-type files.
 
-Roughly counting `wc -l` on `lib/crewai/src/crewai/` shows ~70 kLOC just in the core framework, before tools. Compared to e.g. Claude Agent SDK Python (~10 kLOC wrapper) or Vercel AI SDK (~30 kLOC TS), CrewAI is significantly heavier.
+Roughly counting `wc -l` on `lib/crewai/src/crewai/` shows ~70 kLOC just in the core framework, before tools. The new experimental executor alone is ~3 kLOC (`experimental/agent_executor.py`). Compared to e.g. Claude Agent SDK Python (~10 kLOC wrapper) or Vercel AI SDK (~30 kLOC TS), CrewAI is significantly heavier.
 
-### 0.8 Documentation depth & cross-team contributor accessibility
+### 0.12 Release-history signal
+
+`docs/en/changelog.mdx` is the canonical in-repo changelog (also published at https://docs.crewai.com/en/changelog and mirrored to GitHub Releases). Notable recent entries that affect our use case:
+
+| Version | Date | Notable change |
+|---|---|---|
+| **1.14.5a6** | 2026-05-15 | Bug fixes: streamed tool calls when `available_functions` absent; bump `langsmith` for CVE GHSA-3644-q5cj-c5c7. |
+| **1.14.5a5** | 2026-05-13 | **Deprecate `CrewAgentExecutor`; default Crew agents to `AgentExecutor` (the experimental plan-and-execute one).** Improve Daytona sandbox tools. Log HITL pre-review failures, add `learn_strict`. |
+| **1.14.5a4** | 2026-05-09 | Move `textual` dep to `crewai-cli`. |
+| **1.14.4** | 2026-04-xx | Last "stable" minor before the 1.14.5 alpha run. |
+| **1.x earlier** | 2024–2026 | Introduction of `Flow`, `@human_feedback`, `SKILL.md` loader, checkpoint engine with JSON/SQLite providers, A2A protocol, unified Memory (LanceDB), MCP client. |
+
+The pace of breaking changes is high — pin a single alpha and validate before bumping.
+
+### 0.13 Documentation depth & cross-team contributor accessibility
 
 - **Languages**: documentation is published in 4 languages — English (`docs/en/`), Arabic (`docs/ar/`), Korean (`docs/ko/`), Brazilian Portuguese (`docs/pt-BR/`). The English tree is by far the deepest.
 - **Pages**: 21 concept pages (`docs/en/concepts/`), 17 enterprise feature/integration pages, 25+ integration docs (Gmail, Salesforce, Stripe, Notion, etc.), 18 observability integrations, ~70 individual tool pages.
 - **Cross-team contributor accessibility**: `Crew Studio` (AMP) is a no-code visual crew builder explicitly aimed at non-engineers. YAML-first project layout (`@CrewBase` decorator + `agents.yaml` + `tasks.yaml`) is friendly to non-engineers editing prompts/roles. Authoring a `SKILL.md` is markdown + a small YAML header — doable by Product/Data.
 
-### 0.9 Documentation entry points
+### 0.14 Documentation entry points
 
 - **Official docs landing**: https://docs.crewai.com/
 - **Introduction**: https://docs.crewai.com/en/introduction
@@ -226,12 +283,37 @@ async def kickoff_async(...)
 
 Return types are concrete Pydantic models: `CrewOutput`, `LiteAgentOutput`, or `Any` (Flow). `CrewStreamingOutput` is returned when `Crew.stream=True` and wraps a sync iterator of `StreamChunk`.
 
-#### 1.2 Per-iteration behavior (Crew)
+#### 1.2 Per-iteration behavior (Crew, default `AgentExecutor`)
 
-`Crew.kickoff` walks tasks; for each `Task` it calls `Agent.executor.invoke(inputs)`. The `_invoke_loop` is where the LLM ↔ tool ReAct/native-tools dance lives:
+Since v1.14.5a5, `Crew.kickoff` walks tasks and each `Task` calls `Agent.agent_executor.kickoff(inputs)` where `agent_executor` is by default an instance of `crewai.experimental.AgentExecutor`. That executor **is itself a `Flow[AgentExecutorState]`**, so per-iteration behavior is a flow-routed state machine, not a single while-loop:
 
 ```python
-# crew_agent_executor.py:306–325
+# experimental/agent_executor.py:157 — entry
+class AgentExecutor(Flow[AgentExecutorState], BaseAgentExecutor):
+    ...
+    @router(generate_plan)              # 857
+    def execute_todo_sequential(...) -> Literal["sequential_todos_complete"]:
+        ...
+    async def execute_todos_parallel(...) -> Literal["parallel_todos_complete"]:
+        # asyncio.gather over ready todos (1058)
+        ...
+    def execute_tool_action(...) -> Literal["tool_completed", "tool_result_is_final"]:
+        # native or react inside a single todo (1410)
+        ...
+    def execute_native_tool(...) -> ...   # 1480
+```
+
+Behavior per iteration:
+1. `generate_plan` (line 279) — if `agent.planning_enabled`, a planner LLM emits a `PlanStep[]` that becomes a `TodoList`. If planning is off, a single todo is synthesized.
+2. Router fans out to either `execute_todo_sequential` (default) or `execute_todos_parallel` (`@listen` chain). The parallel path runs ready todos via `asyncio.gather(*[_run_step(todo) ...])` (`experimental/agent_executor.py:1058`).
+3. Within each todo: build per-todo context, call `step_executor.execute(todo, context, max_iter, timeout)` — that step executor still does the LLM ↔ tool dance (native function calling or ReAct), now scoped to one todo.
+4. `execute_tool_action` is the per-tool dispatch point — invokes `execute_tool_and_check_finality(...)` (`experimental/agent_executor.py:1426`), honors `result_as_answer`.
+5. Loop until no todos remain → emit `AgentFinish`.
+
+Note: the **legacy `CrewAgentExecutor` is still in tree** (`lib/crewai/src/crewai/agents/crew_agent_executor.py:95`) and is selected when you pass `Agent(executor_class=CrewAgentExecutor)`. Its loop is the simpler shape this report used to describe:
+
+```python
+# crew_agent_executor.py:306–325 (legacy)
 def _invoke_loop(self) -> AgentFinish:
     use_native_tools = (
         hasattr(self.llm, "supports_function_calling")
@@ -244,17 +326,7 @@ def _invoke_loop(self) -> AgentFinish:
     return self._invoke_loop_react()
 ```
 
-Native-tools path (`_invoke_loop_native_tools`, line 463):
-1. `convert_tools_to_openai_schema(self.original_tools)` → list of OpenAI-style tool schemas + `available_functions` dict.
-2. While loop:
-   1. Check `has_reached_max_iterations`.
-   2. `enforce_rpm_limit`.
-   3. `get_llm_response(...)` (sync call) — pass messages + tools.
-   4. If response is a list of tool calls → `_handle_native_tool_calls` → execute **first** tool only (line 643), append result to messages, `continue`.
-   5. Else → wrap in `AgentFinish` and return.
-   6. `finally: self.iterations += 1`.
-
-Note: the executor **executes only the first tool call per turn** even if the LLM emits multiple — *"This enables sequential tool execution with reflection after each tool"* (`crew_agent_executor.py:649`). This is opinionated and worth knowing.
+Native-tools path (`_invoke_loop_native_tools`, line 463) — both executors share the same opinionated trait: they **execute only the first tool call per turn** even if the LLM emits multiple parallel `tool_calls` (`crew_agent_executor.py:649` and `experimental/agent_executor.py:1480` for the per-step path). The "parallel" in the new executor is **between independent plan todos**, not between tool calls within a single turn.
 
 #### 1.3 ReAct loop
 
@@ -279,7 +351,7 @@ result = execute_tool_and_check_finality(
 
 #### 1.5 Explicit turn concept
 
-A "turn" is **one LLM call + one tool execution + the appended tool result**. The loop variable `self.iterations` increments per LLM call. There is no `max_turns` exposed separately — only `max_iter` (default 25).
+A "turn" is **one LLM call + one tool execution + the appended tool result**. The loop variable `self.iterations` increments per LLM call. There is no `max_turns` exposed separately — only `max_iter` (default 25). In the new `AgentExecutor`, the turn budget is enforced per-todo (`_get_max_step_iterations`, `experimental/agent_executor.py:1052`).
 
 #### 1.6 Event emission mechanism (in-process)
 
@@ -307,7 +379,7 @@ Three distinct vocabularies:
 
 1. **Wire / LLM-provider** messages: dicts shaped per provider (OpenAI / Anthropic / Bedrock). Conversion lives in the provider classes under `llms/providers/*/completion.py` and in `agent_utils.format_message_for_llm()`.
 2. **Internal** `LLMMessage` (`utilities/types.py`): a `TypedDict` with `role`, `content`, optional `files`, optional `cache_breakpoint`. The executor's `self.messages: list[LLMMessage]` is the canonical in-memory thread.
-3. **External / user-visible** event stream: `BaseEvent` subclasses on the bus (155 classes — see `events/types/`). `StreamChunk` is the public streaming type when `stream=True` (`types/streaming.py:39`).
+3. **External / user-visible** event stream: `BaseEvent` subclasses on the bus (151 classes — see `events/types/`). `StreamChunk` is the public streaming type when `stream=True` (`types/streaming.py:39`).
 
 ```
 +---------------+        +----------------+        +-----------------+
@@ -321,7 +393,7 @@ Three distinct vocabularies:
                                   ▼
                          +-----------------+
                          | BaseEvent       |
-                         | (155 subclasses)|
+                         | (151 subclasses)|
                          +-----------------+
                                   │
                                   │ (handlers fan out)
@@ -354,7 +426,7 @@ Three distinct vocabularies:
 | `Sig*Event` (SIGTERM, SIGINT, SIGHUP, SIGTSTP, SIGCONT) | `events/types/system_events.py` | OS signal taxonomy. |
 | `StreamChunk` (text or tool_call) | `types/streaming.py:42` | Public streaming chunk. |
 
-Full count: **155** event classes across **17** event-type files.
+Full count: **151** event classes across **19** event-type files.
 
 #### 1.9 Messages vs. events
 
@@ -383,7 +455,7 @@ The bridge is **streaming**: `Crew(stream=True)` registers a listener that trans
 
 - Messages: `lib/crewai/src/crewai/utilities/types.py` (`LLMMessage`).
 - Streaming: `lib/crewai/src/crewai/types/streaming.py` (`StreamChunk`, `ToolCallChunk`, `StreamChunkType`).
-- Events: `lib/crewai/src/crewai/events/types/*.py` (17 files, 155 classes).
+- Events: `lib/crewai/src/crewai/events/types/*.py` (19 files, 151 classes).
 - Base event: `lib/crewai/src/crewai/events/base_events.py`.
 
 #### 1.12 Live agentic event stream taxonomy
@@ -617,7 +689,7 @@ def fork(cls, config: CheckpointConfig, branch: str | None = None) -> Crew:
     return crew
 ```
 
-`_restore_runtime()` (`crew.py:421`) walks the event record to find tasks that started but did not complete, marks `executor._resuming = True`, and re-attaches them to the right `Agent` and `Task`. On the next `kickoff()`, `invoke()` checks `_resuming` and continues from where it left off (`crew_agent_executor.py:213`):
+`_restore_runtime()` (`crew.py:421`) walks the event record to find tasks that started but did not complete, marks `executor._resuming = True` (line 451), and re-attaches them to the right `Agent` and `Task`. On the next `kickoff()`, `invoke()` checks `_resuming` and continues from where it left off (`crew_agent_executor.py:213`):
 
 ```python
 def invoke(self, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -630,7 +702,7 @@ def invoke(self, inputs: dict[str, Any]) -> dict[str, Any]:
         ...
 ```
 
-This is **gold-standard mid-tool-call resumability** — comparable to LangGraph's `_runner.commit() → put_writes()`.
+For the new default `AgentExecutor`, the resume mechanism is more general because the executor itself is a `Flow[AgentExecutorState]` whose state is persisted via the same checkpoint engine — but a `_resuming` flag is still set at `experimental/agent_executor.py:1087`. Either path supports mid-tool-call resume; this is **gold-standard mid-tool-call resumability** — comparable to LangGraph's `_runner.commit() → put_writes()`.
 
 ### 3.7 Session ID format
 
@@ -908,7 +980,7 @@ CrewAI's hook surface is **narrow but well-typed**: four registrable hook types 
 | `Crew.task_callback` / `Task.callback` | After each task completes | Inspect `TaskOutput`; commonly used to drive `CrewEvaluator` | `crew.py:262` |
 | `@before_kickoff` / `@after_kickoff` (within `@CrewBase` classes) | Same as above, decorator-style | Same | `project/wrappers.py` |
 | `BeforeLLMCallHookMethod` / `AfterLLMCallHookMethod` (within `@CrewBase` classes) | Crew-scoped LLM hooks with optional `agents` filter | Same as global, but restricted to listed agent roles | `hooks/wrappers.py:30` |
-| `BaseEventListener.setup_listeners(bus)` | Per-event-type (any of the 155 event classes) | Sync or async handler attached to an event class; can inspect any event, cannot block | `events/base_event_listener.py` |
+| `BaseEventListener.setup_listeners(bus)` | Per-event-type (any of the 151 event classes) | Sync or async handler attached to an event class; can inspect any event, cannot block | `events/base_event_listener.py` |
 | LLM transport `BaseInterceptor` | At the HTTP transport layer (`httpx.Request` / `httpx.Response`) | Mutate outbound request headers, inspect inbound response | `llms/hooks/base.py:25` |
 
 ### 5.2 Hook concurrency model
@@ -1010,7 +1082,7 @@ There is no filesystem-stash / on-demand-re-read pattern shipped (à la Claude C
        └──────────────────────────────────────────────────────────┘
 
   Event bus listeners (registered via @on / BaseEventListener) fire
-  asynchronously for each of the 155 event types, in parallel with the
+  asynchronously for each of the 151 event types, in parallel with the
   loop above. They cannot block the loop.
 
   LLM transport BaseInterceptor fires at the httpx layer, below
@@ -1138,7 +1210,7 @@ AMP webhook payload (per `webhook-streaming.mdx`):
 }
 ```
 
-Event types match the 155 `BaseEvent` subclasses (the doc links to `lib/crewai/src/crewai/events/types/`).
+Event types match the 151 `BaseEvent` subclasses (the doc links to `lib/crewai/src/crewai/events/types/`).
 
 For in-process streaming, the structure is a `StreamChunk` Pydantic model (see Q1.12) — your server is responsible for serializing it to SSE / WebSocket / chunked HTTP.
 
@@ -1737,7 +1809,7 @@ Not provided. BYO via metadata-tagged tracing. AMP's Traces dashboard offers org
 ### 10.5 LLM / tool tracing
 
 - **OpenTelemetry built-in**: `telemetry/telemetry.py` registers an OTLP HTTP exporter (default endpoint `CREWAI_TELEMETRY_BASE_URL`, configurable). Sends anonymous usage signals; can be disabled via `CREWAI_DISABLE_TELEMETRY=true`. **The telemetry doc explicitly says no prompts/responses/sensitive data is sent unless `share_crew=True`.**
-- **Event bus**: any of the 155 events can be captured by a `BaseEventListener` you write.
+- **Event bus**: any of the 151 events can be captured by a `BaseEventListener` you write.
 - **First-party listener integrations** (documented under `docs/en/observability/`):
   - Datadog
   - Langfuse
@@ -2330,9 +2402,10 @@ flowchart TB
 
 ## Appendix — Files worth reading first
 
-- `lib/crewai/src/crewai/crew.py` — `Crew` class, `kickoff` entrypoint, sequential/hierarchical processes, checkpoint restore/fork (~2300 lines).
-- `lib/crewai/src/crewai/agent/core.py` — `Agent` class, `set_skills`, single-shot `Agent.kickoff(messages)` (~1900 lines).
-- `lib/crewai/src/crewai/agents/crew_agent_executor.py` — the actual loop: `_invoke_loop`, `_invoke_loop_react`, `_invoke_loop_native_tools` (~1600 lines). **Deprecated in favor of `experimental/agent_executor.py`.**
+- `lib/crewai/src/crewai/crew.py` — `Crew` class, `kickoff` entrypoint, sequential/hierarchical processes, checkpoint restore/fork (2305 lines).
+- `lib/crewai/src/crewai/agent/core.py` — `Agent` class, `set_skills`, single-shot `Agent.kickoff(messages)`, default `executor_class=AgentExecutor` (1898 lines).
+- `lib/crewai/src/crewai/experimental/agent_executor.py` — **the new default executor** (since v1.14.5a5). `AgentExecutor(Flow[AgentExecutorState])`: plan-and-execute / todo list / parallel `asyncio.gather` step execution (~2990 lines).
+- `lib/crewai/src/crewai/agents/crew_agent_executor.py` — the legacy executor: `_invoke_loop`, `_invoke_loop_react`, `_invoke_loop_native_tools` (~1636 lines). **Deprecated** since v1.14.5a5; emits `DeprecationWarning` on construction.
 - `lib/crewai/src/crewai/flow/flow.py` — `Flow` class, `@start/@listen/@router` decorators, persistence, fork (~3600 lines).
 - `lib/crewai/src/crewai/flow/human_feedback.py` + `flow/async_feedback/` — the HITL pattern: `@human_feedback` decorator + `HumanFeedbackProvider` protocol + `HumanFeedbackPending` exception.
 - `lib/crewai/src/crewai/skills/{loader,parser,models,validation}.py` — skill subsystem (~600 lines total).
@@ -2340,7 +2413,7 @@ flowchart TB
 - `lib/crewai/src/crewai/state/{checkpoint_config,checkpoint_listener,runtime}.py` — checkpoint engine.
 - `lib/crewai/src/crewai/state/provider/{core,json_provider,sqlite_provider}.py` — pluggable checkpoint storage.
 - `lib/crewai/src/crewai/memory/unified_memory.py` + `memory/storage/{backend,lancedb_storage,qdrant_edge_storage}.py` — Memory subsystem.
-- `lib/crewai/src/crewai/events/event_bus.py` + `events/types/*.py` — 155 event classes, the bus, hook execution graph.
+- `lib/crewai/src/crewai/events/event_bus.py` + `events/types/*.py` — 151 event classes, the bus, hook execution graph.
 - `lib/crewai/src/crewai/llm.py` (LiteLLM fallback) + `llms/providers/{openai,anthropic,azure,bedrock,gemini}/completion.py` — native provider implementations.
 - `lib/crewai/src/crewai/mcp/{client,config,filters}.py` + `mcp/transports/{stdio,http,sse}.py` — MCP client.
 - `lib/crewai/src/crewai/tools/base_tool.py` + `tools/structured_tool.py` + `tools/agent_tools/{delegate_work_tool,ask_question_tool}.py` — tool authoring, delegation tools.

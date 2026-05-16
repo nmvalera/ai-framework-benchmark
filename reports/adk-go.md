@@ -3,7 +3,7 @@
 > **Repo**: https://github.com/google/adk-go
 > **Commit studied**: `3f835cd3ba3ed801d36a68bfac16e35e125aea17`
 > **Branch**: `main`
-> **Cloned at**: `benchmarked-stacks/adk-go/`
+> **Framework path**: `frameworks/adk-go/`
 > **Studied on**: 2026-05-16
 > **Commit message**: `feat(live): Add core bidirectional streaming support (#833)` — committed 2026-05-15
 

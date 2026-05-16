@@ -1,10 +1,10 @@
 # Eino (Go) — Benchmark Study
 
 > **Repo**: https://github.com/cloudwego/eino (core), https://github.com/cloudwego/eino-ext (extensions)
-> **Commit studied (eino)**: `5e1305506c4fa89ef5d786035a947258e29a7593`
-> **Commit studied (eino-ext)**: `176d453b133a7b4c8c337450aba744d1e0ab38b7`
+> **Commit studied (eino)**: `5e1305506c4fa89ef5d786035a947258e29a7593` (Apr 29 2026 — "fix(adk): preserve full ToolsNodeConfig fields on runtime tool updates")
+> **Commit studied (eino-ext)**: `176d453b133a7b4c8c337450aba744d1e0ab38b7` (May 14 2026 — "feat(agentkit/local): add MultiModalRead for images and PDFs")
 > **Branch**: `main` (both)
-> **Cloned at**: `benchmarked-stacks/eino/`, `benchmarked-stacks/eino-ext/`
+> **Framework paths**: `frameworks/eino/` (core), `frameworks/eino-ext/` (extensions)
 > **Studied on**: 2026-05-16
 
 ## TL;DR
@@ -15,6 +15,7 @@
 - **Weakest / biggest gap**: **No CheckPointStore implementation ships with eino or eino-ext**. The interface is two methods (`Get`, `Set` on `[]byte`); the framework hands you the gob blob and you persist it. Combined with: no HTTP server, no built-in tenant model, no auth, no Resource Manager, no eval framework, no Chat UI, no per-tenant cost/budget — Eino gives you the runtime, you assemble the platform. This matches Ray's current Eino usage where Ray's `pkg/conversation/` owns persistence; for a greenfield Predict service it means 6–10× more host-side scaffolding than Mastra TS or LangGraph Platform.
 - **Most surprising finding (bad — and the decision-relevant blocker for cross-team contribution)**: **English documentation is materially thinner than Chinese**. The [official docs landing](https://www.cloudwego.io/docs/eino/) has English pages for every concept, but many middleware-specific guides, examples, and v0.8+ changelogs are richer or only complete in `README.zh_CN.md` / Chinese-only docs sub-pages. Code comments in newer middlewares (`reduction/`, `summarization/`, `plantask/`) ship parallel `_chinese.go` prompt strings and a `LanguageChinese` global (`adk/config.go:28`) — the prompts and tool descriptions themselves are bilingual at runtime. **For Predict, this is a hard blocker for Product / non-engineer authors** writing SKILL.md or tool descriptions without an engineer's help, and a soft blocker for any docs-driven onboarding flow. The matrix flag holds.
 - **Most surprising finding (good)**: **`adk/middlewares/skill/` is a real, working SKILL.md loader with fork / fork-with-context sub-agent modes**, parses YAML frontmatter (`name`, `description`, `context`, `agent`, `model`), supports custom skill-tool name (default `"skill"`), inline mode (system-prompt injection) vs. agent fork mode (spawn a sub-agent with this skill's content as instructions), and a pluggable `Backend` interface so you can load skills from filesystem (`NewBackendFromFilesystem`) or anything else. Co-located `dynamictool/toolsearch` middleware implements the regex-`tool_search` meta-tool that Claude Code exposes. These two middlewares **alone** put Eino architecturally ahead of every other Go SDK we benchmarked for skill / large-toolset workflows.
+- **Recent activity (since the previous study)**: eino-ext landed a new **`adk/backend/local/`** local-filesystem backend (commit `176d453`, May 14 2026) that ships **`MultiModalRead` for images and PDFs** (renders PDF pages via `go-fitz` at configurable DPI, with bounded size and per-request page caps). This is the Go-ecosystem closest analog of Claude Code's multi-modal `Read` tool. Core eino's latest fix (`5e13055`, Apr 29 2026) preserves `ToolsNodeConfig` fields when middlewares rewrite tools at runtime — small but relevant for the dynamic-tools / `toolsearch` pattern.
 - **Per-stack one-liners**:
   - **Sessions / persistence**: `runSession` is a runtime in-memory struct with `Values map[string]any` + `Events []*agentEventWrapper`; persistence is **interface-only via `CheckPointStore`** (`internal/core/interrupt.go:27`); BYO store implementation.
   - **Skills**: First-class via `adk/middlewares/skill/`. Filesystem backend ships; fork / fork-with-context / inline modes; pluggable `Backend` / `AgentHub` / `ModelHub`.
@@ -668,7 +669,7 @@ type CheckPointStore interface {
 }
 ```
 
-The framework hands you raw `[]byte` (gob-serialized) and you decide where it lives. **eino-ext does not ship an implementation** — verified by `grep -rln "CheckPointStore" benchmarked-stacks/eino-ext` (no matches).
+The framework hands you raw `[]byte` (gob-serialized) and you decide where it lives. **eino-ext does not ship an implementation** — verified by `grep -rln "CheckPointStore" frameworks/eino-ext` (only docs/`SKILL.md` references, no Go implementation).
 
 Possibilities you'd build (none are provided):
 - Postgres (the typical Ray pattern — `bun` + a `checkpoints` table)
@@ -2104,7 +2105,10 @@ There is no built-in tool-execution sandbox (chroot, container, V8 isolate). Too
 
 ### 16.3 Sandbox provider integrations
 
-eino-ext ships **`adk/backend/agentkit`** (`benchmarked-stacks/eino-ext/adk/backend/agentkit/`) — a **filesystem.Backend** implementation backed by a sandboxed Python runtime (Docker-shelled Python interpreter executing `read_file` / `write_file` / `edit_file` / `glob` / `grep` via base64-encoded Python templates, `code_template.go`). This is the filesystem analog of E2B / Daytona, but only for the filesystem middleware's needs.
+eino-ext ships two `filesystem.Backend` implementations under `adk/backend/`:
+
+- **`adk/backend/agentkit/`** (`frameworks/eino-ext/adk/backend/agentkit/`) — a sandboxed-Python-runtime backend (Docker-shelled Python interpreter executing `read_file` / `write_file` / `edit_file` / `glob` / `grep` via base64-encoded Python templates, `code_template.go`). This is the filesystem analog of E2B / Daytona, but only for the filesystem middleware's needs.
+- **`adk/backend/local/`** (`frameworks/eino-ext/adk/backend/local/local.go`) — a local-filesystem backend with **multi-modal read for images and PDFs** (added May 14 2026 in commit `176d453`, "feat(agentkit/local): add MultiModalRead for images and PDFs"). Uses `go-fitz` for PDF page rendering at configurable DPI; bounded by `defaultMaxImageSizeMB=10`, `defaultMaxPDFSizeMB=20`, `defaultMaxPagedPDFSizeMB=100`, `defaultMaxPDFPagesPerRequest=20`. This is the closest in-tree analog of Claude Code's multi-modal `Read` for PDFs/screenshots.
 
 No E2B / Daytona / Modal / code-interpreter direct integration.
 

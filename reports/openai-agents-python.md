@@ -1,12 +1,12 @@
-# OpenAI Agents Py — Benchmark Study
+# OpenAI Agents Python — Benchmark Study
 
 > **Repo**: https://github.com/openai/openai-agents-python
 > **Commit studied**: `4bd459e403ac826c87b17fef8ffcbdf42a70b09a`
 > **Branch**: `main`
-> **Cloned at**: `benchmarked-stacks/openai-agents-python/`
+> **Framework path**: `frameworks/openai-agents-python/`
 > **Studied on**: 2026-05-16
 
-Studied at version `openai-agents 0.17.2` (`pyproject.toml:3`). All file paths in this document are relative to `benchmarked-stacks/openai-agents-python/` unless otherwise noted.
+Studied at version `openai-agents 0.17.2` (`pyproject.toml:3`). All file paths in this document are relative to `frameworks/openai-agents-python/` unless otherwise noted.
 
 ---
 

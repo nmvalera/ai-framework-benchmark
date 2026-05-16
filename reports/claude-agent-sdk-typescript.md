@@ -1,9 +1,9 @@
-# Claude Agent SDK TS — Benchmark Study
+# Claude Agent SDK TypeScript — Benchmark Study
 
 > **Repo**: https://github.com/anthropics/claude-agent-sdk-typescript
 > **Commit studied**: `fa5d004c65b6a173ee3eba3f67336a1e8039576a`
 > **Branch**: `main`
-> **Cloned at**: `benchmarked-stacks/claude-agent-sdk-typescript/`
+> **Framework path**: `frameworks/claude-agent-sdk-typescript/`
 > **Published SDK studied**: `@anthropic-ai/claude-agent-sdk@0.3.143` (npm)
 > **Bundled Claude Code version**: `2.1.143`
 > **Studied on**: 2026-05-16
@@ -2178,12 +2178,12 @@ flowchart LR
 
 ## Appendix — Files worth reading first
 
-- **`benchmarked-stacks/claude-agent-sdk-typescript/CHANGELOG.md`** — the most informative file in the repo. Documents 0.2.113's switch from bundled JS to native binary (line 137), Postgres/Redis/S3 SessionStore additions, hook-event additions, MCP background-connect breaking change.
-- **`benchmarked-stacks/claude-agent-sdk-typescript/examples/session-stores/postgres/src/PostgresSessionStore.ts`** — 122-line production-shape adapter. Read first if you're planning to plug into your own Postgres.
-- **`benchmarked-stacks/claude-agent-sdk-typescript/examples/session-stores/shared/conformance.ts`** — 13 conformance tests; the truth about what a `SessionStore` must satisfy.
-- **`benchmarked-stacks/claude-agent-sdk-typescript/examples/session-stores/redis/src/RedisSessionStore.ts`** — for the Redis-as-store option; clean reference.
-- **`benchmarked-stacks/claude-agent-sdk-typescript/examples/session-stores/s3/src/S3SessionStore.ts`** — for the WORM/append-only S3 option.
-- **`benchmarked-stacks/claude-agent-sdk-typescript/examples/session-stores/README.md`** — production checklist per backend (IAM, eviction, pool sizing, jsonb caveats).
+- **`frameworks/claude-agent-sdk-typescript/CHANGELOG.md`** — the most informative file in the repo. Documents 0.2.113's switch from bundled JS to native binary (line 137), Postgres/Redis/S3 SessionStore additions, hook-event additions, MCP background-connect breaking change.
+- **`frameworks/claude-agent-sdk-typescript/examples/session-stores/postgres/src/PostgresSessionStore.ts`** — 122-line production-shape adapter. Read first if you're planning to plug into your own Postgres.
+- **`frameworks/claude-agent-sdk-typescript/examples/session-stores/shared/conformance.ts`** — 13 conformance tests; the truth about what a `SessionStore` must satisfy.
+- **`frameworks/claude-agent-sdk-typescript/examples/session-stores/redis/src/RedisSessionStore.ts`** — for the Redis-as-store option; clean reference.
+- **`frameworks/claude-agent-sdk-typescript/examples/session-stores/s3/src/S3SessionStore.ts`** — for the WORM/append-only S3 option.
+- **`frameworks/claude-agent-sdk-typescript/examples/session-stores/README.md`** — production checklist per backend (IAM, eviction, pool sizing, jsonb caveats).
 - **`<node_modules>/@anthropic-ai/claude-agent-sdk/sdk.d.ts`** — the canonical 5722-line type surface. Start at `Options` (line 1158), `Query` interface (line 2052), `SDKMessage` union (line 3175), `SessionStore` (line 3738), `HOOK_EVENTS` (line 738).
 - **`<node_modules>/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts`** — auto-generated catalog of every built-in tool I/O shape. Start at the `ToolInputSchemas` union (line 11) and skim the per-tool interfaces (lines 281–2244).
 - **`<node_modules>/@anthropic-ai/claude-agent-sdk/bridge.d.ts`** — the claude.ai bridge (alpha) shape — for understanding the worker / SSE architecture if you're considering claude.ai-hosted deployment.

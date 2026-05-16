@@ -3,7 +3,7 @@
 > **Repo**: https://github.com/firebase/genkit (multi-language monorepo; Go in `go/`)
 > **Commit studied**: `0defbfc612f92caae5a7df7ed2754226e8db738e`
 > **Branch**: `main`
-> **Cloned at**: `benchmarked-stacks/genkit/`
+> **Framework path**: `frameworks/genkit/` (Go SDK lives under `frameworks/genkit/go/`)
 > **Studied on**: 2026-05-16
 > **Go SDK version reference**: published as `github.com/firebase/genkit/go`; the JS package is at `genkit-cli@1.34.0`, so the Go SDK rides on the same multi-language platform contract.
 
