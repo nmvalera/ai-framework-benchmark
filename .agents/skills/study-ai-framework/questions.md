@@ -5,15 +5,19 @@
 Answer:
 
 - **0.1 What is this stack?** Library, framework, server, vendor-managed service, or hybrid? One sentence.
-- **0.2 Where does the agent loop *actually* execute?** In your process, in a bundled subprocess, in a sister-repo server, in a vendor cloud? *This is the single most important architectural fact about the stack.* Be explicit. (Example: "The Python SDK is a ~10 kLOC wrapper around the Claude Code Node.js binary, which it subprocesses over stdio JSON-RPC; the actual loop runs in Node, not Python.")
-- **0.3 Runtime dependencies** — what does a host need to run one instance? (Python 3.X, Node 18+, Go 1.X, bundled binaries, native libs, optional Postgres / Redis, optional vendor services like LangSmith, etc.)
-- **0.4 Recommended deployment topology** — does the vendor recommend container-per-tenant, one-process-many-tenants, or worker-pool? Quote any vendor hosting doc.
-- **0.5 Cold-start cost & instance footprint** — startup latency, RAM baseline, disk baseline. (E.g. Claude Agent SDK's open issue #333: 20–30 s startup per instance.)
-- **0.6 Vendor lock-in** — LLM-provider lock-in, hosting-platform lock-in, eval-platform lock-in. Score each independently.
-- **0.7 Framework weight / footprint** — thin SDK (a few hundred LOC of glue) vs. heavy framework (bundles storage, eval, dev UI, plugin system).
-- **0.8 Release-history signal** — what do the in-repo changelog and GitHub Releases show about recent breaking changes, fast-moving areas, deprecations, or production-relevant additions? Cite changelog files with line numbers when available and link release pages.
-- **0.9 Documentation depth & cross-team contributor accessibility** — official docs language(s)? Pages thin or deep? Can a non-engineer (Product/Data) author content without engineering hand-holding?
-- **0.10 Documentation entry points** ⭐ — list **real URLs** the reader can click. Required:
+- **0.2 Project status & governance** — is it open-source? Under what license? Who owns/maintains it (company, foundation, individual maintainers, research group)? Is there commercial backing, paid support, managed cloud, enterprise support, or only community support?
+- **0.3 Project maturity / age** — initial public release date or first meaningful commit, current major version, stability signals, and whether APIs are marked experimental/beta/stable. If exact age is hard to determine, cite the oldest release/tag or earliest repo commit found.
+- **0.4 Adoption & community signal** — GitHub stars, forks, watchers, contributor count, recent commit activity, release cadence, issue/PR volume, and whether maintainers actively answer issues. Include the date these GitHub numbers were captured.
+- **0.5 Ecosystem fit** — primary language(s), package names, package download signal if easy to verify (`npm`, PyPI, Go module), official examples/templates, and whether the framework is used mostly as a library, hosted platform, CLI, or app framework.
+- **0.6 Where does the agent loop *actually* execute?** In your process, in a bundled subprocess, in a sister-repo server, in a vendor cloud? *This is the single most important architectural fact about the stack.* Be explicit. (Example: "The Python SDK is a ~10 kLOC wrapper around the Claude Code Node.js binary, which it subprocesses over stdio JSON-RPC; the actual loop runs in Node, not Python.")
+- **0.7 Runtime dependencies** — what does a host need to run one instance? (Python 3.X, Node 18+, Go 1.X, bundled binaries, native libs, optional Postgres / Redis, optional vendor services like LangSmith, etc.)
+- **0.8 Recommended deployment topology** — does the vendor recommend container-per-tenant, one-process-many-tenants, or worker-pool? Quote any vendor hosting doc.
+- **0.9 Cold-start cost & instance footprint** — startup latency, RAM baseline, disk baseline. (E.g. Claude Agent SDK's open issue #333: 20–30 s startup per instance.)
+- **0.10 Vendor lock-in** — LLM-provider lock-in, hosting-platform lock-in, eval-platform lock-in. Score each independently.
+- **0.11 Framework weight / footprint** — thin SDK (a few hundred LOC of glue) vs. heavy framework (bundles storage, eval, dev UI, plugin system).
+- **0.12 Release-history signal** — what do the in-repo changelog and GitHub Releases show about recent breaking changes, fast-moving areas, deprecations, or production-relevant additions? Cite changelog files with line numbers when available and link release pages.
+- **0.13 Documentation depth & cross-team contributor accessibility** — official docs language(s)? Pages thin or deep? Can a non-engineer (Product/Data) author content without engineering hand-holding?
+- **0.14 Documentation entry points** ⭐ — list **real URLs** the reader can click. Required:
   - Official docs landing page
   - Quickstart / getting-started
   - API reference

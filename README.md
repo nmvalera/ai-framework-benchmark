@@ -22,18 +22,41 @@ The studied framework set is tracked in [`framework-index.json`](framework-index
 
 ## Frameworks
 
-Current reports:
+Current selected framework set:
+
+Python:
+
+- Agno Python
+- Claude Agent SDK Python
+- CrewAI Python
+- LangGraph Python
+- LlamaIndex Python
+- OpenAI Agents Python
+- Pydantic AI
+- Strands Agents Python
+
+TypeScript:
+
+- Claude Agent SDK TypeScript
+- Mastra TypeScript
+- OpenAI Agents TypeScript
+- Strands Agents TypeScript
+- Vercel AI SDK TypeScript
+
+Go:
 
 - ADK Go
-- Claude Agent SDK Python
-- Claude Agent SDK TypeScript
-- CrewAI Python
 - Eino Go
 - Genkit Go
-- LangGraph Python
-- Mastra TypeScript
-- OpenAI Agents Python
-- Vercel AI SDK TypeScript
+
+Rust:
+
+- AutoAgents Rust
+- Rig Rust
+
+Multi-language:
+
+- Microsoft Agent Framework
 
 ## Skills
 

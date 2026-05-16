@@ -42,6 +42,10 @@ Existing report state:
 - Do not delete working report content just because you are restructuring; carry it forward unless it is wrong or outside the benchmark scope.
 
 Online documentation:
+- Project status: whether the framework is open-source, license, owning organization, maintainers, commercial backing, and support model.
+- Project maturity: initial public release date or oldest meaningful commit/tag, current major version, stable/beta/experimental status, and framework age.
+- Adoption/community signals: GitHub stars, forks, watchers, contributor count, issue/PR activity, recent commits, release cadence, and whether maintainers actively respond. Record the date you captured these numbers.
+- Ecosystem/package signals: package names, primary languages, package registry links, package download signal if easy to verify, and official examples/templates.
 - Official docs landing page.
 - Quickstart / getting-started guide.
 - API reference.
@@ -93,6 +97,8 @@ Output to `OUTPUT_PATH` in this structure:
 
 8–12 bullets covering the most decision-relevant facts:
 - ⭐ **What is this stack architecturally?** (e.g. "thin Python wrapper around a Node CLI binary", "Go-native graph runtime", "Next.js-first frontend SDK with a backend Agent class")
+- Open-source/license/support profile (who maintains it, license, commercial or community support)
+- Maturity/adoption snapshot (age, current stability status, GitHub stars/forks, release cadence)
 - Where the agent loop *actually* executes
 - Strongest architectural choice for our use case (multi-tenant long-running agent piloted by skills)
 - Weakest / biggest gap
@@ -103,7 +109,7 @@ Output to `OUTPUT_PATH` in this structure:
 ## 0. Architectural Overview & Deployment Model
 
 [Deployment diagram (mermaid or ASCII) showing process boundaries]
-[0.1–0.10 architecture, deployment, release-history & documentation links]
+[0.1–0.14 project profile, architecture, deployment, release-history & documentation links]
 
 ## 1. Agent Harness (Run Loop) & Message Taxonomy
 

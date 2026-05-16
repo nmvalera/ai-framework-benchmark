@@ -1,6 +1,11 @@
 ---
 name: benchmark-ai-frameworks
-description: Orchestrate the full AI framework benchmark flow from framework-index.json: prepare framework submodules, run one study-ai-framework report per framework in dedicated parallel sub-agents, then synthesize reports with create-benchmark. Use when refreshing all framework reports, adding a new framework to the benchmark, or generating the overall comparison matrix.
+description: >-
+  Orchestrate the full AI framework benchmark flow from framework-index.json:
+  prepare framework submodules, run one study-ai-framework report per framework
+  in dedicated parallel sub-agents, then synthesize reports with create-benchmark.
+  Use when refreshing all framework reports, adding a new framework to the
+  benchmark, or generating the overall comparison matrix.
 ---
 
 # Benchmark AI Frameworks

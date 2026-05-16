@@ -13,6 +13,22 @@
       "report_path": "reports/adk-go.md"
     },
     {
+      "id": "agno",
+      "name": "Agno Python",
+      "ecosystem": "python",
+      "repo_url": "https://github.com/agno-agi/agno",
+      "framework_path": "frameworks/agno",
+      "report_path": "reports/agno.md"
+    },
+    {
+      "id": "autoagents",
+      "name": "AutoAgents Rust",
+      "ecosystem": "rust",
+      "repo_url": "https://github.com/liquidos-ai/AutoAgents",
+      "framework_path": "frameworks/autoagents",
+      "report_path": "reports/autoagents.md"
+    },
+    {
       "id": "claude-agent-sdk-python",
       "name": "Claude Agent SDK Python",
       "ecosystem": "python",
@@ -76,6 +92,14 @@
       "report_path": "reports/langgraph.md"
     },
     {
+      "id": "llamaindex",
+      "name": "LlamaIndex Python",
+      "ecosystem": "python",
+      "repo_url": "https://github.com/run-llama/llama_index",
+      "framework_path": "frameworks/llamaindex",
+      "report_path": "reports/llamaindex.md"
+    },
+    {
       "id": "mastra",
       "name": "Mastra TypeScript",
       "ecosystem": "typescript",
@@ -84,12 +108,70 @@
       "report_path": "reports/mastra.md"
     },
     {
+      "id": "microsoft-agent-framework",
+      "name": "Microsoft Agent Framework",
+      "ecosystem": "python/dotnet",
+      "repo_url": "https://github.com/microsoft/agent-framework",
+      "framework_path": "frameworks/microsoft-agent-framework",
+      "report_path": "reports/microsoft-agent-framework.md"
+    },
+    {
       "id": "openai-agents-python",
       "name": "OpenAI Agents Python",
       "ecosystem": "python",
       "repo_url": "https://github.com/openai/openai-agents-python",
       "framework_path": "frameworks/openai-agents-python",
       "report_path": "reports/openai-agents-python.md"
+    },
+    {
+      "id": "openai-agents-js",
+      "name": "OpenAI Agents TypeScript",
+      "ecosystem": "typescript",
+      "repo_url": "https://github.com/openai/openai-agents-js",
+      "framework_path": "frameworks/openai-agents-js",
+      "report_path": "reports/openai-agents-js.md"
+    },
+    {
+      "id": "pydantic-ai",
+      "name": "Pydantic AI",
+      "ecosystem": "python",
+      "repo_url": "https://github.com/pydantic/pydantic-ai",
+      "framework_path": "frameworks/pydantic-ai",
+      "report_path": "reports/pydantic-ai.md"
+    },
+    {
+      "id": "rig",
+      "name": "Rig Rust",
+      "ecosystem": "rust",
+      "repo_url": "https://github.com/0xPlaygrounds/rig",
+      "framework_path": "frameworks/rig",
+      "report_path": "reports/rig.md"
+    },
+    {
+      "id": "strands-agents-python",
+      "name": "Strands Agents Python",
+      "ecosystem": "python",
+      "repos": [
+        {
+          "name": "sdk-python",
+          "repo_url": "https://github.com/strands-agents/sdk-python",
+          "framework_path": "frameworks/strands-agents-sdk-python"
+        },
+        {
+          "name": "tools",
+          "repo_url": "https://github.com/strands-agents/tools",
+          "framework_path": "frameworks/strands-agents-tools"
+        }
+      ],
+      "report_path": "reports/strands-agents-python.md"
+    },
+    {
+      "id": "strands-agents-typescript",
+      "name": "Strands Agents TypeScript",
+      "ecosystem": "typescript",
+      "repo_url": "https://github.com/strands-agents/sdk-typescript",
+      "framework_path": "frameworks/strands-agents-sdk-typescript",
+      "report_path": "reports/strands-agents-typescript.md"
     },
     {
       "id": "vercel-ai",
