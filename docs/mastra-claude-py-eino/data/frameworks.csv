@@ -1,4 +1,0 @@
-framework_id,label,language,report_path,repo_url,commit,branch,studied_date,notes
-mastra,Mastra,TypeScript,reports/mastra.md,https://github.com/mastra-ai/mastra,318b0279b8d1cc36ecd5280db209e00b6e119e2e,main,2026-05-16,Scoped benchmark run
-claude-agent-sdk-python,Claude Agent SDK Py,Python,reports/claude-agent-sdk-python.md,https://github.com/anthropics/claude-agent-sdk-python,c352a509929a712de65637cbafafcc3a1e3ba4f6,main,2026-05-16,Scoped benchmark run
-eino,Eino,Go,reports/eino.md,https://github.com/cloudwego/eino + https://github.com/cloudwego/eino-ext,eino 5e1305506c4fa89ef5d786035a947258e29a7593; eino-ext 176d453b133a7b4c8c337450aba744d1e0ab38b7,main,2026-05-16,Scoped benchmark run
