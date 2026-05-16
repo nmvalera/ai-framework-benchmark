@@ -1,112 +1,158 @@
 ---
 name: create-benchmark
-description: Read generated AI framework reports and create a concise markdown comparison table for a long-running, skill-piloted, multi-tenant agent benchmark. Use after `study-ai-framework` has produced reports under `reports/`.
+description: "Orchestrate benchmark synthesis after `study-ai-framework` reports exist: read taxonomy, spawn one score-benchmark-category worker per taxonomy section, merge per-category CSVs into canonical benchmark data, and write a concise markdown summary."
 ---
 
-# Create Benchmark Matrix
+# Create Benchmark Bundle
 
-You synthesize existing framework reports into a comparison table. Do not restudy the frameworks from scratch unless a report is missing or contradictory. Prefer evidence already present in the generated markdown reports.
+You create the final benchmark bundle from generated framework reports. Do not restudy frameworks unless a report is missing or contradictory. Prefer evidence already present in `reports/*.md`.
+
+The canonical output is CSV data plus a short markdown executive summary. Do not generate the HTML/JavaScript viewer here; the viewer is maintained separately and reads the CSV files.
 
 ## Inputs
 
-- `REPORTS_DIR` — directory containing generated framework reports, usually `reports/`.
-- `OUTPUT_PATH` — markdown file to write, for example `benchmark.md`.
-- Optional `FOCUS` — narrow the matrix to specific capabilities or frameworks.
+- `REPORTS_DIR` — generated framework reports, usually `reports/`.
+- `OUTPUT_DIR` — benchmark bundle directory, default `benchmark/`.
+- Optional `FOCUS` — narrow to specific sections, rows, or frameworks.
+- Optional `TITLE` — default `Stack Choice: Where the Agent Loop Lives`.
+- Optional `INCLUDE_BASELINE` — include a hand-built baseline column such as `Harden POC (Go)` when evidence exists outside generated reports.
+- Optional `OUT_OF_SCOPE` — frameworks considered but intentionally excluded or only mentioned in scope notes.
+- Optional `OUTPUT_FORMAT` — `bundle` by default. Use `markdown` only when explicitly requested.
 
-## Method
+## Bundle Shape
 
-1. List all `*.md` reports in `REPORTS_DIR`.
-2. For each report, extract:
-   - framework name;
-   - repo URL, commit, branch, and studied date when available;
-   - TL;DR verdict bullets;
-   - direct answers for the core matrix rows below;
-   - caveats and `Not provided — BYO` gaps.
-3. Normalize findings into the rating legend.
-4. Write a markdown table first, followed by short notes that cite the source report sections.
-5. If a report lacks enough evidence for a cell, use `?` and add a note listing the missing evidence.
+For `OUTPUT_FORMAT=bundle`, write:
 
-## Rating Legend
-
-- `🟢` Built-in or first-party support that directly fits the use case.
-- `🟡` Partial support: useful primitives exist, but production use needs host glue or custom policy.
-- `🔴` Not provided or effectively BYO.
-- `?` Unknown from the generated report.
-
-## Core Matrix Rows
-
-Use these rows by default:
-
-- Documentation depth
-- Framework weight / footprint
-- Vendor lock-in
-- Where the agent loop executes
-- Streaming chat / UI primitives
-- Agent API / server surface
-- Live event stream taxonomy
-- Session persistence
-- Durable mid-run checkpointing
-- Concurrent session isolation
-- Horizontal scaling model
-- Background / async task runtime
-- ReAct loop
-- Tool dispatch and result handling
-- Arbitrary tenant/user context
-- Forced server-side tool arguments
-- Tenant-aware visible tool filtering
-- Per-tenant budget or rate caps
-- Hooks / middleware depth
-- Auto-compaction
-- Prompt-cache optimization
-- Tool result clearing / progressive disclosure
-- Markdown skills
-- On-demand skill loading
-- Skill/tool scoping: global / tenant / user
-- Sub-agents and parallel fan-out
-- Resource manager / registry
-- Resource versioning and publish workflow
-- Usage / token / cost observability
-- Audit log support
-- Built-in tools
-- MCP support
-- Multi-model routing and fallback
-- Memory / RAG primitives
-- Guardrails
-- Tool sandboxing / permission model
-- Eval and CI gates
-- Local sandbox / dev UX
-
-## Output Structure
-
-```markdown
-# AI Framework Benchmark Matrix
-
-> Generated from reports in `<REPORTS_DIR>`.
-
-## Summary
-
-[3-6 bullets with the strongest cross-framework conclusions.]
-
-## Matrix
-
-| Capability | Framework A | Framework B | ... |
-| --- | --- | --- | --- |
-| Session persistence | 🟢 Short verdict | 🟡 Short verdict | ... |
-
-## Notes
-
-- `Framework A`: key caveats and source report sections.
-- `Framework B`: key caveats and source report sections.
-
-## Open Questions
-
-- Cells marked `?` and the evidence needed to resolve them.
+```text
+<OUTPUT_DIR>/
+  data/
+    taxonomy.csv
+    frameworks.csv
+    scores.csv
+    evidence.csv
+  work/
+    <section_order>-<section_slug>/
+      scores.csv
+      evidence.csv
+  benchmark.md
 ```
+
+Artifact roles:
+
+- `data/taxonomy.csv` — copy of `references/taxonomy.csv`; section/row order, user-facing legends, and scoring guidance.
+- `data/frameworks.csv` — one row per framework in scope.
+- `data/scores.csv` — canonical merged score and note cells.
+- `data/evidence.csv` — canonical merged evidence references and caveats.
+- `work/*/scores.csv` and `work/*/evidence.csv` — per-category worker outputs; keep these for audit/debug.
+- `benchmark.md` — concise executive summary for GitHub and slide preparation, derived from the CSVs.
+
+## Taxonomy
+
+`references/taxonomy.csv` is the single source of truth. Do not duplicate taxonomy rows in this skill.
+
+Use `scripts/load_taxonomy.py` to inspect it:
+
+```bash
+python3 .agents/skills/create-benchmark/scripts/load_taxonomy.py --list-sections
+python3 .agents/skills/create-benchmark/scripts/load_taxonomy.py --section "General" --format markdown
+python3 .agents/skills/create-benchmark/scripts/load_taxonomy.py --section-order 0 --format json
+```
+
+CSV columns:
+
+- `section_order` — numeric ordering for section groups.
+- `section` — group label.
+- `row` — matrix row label.
+- `legend` — user-facing explanation displayed in the benchmark output.
+- `expected` — agent-facing guidance for scoring.
+
+## Workflow
+
+1. Create `<OUTPUT_DIR>/data/` and `<OUTPUT_DIR>/work/`.
+2. Copy `references/taxonomy.csv` to `<OUTPUT_DIR>/data/taxonomy.csv`.
+3. List all reports in `REPORTS_DIR` and write `<OUTPUT_DIR>/data/frameworks.csv`.
+4. Load taxonomy sections with `scripts/load_taxonomy.py --list-sections`.
+5. Spawn one `score-benchmark-category` worker per taxonomy section in scope.
+6. Give each worker:
+   - `REPORTS_DIR`
+   - `OUTPUT_DIR`
+   - `section_order` and `section`
+   - framework list/order
+   - any `FOCUS` constraints
+7. Wait for all category workers to finish.
+8. Merge category files from `<OUTPUT_DIR>/work/*/` into:
+   - `<OUTPUT_DIR>/data/scores.csv`
+   - `<OUTPUT_DIR>/data/evidence.csv`
+9. Generate `benchmark.md` from canonical CSV data.
+
+If the runtime cannot spawn sub-agents, emulate the same shape locally: process one category at a time and write the same per-category files before merging.
+
+## Frameworks CSV
+
+Write `<OUTPUT_DIR>/data/frameworks.csv` with:
+
+```csv
+framework_id,label,language,report_path,repo_url,commit,branch,studied_date,notes
+```
+
+Use stable lowercase `framework_id` values such as `langgraph`, `mastra`, `openai-agents-python`.
+
+## Merge Rules
+
+- Read category files only after the corresponding worker has completed.
+- Merge by ascending `section_order`, then row order from `data/taxonomy.csv`, then framework order from `data/frameworks.csv`.
+- Reject or fix rows whose `(section_order, section, row)` is absent from taxonomy.
+- Preserve blank scores for not-applicable cells.
+- Preserve `?` scores and carry missing-evidence explanations into `data/evidence.csv`.
+- If duplicate cells exist, resolve them by checking evidence; otherwise flag an integration conflict in `benchmark.md`.
+- Do not alter worker scores silently when calibrating. If the main agent changes a score, update both the canonical score note and evidence note to explain why.
+
+## Canonical CSV Schemas
+
+`data/scores.csv`:
+
+```csv
+section_order,section,row,framework_id,score,note
+```
+
+`data/evidence.csv`:
+
+```csv
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+```
+
+Score rules:
+
+- blank score means not applicable.
+- `?` means applicable but evidence is missing.
+- `0` to `5` means scored.
+- `note` is the short displayed rationale.
+- Row legends stay in `data/taxonomy.csv`.
+
+## Markdown Summary
+
+`benchmark.md` is not the source of truth. Keep it short:
+
+- title and generation context;
+- score legend;
+- 3-6 executive conclusions;
+- top recommended stacks and why;
+- major disqualifiers or high-risk gaps;
+- note that canonical data lives under `data/`.
+
+Score legend:
+
+- `0`: no support.
+- `1`: minimal primitive, large host effort.
+- `2`: partial primitive, mostly host-built.
+- `3`: usable support with meaningful gaps.
+- `4`: strong support with minor gaps.
+- `5`: first-class fit for the benchmark.
 
 ## Rules
 
-- Keep each table cell short: rating plus a 2-8 word verdict.
-- Do not hide major caveats in the notes if they change the rating.
+- Treat `data/*.csv` as canonical. Derive `benchmark.md` from those files.
+- Use `score-benchmark-category` for category scoring; keep row-level scoring details out of this orchestrator.
 - Preserve the distinction between first-party support and host-built glue.
-- Avoid broad claims that are not backed by a generated report.
+- Avoid broad claims that are not backed by generated reports.
 - Do not use domain-specific wording beyond the benchmark goal: a long-running agent piloted by skills with multi-tenancy.
