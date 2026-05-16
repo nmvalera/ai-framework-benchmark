@@ -40,6 +40,7 @@ Existing report state:
 - Preserve useful existing findings, examples, and file references when they are still accurate.
 - Update stale claims against the current framework commit, docs, changelog, and GitHub Releases.
 - Do not delete working report content just because you are restructuring; carry it forward unless it is wrong or outside the benchmark scope.
+- **The questionnaire (`references/questions.md`) may have changed since the existing report was written** — sections may have been added, removed, renamed, renumbered, split, or merged, and sub-bullets may have shifted. Diff the current report's headings and sub-bullets against the current `references/questions.md` and restructure the report so it matches the new version exactly (heading text, ordering, sub-bullet numbering, ⭐ markers). This is reformatting, not forgetting: move existing content to its new location, merge or split paragraphs to fit the new sub-bullets, and only drop content that is genuinely outside the new scope. If existing content does not map cleanly to any current sub-bullet, prefer to re-home it under the closest match rather than discard it.
 
 Online documentation:
 - Project status: whether the framework is open-source, license, owning organization, maintainers, commercial backing, and support model.
@@ -76,7 +77,7 @@ Note paths as you go — you'll cite them.
 
 ## Step 3 — Answer the question areas
 
-Read and follow `questions.md` in this skill directory. Keep the generated report structure and numbering aligned with that file.
+Read and follow `references/questions.md` in this skill directory. **That file is the single source of truth for the section list, the question order, the sub-bullet numbering, and the ⭐ Required markers.** Do not re-enumerate sections here; do not paraphrase the question text. Keep the generated report's `## N. Section Title` headings character-identical to the `### Qn — Section Title` headings in `references/questions.md` (drop the `Q` prefix in the report, keep the title).
 
 ---
 
@@ -97,6 +98,7 @@ Output to `OUTPUT_PATH` in this structure:
 
 8–12 bullets covering the most decision-relevant facts:
 - ⭐ **What is this stack architecturally?** (e.g. "thin Python wrapper around a Node CLI binary", "Go-native graph runtime", "Next.js-first frontend SDK with a backend Agent class")
+- **Ecosystem** — Python / TypeScript / Go / Rust (state it explicitly; one of those four)
 - Open-source/license/support profile (who maintains it, license, commercial or community support)
 - Maturity/adoption snapshot (age, current stability status, GitHub stars/forks, release cadence)
 - Where the agent loop *actually* executes
@@ -106,39 +108,13 @@ Output to `OUTPUT_PATH` in this structure:
 - One-line verdict for each of: sessions/persistence, skills, resource manager, sub-agents, multi-tenancy, hooks, API, observability
 - Production-readiness verdict for multi-tenant server-side deployment
 
-## 0. Architectural Overview & Deployment Model
+## <one ## section per question in references/questions.md, in numerical order>
 
-[Deployment diagram (mermaid or ASCII) showing process boundaries]
-[0.1–0.14 project profile, architecture, deployment, release-history & documentation links]
-
-## 1. Agent Harness (Run Loop) & Message Taxonomy
-
-[1.1–1.6 run loop]
-[1.7–1.12 message & event taxonomy]
-## 2. Agent Runtime (Multi-session Host)
-## 3. Sessions & Persistence
-## 4. Multi-tenancy & Arbitrary Context
-[include the ⭐ light usage example]
-## 5. Hook & Middleware Capabilities (Context Engineering)
-[include the ⭐ light usage example + hook fire-points diagram]
-## 6. Agent API Exposition
-[include the ⭐ light usage example]
-## 7. Sub-agents
-[include the ⭐ light usage example]
-## 8. Skills
-[include the ⭐ light usage example]
-## 9. Resource Manager
-[include the ⭐ light usage example]
-## 10. Observability: Usage, Cost, Tracing, Audit
-[include the ⭐ light usage example]
-## 11. Built-in Tools & Tool Authoring API
-## 12. MCP (Model Context Protocol) Support
-## 13. Multi-model Routing & Fallback
-## 14. Chat UI Layer
-## 15. Memory & Knowledge
-## 16. Safety, Guardrails & Tool Sandboxing
-## 17. Eval, Testing & CI Gates
-## 18. Local Sandbox & Dev UX
+For each question in `references/questions.md`:
+- Use `## N. <Section Title>` (e.g. `## 0. General`) matching the question's heading.
+- Answer every sub-bullet (`N.1`, `N.2`, …) defined for that question, in the order they appear there.
+- If a sub-bullet has an ⭐ marker in `references/questions.md`, include the corresponding artifact (URL list, diagram, light usage example, etc.) in the same position.
+- For features the stack does not provide, write `Not provided — BYO`. Do not invent workarounds.
 
 ## Architectural diagram
 
@@ -159,7 +135,7 @@ Output to `OUTPUT_PATH` in this structure:
 - Avoid promotional language. Engineers are picking a stack — they want facts and gaps.
 - Length: ~2500–5000 lines is normal for the expanded structure. Long is fine; this is a reference document.
 - If you spot something genuinely surprising (good or bad), flag it in the TL;DR — that's the most valuable signal across reports.
-- ⭐ The **light usage examples** in Q4, Q5, Q6, Q7, Q8, Q9, Q10 are NOT optional. They're the single most useful part of the report for engineers who want to evaluate "could I actually build my use case on this?".
+- ⭐ Every **light usage example** marked `⭐ Required — light usage example` in `references/questions.md` is mandatory. They're the single most useful part of the report for engineers who want to evaluate "could I actually build my use case on this?".
 
 ## Return to caller
 
