@@ -16,7 +16,7 @@ Each framework is studied with the same question bank so the reports can be comp
 - include light usage examples for the core use case;
 - mark missing features as `Not provided — BYO` instead of inventing workarounds.
 
-The per-framework reports live in [`reports/`](reports/). The study workflow is packaged as a Codex skill in [`skills/study-ai-framework/`](skills/study-ai-framework/). The question bank is separated into [`skills/study-ai-framework/questions.md`](skills/study-ai-framework/questions.md) so readers can inspect the benchmark rubric directly.
+The per-framework reports live in [`reports/`](reports/). The study workflow is packaged as a project-scoped Codex skill in [`.agents/skills/study-ai-framework/`](.agents/skills/study-ai-framework/). The question bank is separated into [`.agents/skills/study-ai-framework/questions.md`](.agents/skills/study-ai-framework/questions.md) so readers can inspect the benchmark rubric directly.
 
 The studied framework set is tracked in [`framework-index.json`](framework-index.json).
 
@@ -62,14 +62,15 @@ Use this skill to read the generated reports and produce a comparison markdown t
 frameworks/
   <framework>/        # Git submodule per studied framework
 framework-index.json
-skills/
-  benchmark-ai-frameworks/
-    SKILL.md
-  study-ai-framework/
-    SKILL.md
-    questions.md
-  create-benchmark/
-    SKILL.md
+.agents/
+  skills/
+    benchmark-ai-frameworks/
+      SKILL.md
+    study-ai-framework/
+      SKILL.md
+      questions.md
+    create-benchmark/
+      SKILL.md
 reports/
   *.md
 ```

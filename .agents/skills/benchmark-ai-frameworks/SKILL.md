@@ -37,7 +37,7 @@ This skill coordinates the full benchmark workflow. It does not replace `study-a
 5. Check coverage:
    - every selected framework has a report at `report_path`;
    - every selected report records repo URL, commit, branch when available, framework path, and studied date;
-   - every selected report follows the shared `study-ai-framework/questions.md` numbering.
+   - every selected report follows the shared `.agents/skills/study-ai-framework/questions.md` numbering.
 6. Run `create-benchmark` with `REPORTS_DIR`, `MATRIX_OUTPUT_PATH`, and optional `FOCUS`.
 7. Return a short summary:
    - frameworks studied or refreshed;
