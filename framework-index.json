@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "description": "Frameworks currently studied by this benchmark.",
+  "default_frameworks_dir": "frameworks",
+  "default_reports_dir": "reports",
+  "frameworks": [
+    {
+      "id": "adk-go",
+      "name": "ADK Go",
+      "ecosystem": "go",
+      "repo_url": "https://github.com/google/adk-go",
+      "framework_path": "frameworks/adk-go",
+      "report_path": "reports/adk-go.md"
+    },
+    {
+      "id": "claude-agent-sdk-python",
+      "name": "Claude Agent SDK Python",
+      "ecosystem": "python",
+      "repo_url": "https://github.com/anthropics/claude-agent-sdk-python",
+      "framework_path": "frameworks/claude-agent-sdk-python",
+      "report_path": "reports/claude-agent-sdk-python.md"
+    },
+    {
+      "id": "claude-agent-sdk-typescript",
+      "name": "Claude Agent SDK TypeScript",
+      "ecosystem": "typescript",
+      "repo_url": "https://github.com/anthropics/claude-agent-sdk-typescript",
+      "framework_path": "frameworks/claude-agent-sdk-typescript",
+      "report_path": "reports/claude-agent-sdk-typescript.md"
+    },
+    {
+      "id": "crewai",
+      "name": "CrewAI Python",
+      "ecosystem": "python",
+      "repo_url": "https://github.com/crewAIInc/crewAI",
+      "framework_path": "frameworks/crewai",
+      "report_path": "reports/crewai.md"
+    },
+    {
+      "id": "eino",
+      "name": "Eino Go",
+      "ecosystem": "go",
+      "repos": [
+        {
+          "name": "eino",
+          "repo_url": "https://github.com/cloudwego/eino",
+          "framework_path": "frameworks/eino",
+          "commit_studied": "5e1305506c4fa89ef5d786035a947258e29a7593",
+          "branch": "main"
+        },
+        {
+          "name": "eino-ext",
+          "repo_url": "https://github.com/cloudwego/eino-ext",
+          "framework_path": "frameworks/eino-ext",
+          "commit_studied": "176d453b133a7b4c8c337450aba744d1e0ab38b7",
+          "branch": "main"
+        }
+      ],
+      "report_path": "reports/eino.md"
+    },
+    {
+      "id": "genkit-go",
+      "name": "Genkit Go",
+      "ecosystem": "go",
+      "repo_url": "https://github.com/firebase/genkit",
+      "repo_note": "Multi-language monorepo; Go SDK lives under go/.",
+      "framework_path": "frameworks/genkit",
+      "report_path": "reports/genkit-go.md"
+    },
+    {
+      "id": "langgraph",
+      "name": "LangGraph Python",
+      "ecosystem": "python",
+      "repo_url": "https://github.com/langchain-ai/langgraph",
+      "framework_path": "frameworks/langgraph",
+      "report_path": "reports/langgraph.md"
+    },
+    {
+      "id": "mastra",
+      "name": "Mastra TypeScript",
+      "ecosystem": "typescript",
+      "repo_url": "https://github.com/mastra-ai/mastra",
+      "framework_path": "frameworks/mastra",
+      "report_path": "reports/mastra.md"
+    },
+    {
+      "id": "openai-agents-python",
+      "name": "OpenAI Agents Python",
+      "ecosystem": "python",
+      "repo_url": "https://github.com/openai/openai-agents-python",
+      "framework_path": "frameworks/openai-agents-python",
+      "report_path": "reports/openai-agents-python.md"
+    },
+    {
+      "id": "vercel-ai",
+      "name": "Vercel AI SDK TypeScript",
+      "ecosystem": "typescript",
+      "repo_url": "https://github.com/vercel/ai",
+      "framework_path": "frameworks/vercel-ai",
+      "report_path": "reports/vercel-ai.md"
+    }
+  ]
+}

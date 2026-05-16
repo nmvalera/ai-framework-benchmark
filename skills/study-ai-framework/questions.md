@@ -11,14 +11,16 @@ Answer:
 - **0.5 Cold-start cost & instance footprint** — startup latency, RAM baseline, disk baseline. (E.g. Claude Agent SDK's open issue #333: 20–30 s startup per instance.)
 - **0.6 Vendor lock-in** — LLM-provider lock-in, hosting-platform lock-in, eval-platform lock-in. Score each independently.
 - **0.7 Framework weight / footprint** — thin SDK (a few hundred LOC of glue) vs. heavy framework (bundles storage, eval, dev UI, plugin system).
-- **0.8 Documentation depth & cross-team contributor accessibility** — official docs language(s)? Pages thin or deep? Can a non-engineer (Product/Data) author content without engineering hand-holding?
-- **0.9 Documentation entry points** ⭐ — list **real URLs** the reader can click. Required:
+- **0.8 Release-history signal** — what do the in-repo changelog and GitHub Releases show about recent breaking changes, fast-moving areas, deprecations, or production-relevant additions? Cite changelog files with line numbers when available and link release pages.
+- **0.9 Documentation depth & cross-team contributor accessibility** — official docs language(s)? Pages thin or deep? Can a non-engineer (Product/Data) author content without engineering hand-holding?
+- **0.10 Documentation entry points** ⭐ — list **real URLs** the reader can click. Required:
   - Official docs landing page
   - Quickstart / getting-started
   - API reference
   - Hosting / deployment / production guide (if separate)
   - Examples / demos repo
-  - Changelog
+  - Changelog / release notes
+  - GitHub Releases
   - GitHub issues tracker (and link to any open issues that matter for our use case, e.g. multi-tenant / scaling / cost / HITL)
   - Discord / community forum (if active)
 
@@ -343,4 +345,3 @@ Answer:
 - **18.4 Hot reload** — change a skill / prompt and see results without restart?
 
 ---
-

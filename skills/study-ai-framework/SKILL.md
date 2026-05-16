@@ -1,5 +1,5 @@
 ---
-name: study-ai-stack
+name: study-ai-framework
 description: In-depth benchmark study of an AI agent SDK/framework — deployment & architecture, message taxonomy, harness loop, runtime, sessions & persistence, multi-tenancy, hooks, API surface, sub-agents, skills, resource manager, observability, built-in tools, MCP, multi-model routing, plus secondary capabilities (UI, memory, guardrails, eval, dev UX). Produces a structured reference markdown report with file:line code excerpts and light usage examples. Use when comparing AI agent stacks (Mastra, LangGraph, Claude Agent SDK, Vercel AI SDK, ADK, OpenAI Agents, CrewAI, Eino, Genkit, etc.) for an architectural decision. Triggers on "benchmark this stack", "study this SDK in depth", "compare agent frameworks".
 ---
 
@@ -10,25 +10,49 @@ You're producing a deep technical analysis of one AI agent SDK / framework. The 
 ## Inputs the caller provides
 
 - `STACK_NAME` — human-readable (e.g. `Mastra TS`, `Claude Agent SDK Py`)
-- `REPO_URL` — git clone URL, OR `LOCAL` if you should study a repo already on disk
-- `CLONE_PATH` — where to clone into (e.g. `benchmarked-stacks/mastra/`). Skip for `LOCAL`.
+- `REPO_URL` — Git URL to add as a submodule under `frameworks/`, OR `LOCAL` if you should study a repo already on disk
+- `FRAMEWORK_PATH` — where the framework lives, normally `frameworks/<framework-slug>/`
 - `LOCAL_PATHS` (only for `LOCAL`) — the dirs/files to focus on
-- `OUTPUT_PATH` — where the analysis lives (e.g. `studies/mastra.md`)
+- `OUTPUT_PATH` — where the analysis lives (e.g. `reports/mastra.md`)
 
-## Step 1 — Clone (or locate)
+## Step 1 — Add/update the framework submodule (or locate)
 
 External repos:
 ```bash
-git clone --depth=1 <REPO_URL> <CLONE_PATH>
-cd <CLONE_PATH> && git rev-parse HEAD   # capture the commit you studied — report it!
+mkdir -p frameworks
+git submodule add <REPO_URL> <FRAMEWORK_PATH>   # first time only
+git submodule update --init --depth=1 <FRAMEWORK_PATH>
+cd <FRAMEWORK_PATH> && git rev-parse HEAD      # capture the commit you studied — report it!
+cd <FRAMEWORK_PATH> && git branch --show-current
 ```
-Shallow clone is fine — you are reading, not contributing.
+
+Use one Git submodule per framework so the benchmark repository records exactly which upstream repo and commit each report studied. A shallow submodule checkout is fine — you are reading, not contributing. If the submodule already exists, run `git submodule update --init --depth=1 <FRAMEWORK_PATH>` and optionally `cd <FRAMEWORK_PATH> && git fetch --depth=1 origin <branch-or-tag>` before studying a newer commit.
 
 For `LOCAL`, just `cd` to the listed paths and record `git rev-parse HEAD` + branch.
 
-## Step 2 — Map the repo (10–15 min, before answering anything)
+## Step 2 — Map the online documentation, repos, and release history (10–15 min, before answering anything)
 
-Sketch the layout before drilling into questions. Locate:
+Before drilling into the question bank, map the existing report if one exists, the public docs, the source repository layout, and the release history.
+
+Existing report state:
+- If `OUTPUT_PATH` already exists, read it first.
+- Note which sections are already complete, stale, thin, contradictory, or missing citations.
+- Preserve useful existing findings, examples, and file references when they are still accurate.
+- Update stale claims against the current framework commit, docs, changelog, and GitHub Releases.
+- Do not delete working report content just because you are restructuring; carry it forward unless it is wrong or outside the benchmark scope.
+
+Online documentation:
+- Official docs landing page.
+- Quickstart / getting-started guide.
+- API reference.
+- Hosting / deployment / production guide.
+- Examples / demos repo.
+- Changelog / release notes.
+- GitHub Releases.
+- GitHub issues tracker and any open issues that matter for this benchmark.
+- Discord / community forum if active.
+
+Repository layout:
 - The agent run loop entrypoint (`run`, `stream`, `generate`, `Run`, `Step`, `loop`, `query`).
 - Message types (search `Message`, `MessageType`, `Event`, `Part`, `Chunk`).
 - Tool abstraction (`Tool`, `tool(`, `defineTool`, `createTool`, `@tool`).
@@ -40,6 +64,9 @@ Sketch the layout before drilling into questions. Locate:
 - Resource manager / registry (`Registry`, `SkillSource`, `VersionedSkillSource`, `plugin`, `marketplace`).
 - Observability hooks (`usage`, `tokens`, `cost`, `telemetry`, `tracer`, `otel`, `LangSmith`).
 - **Critically**: does the loop actually run *here*, or is this a wrapper around something else (CLI subprocess, vendor REST API, separate runtime in a sister repo)?
+
+Release history:
+- In-repo release notes (`CHANGELOG.md`, `RELEASES.md`, `HISTORY.md`, docs release notes) and GitHub Releases. Note recent changes that affect architecture, session persistence, hooks, skills, sub-agents, MCP, model routing, or deployment. If the repo has no changelog or releases, say so.
 
 Note paths as you go — you'll cite them.
 
@@ -59,7 +86,7 @@ Output to `OUTPUT_PATH` in this structure:
 > **Repo**: <REPO_URL>
 > **Commit studied**: <git rev-parse HEAD>
 > **Branch**: <git branch --show-current>
-> **Cloned at**: <CLONE_PATH>
+> **Framework path**: <FRAMEWORK_PATH>
 > **Studied on**: <YYYY-MM-DD>
 
 ## TL;DR
@@ -76,7 +103,7 @@ Output to `OUTPUT_PATH` in this structure:
 ## 0. Architectural Overview & Deployment Model
 
 [Deployment diagram (mermaid or ASCII) showing process boundaries]
-[0.1–0.9 architecture, deployment & documentation links]
+[0.1–0.10 architecture, deployment, release-history & documentation links]
 
 ## 1. Agent Harness (Run Loop) & Message Taxonomy
 
@@ -120,7 +147,7 @@ Output to `OUTPUT_PATH` in this structure:
 
 ## Style rules
 
-- Cite **real file paths and line numbers** the reader can click. Format: `pkg/foo/bar.ts:42` (relative to the cloned repo root, not absolute).
+- Cite **real file paths and line numbers** the reader can click. Format: `pkg/foo/bar.ts:42` (relative to the framework submodule root, not absolute).
 - Prefer **direct code excerpts** (5–30 lines) over paraphrase.
 - When a feature does NOT exist, write **"Not provided — BYO"**. Don't invent workarounds.
 - Avoid promotional language. Engineers are picking a stack — they want facts and gaps.

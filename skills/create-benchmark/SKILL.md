@@ -1,21 +1,21 @@
 ---
 name: create-benchmark
-description: Read generated AI framework study reports and create a concise markdown comparison table for a long-running, skill-piloted, multi-tenant agent benchmark. Use after `study-ai-stack` has produced reports under `studies/`.
+description: Read generated AI framework reports and create a concise markdown comparison table for a long-running, skill-piloted, multi-tenant agent benchmark. Use after `study-ai-framework` has produced reports under `reports/`.
 ---
 
 # Create Benchmark Matrix
 
-You synthesize existing framework studies into a comparison table. Do not restudy the frameworks from scratch unless a report is missing or contradictory. Prefer evidence already present in the generated markdown reports.
+You synthesize existing framework reports into a comparison table. Do not restudy the frameworks from scratch unless a report is missing or contradictory. Prefer evidence already present in the generated markdown reports.
 
 ## Inputs
 
-- `STUDIES_DIR` — directory containing generated study reports, usually `studies/`.
+- `REPORTS_DIR` — directory containing generated framework reports, usually `reports/`.
 - `OUTPUT_PATH` — markdown file to write, for example `benchmark.md`.
 - Optional `FOCUS` — narrow the matrix to specific capabilities or frameworks.
 
 ## Method
 
-1. List all `*.md` reports in `STUDIES_DIR`.
+1. List all `*.md` reports in `REPORTS_DIR`.
 2. For each report, extract:
    - framework name;
    - repo URL, commit, branch, and studied date when available;
@@ -81,7 +81,7 @@ Use these rows by default:
 ```markdown
 # AI Framework Benchmark Matrix
 
-> Generated from reports in `<STUDIES_DIR>`.
+> Generated from reports in `<REPORTS_DIR>`.
 
 ## Summary
 
