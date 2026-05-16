@@ -1,7 +1,7 @@
 # Stack Choice: Where the Agent Loop Lives
 
-> Generated on 2026-05-16 from 19 framework reports under `reports/`.
-> Canonical data lives in [`data/`](data/) (`taxonomy.csv`, `frameworks.csv`, `scores.csv`, `evidence.csv`). Per-category worker outputs live in [`work/`](work/).
+> Generated on 2026-05-17 from 19 framework reports under `reports/`. Sections 0 (General) and 1 (Architecture) rescored against the refactored taxonomy on 2026-05-17; section 3 relabeled (`Agent API` → `HTTP API`).
+> Canonical data lives in [`data/`](data/) (`taxonomy.csv`, `frameworks.csv`, `scores.csv`). The auxiliary `evidence.csv` carries longer per-cell evidence excerpts.
 
 The benchmark targets **a long-running, multi-tenant agent piloted by skills**. Calibration favors first-party support over BYO glue.
 
@@ -46,21 +46,22 @@ See `data/frameworks.csv` for commit hashes and report paths.
 
 ## Top recommended stacks
 
-Aggregate mean across all 97 scored rows:
+Aggregate mean across all 98 scored rows (each framework has 98 numeric cells out of 100 taxonomy rows; the 2 label-only rows — `Ecosystem / primary language` and `Stack type` — are excluded from the mean):
 
 | Rank | Framework | Mean | Strongest for the use case |
 | --- | --- | --- | --- |
 | 1 | **Mastra TypeScript** | 4.15 | Skills (5.00), Resource Manager (3.33), Multi-tenancy (4.00), Sessions (3.50), broad first-class platform |
-| 2 | **Agno Python** | 3.66 | First-class AgentOS server, scheduler/background tasks, 130+ built-in tools |
-| 3 | **Microsoft Agent Framework** | 3.41 | Durable workflows + Cosmos sessions, IntegrityLabel guardrails, dual Python/.NET |
-| 4 | **Pydantic AI** | 3.14 | Typed `deps` + `metadata`, `before_tool_validate` forced args, Gateway USD limits, broad hooks |
-| 5 | **LangGraph Python** | 3.08 | Best-in-class Sessions (4.83) + durable mid-run checkpoints + `InjectedToolArg` |
+| 2 | **Agno Python** | 3.65 | First-class AgentOS server, scheduler/background tasks, 130+ built-in tools |
+| 3 | **Microsoft Agent Framework** | 3.44 | Durable workflows + Cosmos sessions, IntegrityLabel guardrails, dual Python/.NET |
+| 4 | **Pydantic AI** | 3.18 | Typed `deps` + `metadata`, `before_tool_validate` forced args, Gateway USD limits, broad hooks |
+| 5 | **Claude Agent SDK TypeScript** | 3.11 | Context engineering (5.00), `maxBudgetUsd`, Postgres/Redis/S3 `SessionStore` references; architectural cost is the bundled binary and subprocess loop |
+| 6 | **LangGraph Python** | 3.08 | Best-in-class Sessions (4.83) + durable mid-run checkpoints + `InjectedToolArg` |
 
 Honourable mentions:
 
-- **Claude Agent SDK TypeScript** (3.05) — best context engineering (5.00), `maxBudgetUsd`, Postgres/Redis/S3 `SessionStore` references; the architectural cost is the bundled binary and the loop running in a subprocess.
-- **OpenAI Agents Python** (2.87) — 10 first-party session backends + 4 guardrail decorators + 7 sandbox provider integrations.
-- **ADK Go** (2.82) — only stack with in-process Go loop + bundled REST/SSE/WS/A2A server (sub-second cold start, simplest deployment shape).
+- **Claude Agent SDK Python** (2.97) — same feature surface as the TS SDK, slightly lower due to documentation and ergonomic gaps; the loop still runs in the bundled Node binary.
+- **OpenAI Agents Python** (2.91) — 10 first-party session backends + 4 guardrail decorators + 7 sandbox provider integrations.
+- **ADK Go** (2.85) — only stack with in-process Go loop + bundled REST/SSE/WS/A2A server (sub-second cold start, simplest deployment shape).
 
 ## Major disqualifiers and high-risk gaps
 
@@ -76,7 +77,7 @@ None — all 1862 score cells have evidence; no `?` cells remain.
 
 ## Notes on methodology
 
-- 19 framework reports were generated in parallel by `study-ai-framework` sub-agents, each citing file:line references in the studied submodule.
-- 21 `score-benchmark-category` workers scored one taxonomy section each, calibrating row-by-row across all 19 frameworks before moving to the next row.
+- 19 framework reports were generated in parallel by `study-ai-framework` sub-agents on 2026-05-16, each citing file:line references in the studied submodule.
+- 20 `score-benchmark-category` workers scored one taxonomy section each, calibrating row-by-row across all 19 frameworks before moving to the next row. Sections 0 (General) and 1 (Architecture) were rescored on 2026-05-17 after the taxonomy was refactored (new General rows, Stack/footprint/release-history moved into Architecture, new `Vendor lock-in` row).
 - Canonical CSVs sort by `(section_order, section, row)` from `taxonomy.csv`, then framework order from `frameworks.csv`.
 - The Microsoft Agent Framework submodule was checked out with `GIT_LFS_SKIP_SMUDGE=1`; non-source assets are missing but `python/` and `dotnet/` source trees are intact.
