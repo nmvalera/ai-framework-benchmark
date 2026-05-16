@@ -12,7 +12,7 @@ Your job is comparative scoring, not report generation. Work row-by-row across a
 ## Inputs
 
 - `REPORTS_DIR` — generated framework reports, usually `reports/`.
-- `OUTPUT_DIR` — benchmark bundle directory, usually `benchmark/`.
+- `OUTPUT_DIR` — benchmark bundle directory, usually `docs/`.
 - `section_order` or `section` — the single taxonomy section you own.
 - framework list/order from `create-benchmark`.
 - Optional `FOCUS` — row or framework constraints.

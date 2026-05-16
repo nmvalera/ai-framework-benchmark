@@ -17,7 +17,7 @@ This skill coordinates the full benchmark workflow. It does not replace `study-a
 - `FRAMEWORK_INDEX` — usually `framework-index.json`.
 - `FRAMEWORKS_DIR` — usually `frameworks/`.
 - `REPORTS_DIR` — usually `reports/`.
-- `MATRIX_OUTPUT_PATH` — usually `benchmark.md`.
+- `MATRIX_OUTPUT_PATH` — usually `docs/benchmark.md`.
 - Optional `FOCUS` — a subset of framework ids or benchmark capabilities.
 
 ## Workflow

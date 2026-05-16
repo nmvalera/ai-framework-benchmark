@@ -12,7 +12,7 @@ The canonical output is CSV data plus a short markdown executive summary. Do not
 ## Inputs
 
 - `REPORTS_DIR` — generated framework reports, usually `reports/`.
-- `OUTPUT_DIR` — benchmark bundle directory, default `benchmark/`.
+- `OUTPUT_DIR` — benchmark bundle directory, default `docs/`.
 - Optional `FOCUS` — narrow to specific sections, rows, or frameworks.
 - Optional `TITLE` — default `Stack Choice: Where the Agent Loop Lives`.
 - Optional `INCLUDE_BASELINE` — include a hand-built baseline column such as `Harden POC (Go)` when evidence exists outside generated reports.
