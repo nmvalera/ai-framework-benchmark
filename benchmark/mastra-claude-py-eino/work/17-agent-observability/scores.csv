@@ -1,0 +1,13 @@
+section_order,section,row,framework_id,score,note
+17,Agent Observability,LLM / tool tracing,mastra,5,OTel/dashboard spans
+17,Agent Observability,LLM / tool tracing,claude-agent-sdk-python,5,OTel propagated
+17,Agent Observability,LLM / tool tracing,eino,4,callbacks/exporters
+17,Agent Observability,Token & cost tracking,mastra,3,tokens yes cost BYO
+17,Agent Observability,Token & cost tracking,claude-agent-sdk-python,5,tokens and USD
+17,Agent Observability,Token & cost tracking,eino,3,"tokens, cost BYO"
+17,Agent Observability,Per-tenant / per-conversation cost,mastra,3,metadata aggregation
+17,Agent Observability,Per-tenant / per-conversation cost,claude-agent-sdk-python,3,SessionKey aggregation
+17,Agent Observability,Per-tenant / per-conversation cost,eino,1,rollup BYO
+17,Agent Observability,Audit logging (who/when/what),mastra,4,traces/RBAC logs
+17,Agent Observability,Audit logging (who/when/what),claude-agent-sdk-python,3,"hooks, sink BYO"
+17,Agent Observability,Audit logging (who/when/what),eino,2,callbacks only

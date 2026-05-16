@@ -1,0 +1,16 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+14,Tools,"Built-in tools (web search, file ops, exec)",mastra,reports/mastra.md,Q11 Built-in Tools,1433,some primitives
+14,Tools,"Built-in tools (web search, file ops, exec)",claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,Claude Code tools
+14,Tools,"Built-in tools (web search, file ops, exec)",eino,reports/eino.md,Q11 Built-in Tools,1877,eino-ext tools
+14,Tools,Built-in tool quality,mastra,reports/mastra.md,Q11 Built-in Tools,1433,mostly wrappers
+14,Tools,Built-in tool quality,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,agent-aware tools
+14,Tools,Built-in tool quality,eino,reports/eino.md,Q11 Built-in Tools,1877,solid Go adapters
+14,Tools,Tool authoring API,mastra,reports/mastra.md,Q11 Built-in Tools,1433,createTool typed
+14,Tools,Tool authoring API,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,@tool decorator
+14,Tools,Tool authoring API,eino,reports/eino.md,Q11 Built-in Tools,1877,typed Go tools
+14,Tools,Typed tool I/O validation,mastra,reports/mastra.md,Q11 Built-in Tools,1433,Zod/schema validation
+14,Tools,Typed tool I/O validation,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,typed MCP/tools
+14,Tools,Typed tool I/O validation,eino,reports/eino.md,Q11 Built-in Tools,1877,JSON schema structs
+14,Tools,Streaming tools,mastra,reports/mastra.md,Q11 Built-in Tools,1433,partial support
+14,Tools,Streaming tools,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,tool events only
+14,Tools,Streaming tools,eino,reports/eino.md,Q11 Built-in Tools,1877,streamable tools

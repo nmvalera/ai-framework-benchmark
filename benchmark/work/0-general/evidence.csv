@@ -1,0 +1,153 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+0,General,Stack type,adk-go,reports/adk-go.md,TL;DR / Section 0.1,"10-15, 99-101",Hybrid library + framework + bundled server in same Go module
+0,General,Stack type,agno,reports/agno.md,TL;DR / Section 0.1,"13-15, 70","Library + AgentOS runtime, FastAPI app via AgentOS.get_app()"
+0,General,Stack type,autoagents,reports/autoagents.md,TL;DR / Section 0.1,"11, 82","Rust workspace, no daemon or HTTP server; AutoAgents-CLI is separate"
+0,General,Stack type,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,TL;DR / Section 0.1,"11, 70",Python facade wrapping Node CLI subprocess; library-only
+0,General,Stack type,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,TL;DR / Section 0.1,"13-14, 74-110",TS shim spawning native binary; per-platform optional deps
+0,General,Stack type,crewai,reports/crewai.md,TL;DR / Section 0.1,"12, 85-93",Heavy framework; OSS library-only with AMP SaaS for hosting
+0,General,Stack type,eino,reports/eino.md,TL;DR / Section 0.1,"12, 92-94",Go library split into compose graph engine + ADK; no HTTP layer shipped
+0,General,Stack type,genkit-go,reports/genkit-go.md,TL;DR / Section 0.1,"12, 105-109",Go library + dev-only reflection server; production is your binary
+0,General,Stack type,langgraph,reports/langgraph.md,TL;DR / Section 0.1,"11, 73",OSS runtime (MIT) + closed-source paid HTTP server (LangGraph Platform)
+0,General,Stack type,llamaindex,reports/llamaindex.md,TL;DR / Section 0.1,"11, 64-66",Python library on Workflow primitive; llama_deploy is a separate project for HTTP
+0,General,Stack type,mastra,reports/mastra.md,TL;DR / Section 0.1,"13-15, 73",Full-stack TS framework with Hono server and 50+ packages
+0,General,Stack type,microsoft-agent-framework,reports/microsoft-agent-framework.md,TL;DR / Section 0.1,"11, 71-75",Library-first SDK for Python + .NET with multiple hosting adapters
+0,General,Stack type,openai-agents-python,reports/openai-agents-python.md,TL;DR / Section 0.1,"15, 82-83","In-process Python library; no server, no CLI wrapper"
+0,General,Stack type,openai-agents-js,reports/openai-agents-js.md,TL;DR / Section 0.1,"11, 66-67",Thin TS SDK; library-only with no first-party server
+0,General,Stack type,pydantic-ai,reports/pydantic-ai.md,TL;DR / Section 0.1,"11, 47-48",Library-first; opt-in HTTP via to_web/UI adapters
+0,General,Stack type,rig,reports/rig.md,TL;DR / Section 0.1,"11, 72",Rust library; no server or CLI
+0,General,Stack type,strands-agents-python,reports/strands-agents-python.md,TL;DR / Section 0.1,"21, 85",In-process Python library; optional A2A server for inter-agent
+0,General,Stack type,strands-agents-typescript,reports/strands-agents-typescript.md,TL;DR / Section 0.1,"11, 75",TS library-only; A2AExpressServer is a thin JSON-RPC adapter
+0,General,Stack type,vercel-ai,reports/vercel-ai.md,TL;DR / Section 0.1,"11, 85-86",Library only; you own the HTTP handler
+0,General,Project maturity / stability,adk-go,reports/adk-go.md,Section 0.3 / 0.12,"111-122, 173",Go 1.25 dependency; no in-repo CHANGELOG; Skills v1.2 shipped April 2026
+0,General,Project maturity / stability,agno,reports/agno.md,Section 0.3 / 0.12,"80-82, 144-146","v2.6.7, Production/Stable classifier, default_schema_version 2.0.0"
+0,General,Project maturity / stability,autoagents,reports/autoagents.md,Section 0.3 / 0.12,"91-94, 145-146","v0.3.7, Rust 2024 edition, no CHANGELOG/HISTORY/RELEASES.md"
+0,General,Project maturity / stability,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Section 0.3 / 0.12,"82-86, 138-148","v0.2.82, Alpha classifier, bundled CLI 2.1.143"
+0,General,Project maturity / stability,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,Section 0.3 / 0.12,"13, 137-145","v0.3.143, pre-1.0, bridge/assistant alpha"
+0,General,Project maturity / stability,crewai,reports/crewai.md,Section 0.3 / 0.12,"107-111, 193-199",1.14.5a6 alpha; default executor flipped in 1.14.5a5; LiteAgent deprecated
+0,General,Project maturity / stability,eino,reports/eino.md,TL;DR / Section 0.7,"28, 168-175",Used at ByteDance scale; v0.8 ADK; runtime maturity high
+0,General,Project maturity / stability,genkit-go,reports/genkit-go.md,TL;DR / Section 0.7,"15-16, 181-188",Sessions explicitly experimental; JS more mature than Go
+0,General,Project maturity / stability,langgraph,reports/langgraph.md,Section 0.3,82-87,v1.2.0 Production/Stable; released January 2024; create_react_agent deprecated
+0,General,Project maturity / stability,llamaindex,reports/llamaindex.md,Section 0.3,76-79,llama-index-core 0.14.22; framework from late 2022; agent layer rebuilt in 2025
+0,General,Project maturity / stability,mastra,reports/mastra.md,Section 0.3,83-86,"@mastra/core 1.36.0-alpha.0, ~1.5 years, vNext/deprecated markers on HTTP routes"
+0,General,Project maturity / stability,microsoft-agent-framework,reports/microsoft-agent-framework.md,Section 0.3,84-89,Core released; adapters beta; Skills experimental; 1.4.0 shipped 2026-05-14
+0,General,Project maturity / stability,openai-agents-python,reports/openai-agents-python.md,Section 0.3 / TL;DR,"9, 14-15",v0.17.2; library form factor; broad feature coverage
+0,General,Project maturity / stability,openai-agents-js,reports/openai-agents-js.md,Section 0.3,77-80,v0.11.4 pre-1.0; Sandbox beta; sandbox runtime in 0.9.0
+0,General,Project maturity / stability,pydantic-ai,reports/pydantic-ai.md,Section 0.3,55-59,v1.0.0 Sep 2025; Production/Stable; API stable until v2
+0,General,Project maturity / stability,rig,reports/rig.md,Section 0.3,82-84,v0.37.0 pre-1.0; README dragons warning; recent breaking change in 0.37
+0,General,Project maturity / stability,strands-agents-python,reports/strands-agents-python.md,Section 0.3,87,Production/Stable classifier; AWS-maintained; >=1.x
+0,General,Project maturity / stability,strands-agents-typescript,reports/strands-agents-typescript.md,Section 0.3,86-88,v0.0.1-development; many experimental flags; WIT divergence backlog
+0,General,Project maturity / stability,vercel-ai,reports/vercel-ai.md,Section 0.3,97-100,"ai@7.0.0-canary.142; v7 canary, v6 latest stable; experimental_* APIs"
+0,General,Governance / commercial backing,adk-go,reports/adk-go.md,Section 0.6,144-150,"Google-owned, Vertex/Cloud Run alignment"
+0,General,Governance / commercial backing,agno,reports/agno.md,Section 0.2,74-77,"Agno AGI, Apache 2.0, os.agno.com control plane"
+0,General,Governance / commercial backing,autoagents,reports/autoagents.md,Section 0.2,85-88,Liquidos AI; community-only support
+0,General,Governance / commercial backing,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Section 0.2,74-78,Anthropic-owned MIT SDK
+0,General,Governance / commercial backing,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,Section 0.2 / TL;DR,13-14,"Anthropic-owned, sister TS SDK; bundled platform binaries"
+0,General,Governance / commercial backing,crewai,reports/crewai.md,Section 0.2,100-105,"crewAI Inc., Series A, AMP SaaS"
+0,General,Governance / commercial backing,eino,reports/eino.md,Section 0.6 / 0.7,156-167,"CloudWeGo/ByteDance, Volcengine Ark"
+0,General,Governance / commercial backing,genkit-go,reports/genkit-go.md,Section 0.6,168-177,"Firebase/Google, multi-language platform"
+0,General,Governance / commercial backing,langgraph,reports/langgraph.md,Section 0.2,76-80,"LangChain Inc., LangGraph Platform paid"
+0,General,Governance / commercial backing,llamaindex,reports/llamaindex.md,Section 0.2,70-73,"LlamaIndex Inc., LlamaCloud paid offerings"
+0,General,Governance / commercial backing,mastra,reports/mastra.md,Section 0.2,77-80,Kepler Software YC W25; Mastra Cloud; ee/ enterprise license
+0,General,Governance / commercial backing,microsoft-agent-framework,reports/microsoft-agent-framework.md,Section 0.2,78-81,Microsoft-owned; Azure-aligned; ADRs and office hours
+0,General,Governance / commercial backing,openai-agents-python,reports/openai-agents-python.md,TL;DR / Section 0.2,15-16,OpenAI-owned; library only; OpenAI Traces is the commercial complement
+0,General,Governance / commercial backing,openai-agents-js,reports/openai-agents-js.md,Section 0.2,71-74,OpenAI-owned MIT; hosted services behind paywall
+0,General,Governance / commercial backing,pydantic-ai,reports/pydantic-ai.md,Section 0.2,51-53,Pydantic team; Logfire and Gateway as commercial backing
+0,General,Governance / commercial backing,rig,reports/rig.md,Section 0.2,76-78,0xPlaygrounds; Discord only; no commercial backing
+0,General,Governance / commercial backing,strands-agents-python,reports/strands-agents-python.md,Section 0.2 / TL;DR,"22, 86",AWS-maintained Apache-2.0
+0,General,Governance / commercial backing,strands-agents-typescript,reports/strands-agents-typescript.md,Section 0.2,79-83,AWS-maintained; pre-release semver; community-only
+0,General,Governance / commercial backing,vercel-ai,reports/vercel-ai.md,Section 0.2,89-93,Vercel-backed; AI Gateway as monetization
+0,General,Release-history signal,adk-go,reports/adk-go.md,Section 0.5,190-191,GitHub Releases only; no in-repo CHANGELOG.md
+0,General,Release-history signal,agno,reports/agno.md,Section 0.12,144-146,No top-level CHANGELOG.md; releases via GitHub
+0,General,Release-history signal,autoagents,reports/autoagents.md,Section 0.12,145-146,No CHANGELOG/HISTORY/RELEASES.md files
+0,General,Release-history signal,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Section 0.12 / CHANGELOG.md,138-148,CHANGELOG.md well-maintained with PR refs and themes
+0,General,Release-history signal,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,Section 0.12 / CHANGELOG.md,137-147,CHANGELOG.md with PR refs; binary transitions documented
+0,General,Release-history signal,crewai,reports/crewai.md,Section 0.12,190-199,docs/en/changelog.mdx canonical; weekly alpha prereleases
+0,General,Release-history signal,eino,reports/eino.md,Section 0.8 docs,179-181,Release notes in eino/llms.txt links; ZH-leaning
+0,General,Release-history signal,genkit-go,reports/genkit-go.md,Section 0.8 docs,192-198,Multi-language repo; Go subpages trail JS
+0,General,Release-history signal,langgraph,reports/langgraph.md,Section 0.12,138-146,No in-repo CHANGELOG.md; releases on GitHub
+0,General,Release-history signal,llamaindex,reports/llamaindex.md,Section 0.12,139-143,"Combined CHANGELOG.md across all packages; PR refs 21,000+"
+0,General,Release-history signal,mastra,reports/mastra.md,Section 0.12,153-161,Active changesets in per-package CHANGELOG.md files
+0,General,Release-history signal,microsoft-agent-framework,reports/microsoft-agent-framework.md,Section 0.12,139-147,python/CHANGELOG.md Keep a Changelog; per-package .NET CHANGELOGs
+0,General,Release-history signal,openai-agents-python,reports/openai-agents-python.md,Section 0.9 docs entry,126-127,Release notes page + GitHub releases
+0,General,Release-history signal,openai-agents-js,reports/openai-agents-js.md,Section 0.12,162-170,Per-package CHANGELOG.md with changesets
+0,General,Release-history signal,pydantic-ai,reports/pydantic-ai.md,Section 0.12,102-107,docs/changelog.md; v1.0 milestone; sub-monthly cadence
+0,General,Release-history signal,rig,reports/rig.md,Section 0.12,131-133,CHANGELOG.md present with PRs; breaking-change warning in README
+0,General,Release-history signal,strands-agents-python,reports/strands-agents-python.md,Section 0.12,96,No in-repo CHANGELOG.md/RELEASES.md; GitHub Releases only
+0,General,Release-history signal,strands-agents-typescript,reports/strands-agents-typescript.md,Section 0.12,133-144,No CHANGELOG.md; ~1 commit/day cadence
+0,General,Release-history signal,vercel-ai,reports/vercel-ai.md,Section 0.12,164-186,packages/ai/CHANGELOG.md detailed; daily canary tags
+0,General,Documentation availability,adk-go,reports/adk-go.md,Section 0.8 / 0.9,173-199,"google.github.io/adk-docs/, pkg.go.dev, 14 examples"
+0,General,Documentation availability,agno,reports/agno.md,Section 0.13 / 0.14,148-164,"docs.agno.com, cookbook/, llms-full.txt for AI agents"
+0,General,Documentation availability,autoagents,reports/autoagents.md,Section 0.13 / 0.14,148-166,Docusaurus docs; sparse; Rust-only authoring
+0,General,Documentation availability,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Section 0.13 / 0.14,149-169,docs.anthropic.com; CHANGELOG ~1k lines
+0,General,Documentation availability,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,Section 0.8 (truncated),198-200,Well-written English-only docs; SessionStore reference adapters
+0,General,Documentation availability,crewai,reports/crewai.md,Section 0.4 / 0.13,118-122,docs.crewai.com; 45+ examples; ~5M monthly downloads
+0,General,Documentation availability,eino,reports/eino.md,Section 0.8,178-200,EN site exists but ZH richer; parallel _chinese.go prompts
+0,General,Documentation availability,genkit-go,reports/genkit-go.md,Section 0.8,192-200,JS-first docs; Go subpages thinner; good GoDoc
+0,General,Documentation availability,langgraph,reports/langgraph.md,Section 0.13,148-150,docs.langchain.com deep; no markdown skill author flow
+0,General,Documentation availability,llamaindex,reports/llamaindex.md,Section 0.13,146-149,Starlight docs; 1133 lines on Agent; no GUI
+0,General,Documentation availability,mastra,reports/mastra.md,Section 0.13,164-168,mastra.ai/docs Mintlify; SKILL.md authoring
+0,General,Documentation availability,microsoft-agent-framework,reports/microsoft-agent-framework.md,Section 0.13,150-154,learn.microsoft.com; formal ADRs; agentskills.io spec
+0,General,Documentation availability,openai-agents-python,reports/openai-agents-python.md,Section 0.8 / 0.9,115-130,MkDocs Material; 4-language; per-feature pages
+0,General,Documentation availability,openai-agents-js,reports/openai-agents-js.md,Section 0.13,174-179,Astro/Starlight 4 languages; 22 example subfolders
+0,General,Documentation availability,pydantic-ai,reports/pydantic-ai.md,Section 0.13,109-110,Code-tested docs; AgentSpec YAML for non-engineers
+0,General,Documentation availability,rig,reports/rig.md,Section 0.13,135-138,Rustdoc + docs.rig.rs; engineer-only
+0,General,Documentation availability,strands-agents-python,reports/strands-agents-python.md,Section 0.13,97,strandsagents.com + in-repo docs; SKILL.md authoring possible
+0,General,Documentation availability,strands-agents-typescript,reports/strands-agents-typescript.md,Section 0.13,147-150,AGENTS.md 600+ lines; strandsagents.com covers both
+0,General,Documentation availability,vercel-ai,reports/vercel-ai.md,Section 0.13,188-192,ai-sdk.dev/docs deep; ADR encouraged
+0,General,Framework weight / footprint,adk-go,reports/adk-go.md,Section 0.7,152-171,"11+ bundled subsystems incl. REST, A2A, WebUI, skills, MCP, replay"
+0,General,Framework weight / footprint,agno,reports/agno.md,Section 0.11,140-142,50+ subpackages; Agent has 80+ ctor params; platform category
+0,General,Framework weight / footprint,autoagents,reports/autoagents.md,Section 0.11,142-143,Multi-crate workspace; core focused; Cargo feature gates
+0,General,Framework weight / footprint,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Section 0.11,134-135,Thin SDK ~5 kLOC over bundled binary
+0,General,Framework weight / footprint,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,Section 0.7 / 0.5,190-196,TS shim ~2MB; native CLI 207-233MB per platform
+0,General,Framework weight / footprint,crewai,reports/crewai.md,Section 0.11,180-187,~70 kLOC; 5 sub-packages; 151 event classes
+0,General,Framework weight / footprint,eino,reports/eino.md,Section 0.7,168-175,12k+ LOC core; lean platform; no HTTP/UI/eval
+0,General,Framework weight / footprint,genkit-go,reports/genkit-go.md,Section 0.7,179-188,~317 Go files; 18 plugins; 40+ samples
+0,General,Framework weight / footprint,langgraph,reports/langgraph.md,Section 0.11,134-136,~2k LOC runtime + ~10k more; closed-source server separate
+0,General,Framework weight / footprint,llamaindex,reports/llamaindex.md,Section 0.11,123-137,300+ integration packages; modular core
+0,General,Framework weight / footprint,mastra,reports/mastra.md,Section 0.11,149-151,"200+ files; Agent class 6,992 lines"
+0,General,Framework weight / footprint,microsoft-agent-framework,reports/microsoft-agent-framework.md,Section 0.11,135-137,~27 kLOC core; 22 Python + 35 .NET packages
+0,General,Framework weight / footprint,openai-agents-python,reports/openai-agents-python.md,Section 0.7,112-113,~36 kLOC; 10 session backends + 7 sandbox adapters
+0,General,Framework weight / footprint,openai-agents-js,reports/openai-agents-js.md,Section 0.11,153-160,agents-core ~60 files; lean; no bundled storage/eval
+0,General,Framework weight / footprint,pydantic-ai,reports/pydantic-ai.md,Section 0.11,99-100,"~50 modules; Agent ~2,885 LOC; clean optional packages"
+0,General,Framework weight / footprint,rig,reports/rig.md,Section 0.11,127-129,Medium-thick library; 19 companion crates; no HTTP/UI
+0,General,Framework weight / footprint,strands-agents-python,reports/strands-agents-python.md,Section 0.11,95,~30 sub-modules; 3 multi-agent orchestrators; sessions
+0,General,Framework weight / footprint,strands-agents-typescript,reports/strands-agents-typescript.md,Section 0.11,128-130,"~28 modules; Agent ~2,100 LOC; A2A adapter"
+0,General,Framework weight / footprint,vercel-ai,reports/vercel-ai.md,Section 0.11,160-162,Thin SDK; no sessions/runtime/skill/registry/UI
+0,General,LLM providers,adk-go,reports/adk-go.md,Section 0.10 / TL;DR,"146, 15",model.LLM open but contents embed genai.Part; only gemini+apigee first-party
+0,General,LLM providers,agno,reports/agno.md,TL;DR,16,49 providers under libs/agno/agno/models/; typed FallbackConfig
+0,General,LLM providers,autoagents,reports/autoagents.md,TL;DR / Section 0.10,"15, 137",Unified LLMProvider trait; 10+ cloud + 3 local; Cargo feature gating
+0,General,LLM providers,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Section 0.10,128-131,Anthropic-locked via Claude Code CLI
+0,General,LLM providers,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,Section 0.6,183-188,AccountInfo.apiProvider enumerates Bedrock/Vertex/Foundry but Anthropic first-class
+0,General,LLM providers,crewai,reports/crewai.md,Section 0.10,173,LiteLLM 100+; native SDKs for top 5
+0,General,LLM providers,eino,reports/eino.md,Section 0.10,159-161,model.BaseChatModel abstracts 11+ providers via eino-ext
+0,General,LLM providers,genkit-go,reports/genkit-go.md,Section 0.6,168-172,googlegenai/vertexai/anthropic/compat_oai/ollama/modelgarden + Fallback
+0,General,LLM providers,langgraph,reports/langgraph.md,Section 0.10,129-131,Any langchain-* chat model; init_chat_model routing
+0,General,LLM providers,llamaindex,reports/llamaindex.md,Section 0.10 / 0.5,"118-122, 95",104 LLM integration packages
+0,General,LLM providers,mastra,reports/mastra.md,Section 0.10 / 0.7,143-147,Vercel AI SDK v5/v6 adapters; 40+ providers
+0,General,LLM providers,microsoft-agent-framework,reports/microsoft-agent-framework.md,Section 0.10,130-133,Azure OpenAI/Foundry/OpenAI/Anthropic/Bedrock/Gemini/Ollama/Claude/Copilot
+0,General,LLM providers,openai-agents-python,reports/openai-agents-python.md,Section 0.6,104-110,MultiProvider with openai/litellm/any-llm prefixes; 100+ providers
+0,General,LLM providers,openai-agents-js,reports/openai-agents-js.md,Section 0.10,147-151,OpenAI default; AI SDK bridge for others; hosted tools OpenAI-only
+0,General,LLM providers,pydantic-ai,reports/pydantic-ai.md,Section 0.10,93-96,~14 providers + FallbackModel; LiteLLM direction
+0,General,LLM providers,rig,reports/rig.md,Section 0.10,121-124,26 native providers + Bedrock/Vertex companion crates
+0,General,LLM providers,strands-agents-python,reports/strands-agents-python.md,Section 0.10,94,12+ providers; Bedrock default but pluggable
+0,General,LLM providers,strands-agents-typescript,reports/strands-agents-typescript.md,Section 0.10,122-126,Bedrock default; Anthropic/OpenAI/Google/Vercel adapters
+0,General,LLM providers,vercel-ai,reports/vercel-ai.md,Section 0.10,155-157,50+ LanguageModel provider adapters
+0,General,Hosting-platform lock-in,adk-go,reports/adk-go.md,Section 0.6 / 0.4,"147, 125-131",Cloud Run + Agent Engine + Vertex AI tilt but model-agnostic
+0,General,Hosting-platform lock-in,agno,reports/agno.md,Section 0.10 / 0.8,"137, 124-126",Just a Python process running uvicorn
+0,General,Hosting-platform lock-in,autoagents,reports/autoagents.md,Section 0.10,138,Runs anywhere Rust runs; embeddable in any binary
+0,General,Hosting-platform lock-in,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Section 0.10,129,Pure library deploys anywhere but bundled binary required
+0,General,Hosting-platform lock-in,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,Section 0.6,184-186,Self-host low; claude.ai bridge high; binaries 200-233MB
+0,General,Hosting-platform lock-in,crewai,reports/crewai.md,Section 0.10,173-175,OSS none; AMP heavy
+0,General,Hosting-platform lock-in,eino,reports/eino.md,Section 0.6,157-161,Library only; deploy wherever Go runs
+0,General,Hosting-platform lock-in,genkit-go,reports/genkit-go.md,Section 0.6,171-173,Samples target Cloud Run; telemetry plugin GCP-only
+0,General,Hosting-platform lock-in,langgraph,reports/langgraph.md,Section 0.10,129-132,OSS requires BYO HTTP/queue/auth; Platform paid
+0,General,Hosting-platform lock-in,llamaindex,reports/llamaindex.md,Section 0.10,119-120,None for OSS framework; llama_deploy is OSS too
+0,General,Hosting-platform lock-in,mastra,reports/mastra.md,Section 0.10,145-146,Deployers for Vercel/Netlify/Cloudflare/Mastra Cloud
+0,General,Hosting-platform lock-in,microsoft-agent-framework,reports/microsoft-agent-framework.md,Section 0.10,131,Azure first-class but no hard dependency
+0,General,Hosting-platform lock-in,openai-agents-python,reports/openai-agents-python.md,Section 0.6,106,None; library-only; any container/cloud/laptop
+0,General,Hosting-platform lock-in,openai-agents-js,reports/openai-agents-js.md,Section 0.10,150,Library-only; runs Node/Deno/Bun; Cloudflare experimental
+0,General,Hosting-platform lock-in,pydantic-ai,reports/pydantic-ai.md,Section 0.10,94-97,None; library runs anywhere Python runs
+0,General,Hosting-platform lock-in,rig,reports/rig.md,Section 0.10,124,None; runs anywhere Rust runs; WASM-compatible
+0,General,Hosting-platform lock-in,strands-agents-python,reports/strands-agents-python.md,Section 0.10,94,Low hosting lock-in; pure Python
+0,General,Hosting-platform lock-in,strands-agents-typescript,reports/strands-agents-typescript.md,Section 0.10,124-126,Pure library; Node 20+ browser-tested
+0,General,Hosting-platform lock-in,vercel-ai,reports/vercel-ai.md,Section 0.10,156-158,Library-only; Vercel hosting optional

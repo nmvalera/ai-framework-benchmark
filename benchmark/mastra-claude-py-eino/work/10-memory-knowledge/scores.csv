@@ -1,0 +1,10 @@
+section_order,section,row,framework_id,score,note
+10,Memory & Knowledge,Long-term memory / semantic recall,mastra,5,semantic memory
+10,Memory & Knowledge,Long-term memory / semantic recall,claude-agent-sdk-python,2,CLAUDE.md/memory tool
+10,Memory & Knowledge,Long-term memory / semantic recall,eino,1,not bundled
+10,Memory & Knowledge,RAG / knowledge retrieval integration,mastra,5,RAG package/adapters
+10,Memory & Knowledge,RAG / knowledge retrieval integration,claude-agent-sdk-python,1,BYO tools/MCP
+10,Memory & Knowledge,RAG / knowledge retrieval integration,eino,4,retriever adapters
+10,Memory & Knowledge,Per-tenant memory scoping,mastra,5,resource scoped memory
+10,Memory & Knowledge,Per-tenant memory scoping,claude-agent-sdk-python,1,filesystem BYO
+10,Memory & Knowledge,Per-tenant memory scoping,eino,2,namespace BYO

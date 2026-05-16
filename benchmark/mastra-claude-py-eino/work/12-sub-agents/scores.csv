@@ -1,0 +1,19 @@
+section_order,section,row,framework_id,score,note
+12,Sub-agents,Sub-agent invocation mechanism,mastra,5,first-class delegation
+12,Sub-agents,Sub-agent invocation mechanism,claude-agent-sdk-python,5,Task subagents
+12,Sub-agents,Sub-agent invocation mechanism,eino,5,workflow/agent-tool
+12,Sub-agents,Sub-agent invocation (parallel),mastra,5,workflow parallelism
+12,Sub-agents,Sub-agent invocation (parallel),claude-agent-sdk-python,5,Task fan-out
+12,Sub-agents,Sub-agent invocation (parallel),eino,5,WaitGroup parallel
+12,Sub-agents,Runtime-generated sub-agent configs,mastra,3,mostly registered config
+12,Sub-agents,Runtime-generated sub-agent configs,claude-agent-sdk-python,4,inline AgentDefinition
+12,Sub-agents,Runtime-generated sub-agent configs,eino,3,static structs
+12,Sub-agents,Sub-agent context isolation,mastra,5,parent-memory isolation
+12,Sub-agents,Sub-agent context isolation,claude-agent-sdk-python,5,isolated Task context
+12,Sub-agents,Sub-agent context isolation,eino,4,forked run context
+12,Sub-agents,Sub-agent output handling,mastra,4,structured/tool result
+12,Sub-agents,Sub-agent output handling,claude-agent-sdk-python,4,Task result messages
+12,Sub-agents,Sub-agent output handling,eino,4,agent event/result
+12,Sub-agents,Sub-agent lifecycle events,mastra,4,delegation events
+12,Sub-agents,Sub-agent lifecycle events,claude-agent-sdk-python,5,SubagentStart/Stop
+12,Sub-agents,Sub-agent lifecycle events,eino,4,workflow events

@@ -41,7 +41,7 @@ Artifact roles:
 
 - `data/taxonomy.csv` — copy of `references/taxonomy.csv`; section/row order, user-facing legends, and scoring guidance.
 - `data/frameworks.csv` — one row per framework in scope.
-- `data/scores.csv` — canonical merged score and note cells.
+- `data/scores.csv` — canonical merged score, short cell note, and longer details cells.
 - `data/evidence.csv` — canonical merged evidence references and caveats.
 - `work/*/scores.csv` and `work/*/evidence.csv` — per-category worker outputs; keep these for audit/debug.
 - `benchmark.md` — concise executive summary for GitHub and slide preparation, derived from the CSVs.
@@ -70,7 +70,7 @@ CSV columns:
 
 1. Create `<OUTPUT_DIR>/data/` and `<OUTPUT_DIR>/work/`.
 2. Copy `references/taxonomy.csv` to `<OUTPUT_DIR>/data/taxonomy.csv`.
-3. List all reports in `REPORTS_DIR` and write `<OUTPUT_DIR>/data/frameworks.csv`.
+3. Resolve frameworks in scope and write `<OUTPUT_DIR>/data/frameworks.csv`.
 4. Load taxonomy sections with `scripts/load_taxonomy.py --list-sections`.
 5. Spawn one `score-benchmark-category` worker per taxonomy section in scope.
 6. Give each worker:
@@ -97,6 +97,13 @@ framework_id,label,language,report_path,repo_url,commit,branch,studied_date,note
 
 Use stable lowercase `framework_id` values such as `langgraph`, `mastra`, `openai-agents-python`.
 
+If the user names specific frameworks, treat that as a hard framework focus:
+
+- include only those framework reports;
+- pass only those frameworks to `score-benchmark-category`;
+- do not include other reports in `frameworks.csv`, `scores.csv`, `evidence.csv`, or `benchmark.md`;
+- if a requested framework report is missing, stop and report the missing file instead of silently substituting another framework.
+
 ## Merge Rules
 
 - Read category files only after the corresponding worker has completed.
@@ -112,7 +119,7 @@ Use stable lowercase `framework_id` values such as `langgraph`, `mastra`, `opena
 `data/scores.csv`:
 
 ```csv
-section_order,section,row,framework_id,score,note
+section_order,section,row,framework_id,score,note,details
 ```
 
 `data/evidence.csv`:
@@ -126,8 +133,10 @@ Score rules:
 - blank score means not applicable.
 - `?` means applicable but evidence is missing.
 - `0` to `5` means scored.
-- `note` is the short displayed rationale.
+- `note` is the short cell label shown directly in the table.
+- `details` is the longer explanation shown in the details pane; use 3 sentences unless a shorter note is sufficient.
 - Row legends stay in `data/taxonomy.csv`.
+- Some rows are label-only. For those, leave `score` blank and use `note` plus `details` instead. `Stack type` is the main example.
 
 ## Markdown Summary
 
@@ -148,6 +157,12 @@ Score legend:
 - `3`: usable support with meaningful gaps.
 - `4`: strong support with minor gaps.
 - `5`: first-class fit for the benchmark.
+
+Score display:
+
+- Render scores as a 5-segment progress bar in the HTML viewer, not as a plain numeral badge.
+- Leave the bar empty when the cell is label-only or not applicable.
+- Keep the short note visible in the cell and reserve the longer `details` text for the side panel.
 
 ## Rules
 

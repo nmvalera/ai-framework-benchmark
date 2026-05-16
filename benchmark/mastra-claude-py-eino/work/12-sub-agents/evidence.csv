@@ -1,0 +1,19 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+12,Sub-agents,Sub-agent invocation mechanism,mastra,reports/mastra.md,Q7 Sub-agents,945,first-class delegation
+12,Sub-agents,Sub-agent invocation mechanism,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,Task subagents
+12,Sub-agents,Sub-agent invocation mechanism,eino,reports/eino.md,Q7 Sub-agents,1356,workflow/agent-tool
+12,Sub-agents,Sub-agent invocation (parallel),mastra,reports/mastra.md,Q7 Sub-agents,945,workflow parallelism
+12,Sub-agents,Sub-agent invocation (parallel),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,Task fan-out
+12,Sub-agents,Sub-agent invocation (parallel),eino,reports/eino.md,Q7 Sub-agents,1356,WaitGroup parallel
+12,Sub-agents,Runtime-generated sub-agent configs,mastra,reports/mastra.md,Q7 Sub-agents,945,mostly registered config
+12,Sub-agents,Runtime-generated sub-agent configs,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,inline AgentDefinition
+12,Sub-agents,Runtime-generated sub-agent configs,eino,reports/eino.md,Q7 Sub-agents,1356,static structs
+12,Sub-agents,Sub-agent context isolation,mastra,reports/mastra.md,Q7 Sub-agents,945,parent-memory isolation
+12,Sub-agents,Sub-agent context isolation,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,isolated Task context
+12,Sub-agents,Sub-agent context isolation,eino,reports/eino.md,Q7 Sub-agents,1356,forked run context
+12,Sub-agents,Sub-agent output handling,mastra,reports/mastra.md,Q7 Sub-agents,945,structured/tool result
+12,Sub-agents,Sub-agent output handling,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,Task result messages
+12,Sub-agents,Sub-agent output handling,eino,reports/eino.md,Q7 Sub-agents,1356,agent event/result
+12,Sub-agents,Sub-agent lifecycle events,mastra,reports/mastra.md,Q7 Sub-agents,945,delegation events
+12,Sub-agents,Sub-agent lifecycle events,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,SubagentStart/Stop
+12,Sub-agents,Sub-agent lifecycle events,eino,reports/eino.md,Q7 Sub-agents,1356,workflow events

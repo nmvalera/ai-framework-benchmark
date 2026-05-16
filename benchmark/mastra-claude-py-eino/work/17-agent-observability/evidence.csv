@@ -1,0 +1,13 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+17,Agent Observability,LLM / tool tracing,mastra,reports/mastra.md,Q10 Observability,1312,OTel/dashboard spans
+17,Agent Observability,LLM / tool tracing,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,OTel propagated
+17,Agent Observability,LLM / tool tracing,eino,reports/eino.md,Q10 Observability,1762,callbacks/exporters
+17,Agent Observability,Token & cost tracking,mastra,reports/mastra.md,Q10 Observability,1312,tokens yes cost BYO
+17,Agent Observability,Token & cost tracking,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,tokens and USD
+17,Agent Observability,Token & cost tracking,eino,reports/eino.md,Q10 Observability,1762,"tokens, cost BYO"
+17,Agent Observability,Per-tenant / per-conversation cost,mastra,reports/mastra.md,Q10 Observability,1312,metadata aggregation
+17,Agent Observability,Per-tenant / per-conversation cost,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,SessionKey aggregation
+17,Agent Observability,Per-tenant / per-conversation cost,eino,reports/eino.md,Q10 Observability,1762,rollup BYO
+17,Agent Observability,Audit logging (who/when/what),mastra,reports/mastra.md,Q10 Observability,1312,traces/RBAC logs
+17,Agent Observability,Audit logging (who/when/what),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,"hooks, sink BYO"
+17,Agent Observability,Audit logging (who/when/what),eino,reports/eino.md,Q10 Observability,1762,callbacks only

@@ -1,0 +1,4 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+21,Operations,Health checks / graceful shutdown,mastra,reports/mastra.md,Q6.11 Operations,904,server health routes
+21,Operations,Health checks / graceful shutdown,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6.11 Operations,1060,server BYO
+21,Operations,Health checks / graceful shutdown,eino,reports/eino.md,Q6.11 Operations,1315,server BYO

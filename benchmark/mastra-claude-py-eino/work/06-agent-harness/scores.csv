@@ -1,0 +1,16 @@
+section_order,section,row,framework_id,score,note
+6,Agent Harness,Run loop entrypoint,mastra,5,agent.stream/generate
+6,Agent Harness,Run loop entrypoint,claude-agent-sdk-python,4,query/client API
+6,Agent Harness,Run loop entrypoint,eino,5,Runner.Query/Run
+6,Agent Harness,ReAct loop,mastra,5,native workflow loop
+6,Agent Harness,ReAct loop,claude-agent-sdk-python,5,CLI native loop
+6,Agent Harness,ReAct loop,eino,5,ChatModelAgent loop
+6,Agent Harness,Tool dispatch + result handling,mastra,5,workflow tool steps
+6,Agent Harness,Tool dispatch + result handling,claude-agent-sdk-python,5,CLI tool dispatch
+6,Agent Harness,Tool dispatch + result handling,eino,5,ToolsNode dispatch
+6,Agent Harness,Explicit turn concept,mastra,4,step loop boundaries
+6,Agent Harness,Explicit turn concept,claude-agent-sdk-python,4,CLI message turns
+6,Agent Harness,Explicit turn concept,eino,3,implicit graph branch
+6,Agent Harness,In-process event emission,mastra,5,fullStream/events
+6,Agent Harness,In-process event emission,claude-agent-sdk-python,4,Python frame router
+6,Agent Harness,In-process event emission,eino,5,AsyncIterator events

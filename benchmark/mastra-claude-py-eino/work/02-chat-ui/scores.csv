@@ -1,0 +1,10 @@
+section_order,section,row,framework_id,score,note
+2,Chat UI,Streaming chat hook,mastra,5,useChat/playground support
+2,Chat UI,Streaming chat hook,claude-agent-sdk-python,0,frontend BYO
+2,Chat UI,Streaming chat hook,eino,0,frontend BYO
+2,Chat UI,Tool call rendering primitives,mastra,5,AI SDK message parts
+2,Chat UI,Tool call rendering primitives,claude-agent-sdk-python,0,frontend BYO
+2,Chat UI,Tool call rendering primitives,eino,0,frontend BYO
+2,Chat UI,Generative UI components,mastra,3,limited rich UI
+2,Chat UI,Generative UI components,claude-agent-sdk-python,0,none shipped
+2,Chat UI,Generative UI components,eino,0,none shipped

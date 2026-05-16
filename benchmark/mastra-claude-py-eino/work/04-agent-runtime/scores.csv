@@ -1,0 +1,13 @@
+section_order,section,row,framework_id,score,note
+4,Agent Runtime,Concurrent session isolation,mastra,4,thread/resource scoped
+4,Agent Runtime,Concurrent session isolation,claude-agent-sdk-python,3,subprocess/session scoped
+4,Agent Runtime,Concurrent session isolation,eino,4,run contexts
+4,Agent Runtime,Horizontal scaling / multi-instance,mastra,4,shared storage adapters
+4,Agent Runtime,Horizontal scaling / multi-instance,claude-agent-sdk-python,2,"store helps, CLI per run"
+4,Agent Runtime,Horizontal scaling / multi-instance,eino,2,BYO persistence
+4,Agent Runtime,Background / async / scheduled tasks,mastra,5,scheduler/background tasks
+4,Agent Runtime,Background / async / scheduled tasks,claude-agent-sdk-python,4,background task support
+4,Agent Runtime,Background / async / scheduled tasks,eino,1,scheduler BYO
+4,Agent Runtime,Worker pool / queue model,mastra,4,workflow/scheduler runtime
+4,Agent Runtime,Worker pool / queue model,claude-agent-sdk-python,1,queue BYO
+4,Agent Runtime,Worker pool / queue model,eino,1,queue BYO

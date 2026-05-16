@@ -1,0 +1,16 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+7,Message & Event Taxonomy,Message layers,mastra,reports/mastra.md,Q1 Message & event taxonomy,247,UI/model/runtime layers
+7,Message & Event Taxonomy,Message layers,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Message & event taxonomy,274,typed layers
+7,Message & Event Taxonomy,Message layers,eino,reports/eino.md,Q1 Message & event taxonomy,398,schema/events layers
+7,Message & Event Taxonomy,Messages vs events,mastra,reports/mastra.md,Q1 Message & event taxonomy,247,distinct chunk stream
+7,Message & Event Taxonomy,Messages vs events,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Message & event taxonomy,274,messages plus hooks
+7,Message & Event Taxonomy,Messages vs events,eino,reports/eino.md,Q1 Message & event taxonomy,398,messages plus events
+7,Message & Event Taxonomy,Concrete message/event types,mastra,reports/mastra.md,Q1 Message & event taxonomy,247,ChunkType taxonomy
+7,Message & Event Taxonomy,Concrete message/event types,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Message & event taxonomy,274,typed dataclasses
+7,Message & Event Taxonomy,Concrete message/event types,eino,reports/eino.md,Q1 Message & event taxonomy,398,AgentEvent types
+7,Message & Event Taxonomy,Live agentic event stream taxonomy,mastra,reports/mastra.md,Q1 Message & event taxonomy,247,rich chunk taxonomy
+7,Message & Event Taxonomy,Live agentic event stream taxonomy,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Message & event taxonomy,274,stream-json taxonomy
+7,Message & Event Taxonomy,Live agentic event stream taxonomy,eino,reports/eino.md,Q1 Message & event taxonomy,398,AgentEvent taxonomy
+7,Message & Event Taxonomy,Tool-call state reconstruction,mastra,reports/mastra.md,Q1 Message & event taxonomy,247,toolCallId linkage
+7,Message & Event Taxonomy,Tool-call state reconstruction,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Message & event taxonomy,274,tool_use_id linkage
+7,Message & Event Taxonomy,Tool-call state reconstruction,eino,reports/eino.md,Q1 Message & event taxonomy,398,tool-call linkage

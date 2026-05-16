@@ -1,0 +1,20 @@
+framework_id,label,language,report_path,repo_url,commit,branch,studied_date,notes
+adk-go,ADK Go,go,reports/adk-go.md,https://github.com/google/adk-go,3f835cd3ba3ed801d36a68bfac16e35e125aea17,main,2026-05-16,Google ADK Go-native in-process loop with bundled REST+SSE+WS+A2A server
+agno,Agno Python,python,reports/agno.md,https://github.com/agno-agi/agno,bb7ddb05ba5163209dc426b2809a673d97755476,main,2026-05-16,agno==2.6.7
+autoagents,AutoAgents Rust,rust,reports/autoagents.md,https://github.com/liquidos-ai/AutoAgents,57ebeaa4e18989909013ebd58351b3ef6a5586e0,main,2026-05-16,Rust in-process library; optional ractor-based actor runtime
+claude-agent-sdk-python,Claude Agent SDK Python,python,reports/claude-agent-sdk-python.md,https://github.com/anthropics/claude-agent-sdk-python,c352a509929a712de65637cbafafcc3a1e3ba4f6,main,2026-05-16,0.2.82 facade over bundled Claude Code Node CLI 2.1.143
+claude-agent-sdk-typescript,Claude Agent SDK TypeScript,typescript,reports/claude-agent-sdk-typescript.md,https://github.com/anthropics/claude-agent-sdk-typescript,fa5d004c65b6a173ee3eba3f67336a1e8039576a,main,2026-05-16,@anthropic-ai/claude-agent-sdk@0.3.143 over Claude Code 2.1.143
+crewai,CrewAI Python,python,reports/crewai.md,https://github.com/crewAIInc/crewAI,a95d26763f4766b1a4f7c19c039133d1202dbdaa,main,2026-05-16,crewai 1.14.5a6; default AgentExecutor is experimental Flow
+eino,Eino Go,go,reports/eino.md,https://github.com/cloudwego/eino,5e1305506c4fa89ef5d786035a947258e29a7593,main,2026-05-16,Multi-repo: eino + eino-ext (176d453b133a7b4c8c337450aba744d1e0ab38b7)
+genkit-go,Genkit Go,go,reports/genkit-go.md,https://github.com/firebase/genkit,0defbfc612f92caae5a7df7ed2754226e8db738e,main,2026-05-16,Firebase Genkit Go SDK in go/ subdir
+langgraph,LangGraph Python,python,reports/langgraph.md,https://github.com/langchain-ai/langgraph,076e2a3627206f5a1aef573aaca4a01e5af897ca,main,2026-05-16,langgraph 1.2.0; HTTP server is closed-source paid platform
+llamaindex,LlamaIndex Python,python,reports/llamaindex.md,https://github.com/run-llama/llama_index,23bd65aaf79ffed587af35f325738b1580b35dea,main,2026-05-16,llama-index-core 0.14.22; agents are Workflow event-graph
+mastra,Mastra TypeScript,typescript,reports/mastra.md,https://github.com/mastra-ai/mastra,318b0279b8d1cc36ecd5280db209e00b6e119e2e,main,2026-05-16,@mastra/core@1.36.0-alpha.0
+microsoft-agent-framework,Microsoft Agent Framework,python/dotnet,reports/microsoft-agent-framework.md,https://github.com/microsoft/agent-framework,a60e541c9ac53e9cd944986cafd5b044d8d004d0,main,2026-05-16,Dual Python+.NET; converges Semantic Kernel + AutoGen
+openai-agents-python,OpenAI Agents Python,python,reports/openai-agents-python.md,https://github.com/openai/openai-agents-python,4bd459e403ac826c87b17fef8ffcbdf42a70b09a,main,2026-05-16,openai-agents 0.17.2
+openai-agents-js,OpenAI Agents TypeScript,typescript,reports/openai-agents-js.md,https://github.com/openai/openai-agents-js,629d35af99e1ba80fc968b0d062c070caed0683d,main,2026-05-16,@openai/agents 0.11.4
+pydantic-ai,Pydantic AI,python,reports/pydantic-ai.md,https://github.com/pydantic/pydantic-ai,206453a0c6c10ff90f1f8ec881458b38ca7e4b36,main,2026-05-16,pydantic-ai v1; pydantic_graph state machine
+rig,Rig Rust,rust,reports/rig.md,https://github.com/0xPlaygrounds/rig,f77a5819ec2a71e98583480a68a341f816a75c8a,main,2026-05-16,rig-core v0.37.0
+strands-agents-python,Strands Agents Python,python,reports/strands-agents-python.md,https://github.com/strands-agents/sdk-python,1232230daa4385fd6470be29013eb2375d7a307c,main,2026-05-16,Multi-repo: sdk-python + tools (1cff7dd536da108595ff7ded0836ec4f93928468)
+strands-agents-typescript,Strands Agents TypeScript,typescript,reports/strands-agents-typescript.md,https://github.com/strands-agents/sdk-typescript,6a95bb5c4ffe0bb4e9969eefa8ccc38ba19193b6,main,2026-05-16,@strands-agents/sdk
+vercel-ai,Vercel AI SDK TypeScript,typescript,reports/vercel-ai.md,https://github.com/vercel/ai,aa5a1e539643c2a7162a141502eee63c665a9544,main,2026-05-16,ai@7.0.0-canary.142; v7-canary ToolLoopAgent

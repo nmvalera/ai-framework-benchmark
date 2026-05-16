@@ -1,0 +1,16 @@
+section_order,section,row,framework_id,score,note
+14,Tools,"Built-in tools (web search, file ops, exec)",mastra,3,some primitives
+14,Tools,"Built-in tools (web search, file ops, exec)",claude-agent-sdk-python,5,Claude Code tools
+14,Tools,"Built-in tools (web search, file ops, exec)",eino,4,eino-ext tools
+14,Tools,Built-in tool quality,mastra,3,mostly wrappers
+14,Tools,Built-in tool quality,claude-agent-sdk-python,5,agent-aware tools
+14,Tools,Built-in tool quality,eino,4,solid Go adapters
+14,Tools,Tool authoring API,mastra,5,createTool typed
+14,Tools,Tool authoring API,claude-agent-sdk-python,4,@tool decorator
+14,Tools,Tool authoring API,eino,5,typed Go tools
+14,Tools,Typed tool I/O validation,mastra,5,Zod/schema validation
+14,Tools,Typed tool I/O validation,claude-agent-sdk-python,4,typed MCP/tools
+14,Tools,Typed tool I/O validation,eino,5,JSON schema structs
+14,Tools,Streaming tools,mastra,3,partial support
+14,Tools,Streaming tools,claude-agent-sdk-python,3,tool events only
+14,Tools,Streaming tools,eino,4,streamable tools

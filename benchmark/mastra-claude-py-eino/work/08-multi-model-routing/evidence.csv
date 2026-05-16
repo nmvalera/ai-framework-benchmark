@@ -1,0 +1,10 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+8,Multi-model Routing,Multi-model routing / fallback,mastra,reports/mastra.md,Q13 Multi-model Routing,1510,router/fallback chains
+8,Multi-model Routing,Multi-model routing / fallback,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q13 Multi-model Routing,1642,model/fallback controls
+8,Multi-model Routing,Multi-model routing / fallback,eino,reports/eino.md,Q13 Multi-model Routing,1982,manual middleware
+8,Multi-model Routing,Per-task model selection,mastra,reports/mastra.md,Q13 Multi-model Routing,1510,per-step model swap
+8,Multi-model Routing,Per-task model selection,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q13 Multi-model Routing,1642,set_model/subagent options
+8,Multi-model Routing,Per-task model selection,eino,reports/eino.md,Q13 Multi-model Routing,1982,agent/model composition
+8,Multi-model Routing,Sub-agent model override,mastra,reports/mastra.md,Q13 Multi-model Routing,1510,child model override
+8,Multi-model Routing,Sub-agent model override,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q13 Multi-model Routing,1642,AgentDefinition model
+8,Multi-model Routing,Sub-agent model override,eino,reports/eino.md,Q13 Multi-model Routing,1982,construct child model

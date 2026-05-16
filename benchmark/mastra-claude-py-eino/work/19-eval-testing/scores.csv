@@ -1,0 +1,10 @@
+section_order,section,row,framework_id,score,note
+19,Eval / testing,Golden datasets / regression suites,mastra,5,native eval datasets
+19,Eval / testing,Golden datasets / regression suites,claude-agent-sdk-python,2,separate eval product
+19,Eval / testing,Golden datasets / regression suites,eino,0,not provided
+19,Eval / testing,LLM-as-judge scoring,mastra,5,scorers built in
+19,Eval / testing,LLM-as-judge scoring,claude-agent-sdk-python,2,external evals
+19,Eval / testing,LLM-as-judge scoring,eino,0,not provided
+19,Eval / testing,CI eval gates / pre-merge,mastra,4,runEvals/Vitest
+19,Eval / testing,CI eval gates / pre-merge,claude-agent-sdk-python,1,DIY CI
+19,Eval / testing,CI eval gates / pre-merge,eino,0,not provided

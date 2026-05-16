@@ -1,0 +1,58 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+19,Eval / testing,Golden datasets / regression suites,adk-go,reports/adk-go.md,17.1,2218-2242,Eval REST routes stubbed via controllers.Unimplemented (HTTP 501); eval framework is Python-only.
+19,Eval / testing,Golden datasets / regression suites,agno,reports/agno.md,17.1,1642-1646,AccuracyEval/PerformanceEval/ReliabilityEval/AgentAsJudge classes; results persisted to agno_evals table.
+19,Eval / testing,Golden datasets / regression suites,autoagents,reports/autoagents.md,17.1,1321-1322,'Not provided — BYO'.
+19,Eval / testing,Golden datasets / regression suites,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,17.1,1739-1741,Red: not provided.
+19,Eval / testing,Golden datasets / regression suites,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,17.1,2074-2078,No golden-dataset format/harness; only SessionStore conformance suite.
+19,Eval / testing,Golden datasets / regression suites,crewai,reports/crewai.md,17.1,2270-2281,`crewai test` + CrewEvaluator score outputs but there is no dataset format.
+19,Eval / testing,Golden datasets / regression suites,eino,reports/eino.md,17.1,2123-2125,No Dataset/Evaluator/EvalRun; BYO with Go testing package.
+19,Eval / testing,Golden datasets / regression suites,genkit-go,reports/genkit-go.md,17.1,2043-2064,Evaluator + Example types in go/ai/evaluator.go; datasets via Genkit CLI; built-in DeepEqual/Regex/Jsonata evaluators.
+19,Eval / testing,Golden datasets / regression suites,langgraph,reports/langgraph.md,17.1,1550-1552,'Not in this repo'; LangSmith (paid) ships datasets/evaluators; BYO pytest locally.
+19,Eval / testing,Golden datasets / regression suites,llamaindex,reports/llamaindex.md,17.1,1328-1334,Built-in evaluation primitives + BatchEvalRunner + RagDatasetGenerator/LabelledRagDataset; heavily RAG-oriented.
+19,Eval / testing,Golden datasets / regression suites,mastra,reports/mastra.md,17.1,1613-1625,Dataset types in packages/core/src/datasets/; storage/domains/datasets/ persists; runEvals orchestrator in packages/core/src/evals/run/index.ts:57-119.
+19,Eval / testing,Golden datasets / regression suites,microsoft-agent-framework,reports/microsoft-agent-framework.md,17.1,1415-1419,_evaluation.py (1941 lines, @experimental EVALS); EvalItem + LocalEvaluator + evaluate_agent/workflow/traces/foundry_target.
+19,Eval / testing,Golden datasets / regression suites,openai-agents-python,reports/openai-agents-python.md,17.1,1634-1635,Red: not first-party; pointer to Braintrust/Phoenix/Langfuse/LangSmith partners.
+19,Eval / testing,Golden datasets / regression suites,openai-agents-js,reports/openai-agents-js.md,17.1,1391-1393,Repo uses vitest for its own tests; no agent-eval primitive shipped.
+19,Eval / testing,Golden datasets / regression suites,pydantic-ai,reports/pydantic-ai.md,17.1,1046-1051,pydantic-evals package: Dataset/Case JSON/YAML; evaluators/ with llm_judge; online.py; reports/ + otel/.
+19,Eval / testing,Golden datasets / regression suites,rig,reports/rig.md,17.1,1463-1470,crates/rig-core/src/evals.rs (experimental feature) with Eval trait + EvalOutcome; primitive only no dataset format.
+19,Eval / testing,Golden datasets / regression suites,strands-agents-python,reports/strands-agents-python.md,17.1,970,'Not provided. Standard pytest used internally; no built-in eval harness.'
+19,Eval / testing,Golden datasets / regression suites,strands-agents-typescript,reports/strands-agents-typescript.md,17.1,1506-1508,'Not provided — BYO'. No dataset format / runner for agent-behavior regression.
+19,Eval / testing,Golden datasets / regression suites,vercel-ai,reports/vercel-ai.md,17.1,1616-1618,'Not provided — BYO'. @ai-sdk/test-server mocks providers; eval harnesses are external.
+19,Eval / testing,LLM-as-judge scoring,adk-go,reports/adk-go.md,17.2,2244-2246,'Not provided — BYO'. No first-party rubric/scorer/judge classifier.
+19,Eval / testing,LLM-as-judge scoring,agno,reports/agno.md,17.2,1648-1650,AccuracyEval uses LLM (default the agent's model) to score 1–10 vs expected_output with reasoning; agno/eval/accuracy.py:24-58.
+19,Eval / testing,LLM-as-judge scoring,autoagents,reports/autoagents.md,17.2,1324-1325,'Not provided — BYO'; evaluator/parallel.rs is internal parallelism.
+19,Eval / testing,LLM-as-judge scoring,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,17.2,1743-1745,Red: not provided.
+19,Eval / testing,LLM-as-judge scoring,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,17.2,2080-2082,'Not provided — BYO'. No first-party LLM-as-judge primitive.
+19,Eval / testing,LLM-as-judge scoring,crewai,reports/crewai.md,17.2,2283-2287,CrewEvaluator spawns Agent(role='Task Execution Evaluator') with hardcoded 1–10 rubric; Patronus/AMP for richer scoring.
+19,Eval / testing,LLM-as-judge scoring,eino,reports/eino.md,17.2,2127-2129,'Not provided — BYO'. Write own function calling LLM with rubric prompt.
+19,Eval / testing,LLM-as-judge scoring,genkit-go,reports/genkit-go.md,17.2,2066-2082,BYO via DefineEvaluator calling genkit.Generate with a judge prompt and returning Score; no first-party LLM judge in Go (JS has them).
+19,Eval / testing,LLM-as-judge scoring,langgraph,reports/langgraph.md,17.2,1554-1556,'Not in this repo'; langchain load_evaluator separately packaged; LangSmith (paid) hosts LLM-judges.
+19,Eval / testing,LLM-as-judge scoring,llamaindex,reports/llamaindex.md,17.2,1336-1338,Each evaluator (Relevancy/Faithfulness/Correctness/Guideline/etc.) uses LLM as judge against a rubric.
+19,Eval / testing,LLM-as-judge scoring,mastra,reports/mastra.md,17.2,1627-1631,createScorer({…}).generateScore supports code-based and LLM-based scorers; scorers can be wired into the loop via isTaskComplete.
+19,Eval / testing,LLM-as-judge scoring,microsoft-agent-framework,reports/microsoft-agent-framework.md,17.2,1421-1423,Evaluator protocol (_evaluation.py:507) supports pre-built checks and custom LLM-judge functions.
+19,Eval / testing,LLM-as-judge scoring,openai-agents-python,reports/openai-agents-python.md,17.2,1637-1638,Red: 'Not first-party. Example pattern in examples/agent_patterns/llm_as_a_judge.py'.
+19,Eval / testing,LLM-as-judge scoring,openai-agents-js,reports/openai-agents-js.md,17.2,1395-1397,'Not provided in the SDK'; examples/agent-patterns/llm-as-a-judge.ts shows pattern.
+19,Eval / testing,LLM-as-judge scoring,pydantic-ai,reports/pydantic-ai.md,17.2,1053-1054,pydantic_evals.evaluators.llm_judge built-in (docs/evals/evaluators/llm-judge.md).
+19,Eval / testing,LLM-as-judge scoring,rig,reports/rig.md,17.2,1472-1474,Eval trait + Extractor pattern (crates/rig-core/src/extractor.rs:31-80); implement Eval for struct wrapping Extractor<M,YourRubric>.
+19,Eval / testing,LLM-as-judge scoring,strands-agents-python,reports/strands-agents-python.md,17.2,972,'Not provided — BYO'.
+19,Eval / testing,LLM-as-judge scoring,strands-agents-typescript,reports/strands-agents-typescript.md,17.2,1510-1512,'Not provided'.
+19,Eval / testing,LLM-as-judge scoring,vercel-ai,reports/vercel-ai.md,17.2,1620-1622,'Not provided — BYO'. Compose with generateObject({model: judgeModel, schema, prompt}).
+19,Eval / testing,CI eval gates / pre-merge,adk-go,reports/adk-go.md,17.3,2248-2250,'Not provided — BYO'. replayplugin is internal-only conformance replay primitive.
+19,Eval / testing,CI eval gates / pre-merge,agno,reports/agno.md,17.3,1652-1654,No first-party pre-merge gate CLI; pytest assert pattern: run eval.run()/eval.arun() and assert score >= threshold.
+19,Eval / testing,CI eval gates / pre-merge,autoagents,reports/autoagents.md,17.3,1327-1328,'Not provided — BYO'. Standard cargo test --features full --workspace; no agent-behavior CI gates.
+19,Eval / testing,CI eval gates / pre-merge,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,17.3,1747-1749,Red: not provided.
+19,Eval / testing,CI eval gates / pre-merge,claude-agent-sdk-typescript,reports/claude-agent-sdk-typescript.md,17.3,2084-2086,'Not provided — BYO'. Build with own eval harness over query().
+19,Eval / testing,CI eval gates / pre-merge,crewai,reports/crewai.md,17.3,2289-2293,'Not provided in OSS'. crewai test prints scores but exit 0 if no exception; no threshold-fail. AMP not documented CI integration.
+19,Eval / testing,CI eval gates / pre-merge,eino,reports/eino.md,17.3,2131-2133,'Not provided'. Pattern: run agent against fixture set in CI, assert outputs match or judge-score, block PR.
+19,Eval / testing,CI eval gates / pre-merge,genkit-go,reports/genkit-go.md,17.3,2084-2086,'Not shipped first-party'; recommended pattern is `genkit eval:run` JS CLI in CI reading JSON dataset and asserting on scores.
+19,Eval / testing,CI eval gates / pre-merge,langgraph,reports/langgraph.md,17.3,1558-1560,'Not provided — BYO'. Typical pattern: pytest job runs graph.invoke() against golden datasets and blocks merge on regression.
+19,Eval / testing,CI eval gates / pre-merge,llamaindex,reports/llamaindex.md,17.3,1340-1342,'Not provided — BYO. You wire BatchEvalRunner into your CI.'
+19,Eval / testing,CI eval gates / pre-merge,mastra,reports/mastra.md,17.3,1633-1635,runEvals runs cleanly inside Vitest it(); pattern documented; eval results persist in storage backend for trend dashboards.
+19,Eval / testing,CI eval gates / pre-merge,microsoft-agent-framework,reports/microsoft-agent-framework.md,17.3,1425-1427,'Not packaged — you wire it yourself into your CI (run evaluate_agent and fail on score). FoundryEvals provides managed-service alternative.'
+19,Eval / testing,CI eval gates / pre-merge,openai-agents-python,reports/openai-agents-python.md,17.3,1640-1641,Red: 'BYO'.
+19,Eval / testing,CI eval gates / pre-merge,openai-agents-js,reports/openai-agents-js.md,17.3,1399-1401,'Not provided'.
+19,Eval / testing,CI eval gates / pre-merge,pydantic-ai,reports/pydantic-ai.md,17.3,1056-1057,Datasets run under pytest; framework's own suite uses inline-snapshot + pytest-recording + vcrpy (AGENTS.md:107-115); pattern documented for CI.
+19,Eval / testing,CI eval gates / pre-merge,rig,reports/rig.md,17.3,1476-1478,'Not provided as a turnkey CI gate'. Write a cargo test that calls eval_batch(...) and asserts.
+19,Eval / testing,CI eval gates / pre-merge,strands-agents-python,reports/strands-agents-python.md,17.3,974,'Not provided — BYO'.
+19,Eval / testing,CI eval gates / pre-merge,strands-agents-typescript,reports/strands-agents-typescript.md,17.3,1514-1516,'Not provided'.
+19,Eval / testing,CI eval gates / pre-merge,vercel-ai,reports/vercel-ai.md,17.3,1624-1626,'Not provided — BYO. Eval is your CI's responsibility.'

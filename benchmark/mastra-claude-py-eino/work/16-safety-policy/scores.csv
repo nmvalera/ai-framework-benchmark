@@ -1,0 +1,13 @@
+section_order,section,row,framework_id,score,note
+16,Safety & Policy,"Guardrails (input/output, PII, injection)",mastra,5,processors/scorers
+16,Safety & Policy,"Guardrails (input/output, PII, injection)",claude-agent-sdk-python,3,"hooks, no detectors"
+16,Safety & Policy,"Guardrails (input/output, PII, injection)",eino,1,guardrails BYO
+16,Safety & Policy,Tool sandboxing / permission model,mastra,3,activeTools/RBAC
+16,Safety & Policy,Tool sandboxing / permission model,claude-agent-sdk-python,5,permissions/sandbox
+16,Safety & Policy,Tool sandboxing / permission model,eino,2,middleware allowlists
+16,Safety & Policy,Sandbox provider integrations,mastra,2,limited integrations
+16,Safety & Policy,Sandbox provider integrations,claude-agent-sdk-python,4,Claude sandbox/tools
+16,Safety & Policy,Sandbox provider integrations,eino,3,local backend/tools
+16,Safety & Policy,Default-deny vs default-allow posture,mastra,3,config-dependent
+16,Safety & Policy,Default-deny vs default-allow posture,claude-agent-sdk-python,4,permission controls
+16,Safety & Policy,Default-deny vs default-allow posture,eino,2,registered tools callable

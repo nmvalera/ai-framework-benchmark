@@ -1,0 +1,13 @@
+section_order,section,row,framework_id,score,note
+15,MCP,MCP client support,mastra,5,first-class client
+15,MCP,MCP client support,claude-agent-sdk-python,5,first-class client
+15,MCP,MCP client support,eino,4,eino-ext MCP
+15,MCP,MCP server support,mastra,5,first-class server
+15,MCP,MCP server support,claude-agent-sdk-python,5,SdkMcpServer
+15,MCP,MCP server support,eino,3,server via adapters
+15,MCP,MCP transports,mastra,5,HTTP/SSE/stdio
+15,MCP,MCP transports,claude-agent-sdk-python,5,stdio/SSE/HTTP
+15,MCP,MCP transports,eino,4,common transports
+15,MCP,MCP auth / lifecycle,mastra,4,managed lifecycle
+15,MCP,MCP auth / lifecycle,claude-agent-sdk-python,4,strict config/lifecycle
+15,MCP,MCP auth / lifecycle,eino,3,adapter-level

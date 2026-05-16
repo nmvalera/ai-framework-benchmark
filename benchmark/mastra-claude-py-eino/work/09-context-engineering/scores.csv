@@ -1,0 +1,16 @@
+section_order,section,row,framework_id,score,note
+9,Context Engineering,Auto-compaction,mastra,4,memory/processors
+9,Context Engineering,Auto-compaction,claude-agent-sdk-python,4,CLI compaction
+9,Context Engineering,Auto-compaction,eino,3,summarization middleware
+9,Context Engineering,"Hooks (pre/post turn, pre/post tool)",mastra,4,8 processor hooks
+9,Context Engineering,"Hooks (pre/post turn, pre/post tool)",claude-agent-sdk-python,5,10 hook events
+9,Context Engineering,"Hooks (pre/post turn, pre/post tool)",eino,5,middleware layers
+9,Context Engineering,Hook mutation / blocking power,mastra,3,mutate mostly inputs
+9,Context Engineering,Hook mutation / blocking power,claude-agent-sdk-python,5,mutate/block/defer
+9,Context Engineering,Hook mutation / blocking power,eino,5,rewrite/wrap tools
+9,Context Engineering,Prompt cache optimization,mastra,1,manual/BYO
+9,Context Engineering,Prompt cache optimization,claude-agent-sdk-python,5,cache-aware CLI
+9,Context Engineering,Prompt cache optimization,eino,1,manual/BYO
+9,Context Engineering,Tool result clearing / progressive disclosure,mastra,3,workspace/memory patterns
+9,Context Engineering,Tool result clearing / progressive disclosure,claude-agent-sdk-python,5,native disclosure
+9,Context Engineering,Tool result clearing / progressive disclosure,eino,3,middleware workaround

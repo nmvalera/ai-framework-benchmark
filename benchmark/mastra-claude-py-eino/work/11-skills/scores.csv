@@ -1,0 +1,19 @@
+section_order,section,row,framework_id,score,note
+11,Skills,Markdown skill format,mastra,5,SKILL.md first-class
+11,Skills,Markdown skill format,claude-agent-sdk-python,4,filesystem skills
+11,Skills,Markdown skill format,eino,4,SKILL.md middleware
+11,Skills,Skill loader mechanism,mastra,5,workspace/search sources
+11,Skills,Skill loader mechanism,claude-agent-sdk-python,3,filesystem loader
+11,Skills,Skill loader mechanism,eino,4,filesystem/backend
+11,Skills,Skill invocation mechanism,mastra,5,skill search/read tools
+11,Skills,Skill invocation mechanism,claude-agent-sdk-python,4,CLI lazy invocation
+11,Skills,Skill invocation mechanism,eino,4,inline/fork modes
+11,Skills,On-demand skill loading,mastra,5,BM25/vector lazy
+11,Skills,On-demand skill loading,claude-agent-sdk-python,4,CLI lazy load
+11,Skills,On-demand skill loading,eino,4,toolsearch/skill tool
+11,Skills,Scoping (global / tenant / user),mastra,4,resource scoping
+11,Skills,Scoping (global / tenant / user),claude-agent-sdk-python,2,filesystem staging
+11,Skills,Scoping (global / tenant / user),eino,3,backend filtering
+11,Skills,Skill composition,mastra,5,refs/scripts/assets
+11,Skills,Skill composition,claude-agent-sdk-python,3,filesystem bundles
+11,Skills,Skill composition,eino,4,frontmatter/context

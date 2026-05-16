@@ -1,0 +1,283 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+0,General,Stack type,mastra,reports/mastra.md,Q0 Architectural Overview & Deployment Model,25,full TS framework/server
+0,General,Stack type,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architectural Overview & Deployment Model,30,Python wrapper over CLI
+0,General,Stack type,eino,reports/eino.md,Q0 Architectural Overview & Deployment Model,32,Go runtime library
+0,General,Project maturity / stability,mastra,reports/mastra.md,Q0 Architectural Overview & Deployment Model,25,active alpha platform
+0,General,Project maturity / stability,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architectural Overview & Deployment Model,30,alpha but active
+0,General,Project maturity / stability,eino,reports/eino.md,Q0 Architectural Overview & Deployment Model,32,mature runtime
+0,General,Governance / commercial backing,mastra,reports/mastra.md,Q0 Architectural Overview & Deployment Model,25,YC-backed company
+0,General,Governance / commercial backing,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architectural Overview & Deployment Model,30,Anthropic first-party
+0,General,Governance / commercial backing,eino,reports/eino.md,Q0 Architectural Overview & Deployment Model,32,CloudWeGo/ByteDance
+0,General,Release-history signal,mastra,reports/mastra.md,Q0 Architectural Overview & Deployment Model,25,fast active changesets
+0,General,Release-history signal,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architectural Overview & Deployment Model,30,frequent changelog
+0,General,Release-history signal,eino,reports/eino.md,Q0 Architectural Overview & Deployment Model,32,recent ADK fixes
+0,General,Documentation availability,mastra,reports/mastra.md,Q0 Architectural Overview & Deployment Model,25,deep English docs
+0,General,Documentation availability,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architectural Overview & Deployment Model,30,strong SDK docs
+0,General,Documentation availability,eino,reports/eino.md,Q0 Architectural Overview & Deployment Model,32,English thinner than ZH
+0,General,Framework weight / footprint,mastra,reports/mastra.md,Q0 Architectural Overview & Deployment Model,25,broad integrated platform
+0,General,Framework weight / footprint,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architectural Overview & Deployment Model,30,"thin facade, heavy CLI"
+0,General,Framework weight / footprint,eino,reports/eino.md,Q0 Architectural Overview & Deployment Model,32,"rich runtime, no platform"
+0,General,Hosting-platform lock-in,mastra,reports/mastra.md,Q0 Architectural Overview & Deployment Model,25,portable deployers
+0,General,Hosting-platform lock-in,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architectural Overview & Deployment Model,30,"portable, CLI-bound"
+0,General,Hosting-platform lock-in,eino,reports/eino.md,Q0 Architectural Overview & Deployment Model,32,pure Go library
+1,Architecture,Where the agent loop executes,mastra,reports/mastra.md,Q0 Architecture details,102,in-process workflow
+1,Architecture,Where the agent loop executes,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,Node CLI subprocess
+1,Architecture,Where the agent loop executes,eino,reports/eino.md,Q0 Architecture details,98,in Go process
+1,Architecture,Runtime dependencies,mastra,reports/mastra.md,Q0 Architecture details,102,Node plus storage
+1,Architecture,Runtime dependencies,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,Python plus CLI
+1,Architecture,Runtime dependencies,eino,reports/eino.md,Q0 Architecture details,98,single Go binary
+1,Architecture,Recommended deployment topology,mastra,reports/mastra.md,Q0 Architecture details,102,server/storage pattern
+1,Architecture,Recommended deployment topology,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,production topology BYO
+1,Architecture,Recommended deployment topology,eino,reports/eino.md,Q0 Architecture details,98,library topology BYO
+1,Architecture,Cold-start / instance footprint,mastra,reports/mastra.md,Q0 Architecture details,102,moderate Node footprint
+1,Architecture,Cold-start / instance footprint,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,subprocess cold start
+1,Architecture,Cold-start / instance footprint,eino,reports/eino.md,Q0 Architecture details,98,minimal Go startup
+2,Chat UI,Streaming chat hook,mastra,reports/mastra.md,Q14 Chat UI Layer,1536,useChat/playground support
+2,Chat UI,Streaming chat hook,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q14 Chat UI Layer,1666,frontend BYO
+2,Chat UI,Streaming chat hook,eino,reports/eino.md,Q14 Chat UI Layer,2038,frontend BYO
+2,Chat UI,Tool call rendering primitives,mastra,reports/mastra.md,Q14 Chat UI Layer,1536,AI SDK message parts
+2,Chat UI,Tool call rendering primitives,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q14 Chat UI Layer,1666,frontend BYO
+2,Chat UI,Tool call rendering primitives,eino,reports/eino.md,Q14 Chat UI Layer,2038,frontend BYO
+2,Chat UI,Generative UI components,mastra,reports/mastra.md,Q14 Chat UI Layer,1536,limited rich UI
+2,Chat UI,Generative UI components,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q14 Chat UI Layer,1666,none shipped
+2,Chat UI,Generative UI components,eino,reports/eino.md,Q14 Chat UI Layer,2038,none shipped
+3,Agent API,Live agentic event stream,mastra,reports/mastra.md,Q6 Agent API Exposition,792,rich chunk stream
+3,Agent API,Live agentic event stream,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6 Agent API Exposition,946,typed CLI messages
+3,Agent API,Live agentic event stream,eino,reports/eino.md,Q6 Agent API Exposition,1233,AgentEvent iterator
+3,Agent API,Auth termination + tenant scope,mastra,reports/mastra.md,Q6 Agent API Exposition,792,RBAC/FGA routes
+3,Agent API,Auth termination + tenant scope,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6 Agent API Exposition,946,HTTP BYO
+3,Agent API,Auth termination + tenant scope,eino,reports/eino.md,Q6 Agent API Exposition,1233,HTTP/auth BYO
+3,Agent API,Resume / replay endpoint,mastra,reports/mastra.md,Q6 Agent API Exposition,792,observe/resume routes
+3,Agent API,Resume / replay endpoint,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6 Agent API Exposition,946,"resume, no endpoint"
+3,Agent API,Resume / replay endpoint,eino,reports/eino.md,Q6 Agent API Exposition,1233,runner resume only
+3,Agent API,Interrupt / cancel in-flight run,mastra,reports/mastra.md,Q6 Agent API Exposition,792,connection/app cancel
+3,Agent API,Interrupt / cancel in-flight run,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6 Agent API Exposition,946,abort library call
+3,Agent API,Interrupt / cancel in-flight run,eino,reports/eino.md,Q6 Agent API Exposition,1233,context cancel
+3,Agent API,Tool-arg streaming (partial JSON),mastra,reports/mastra.md,Q6 Agent API Exposition,792,tool chunks stream
+3,Agent API,Tool-arg streaming (partial JSON),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6 Agent API Exposition,946,partial messages
+3,Agent API,Tool-arg streaming (partial JSON),eino,reports/eino.md,Q6 Agent API Exposition,1233,not network exposed
+3,Agent API,HITL approval workflow,mastra,reports/mastra.md,Q6 Agent API Exposition,792,approve/decline routes
+3,Agent API,HITL approval workflow,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6 Agent API Exposition,946,permission workflow
+3,Agent API,HITL approval workflow,eino,reports/eino.md,Q6 Agent API Exposition,1233,interrupt/resume
+4,Agent Runtime,Concurrent session isolation,mastra,reports/mastra.md,Q2 Agent Runtime,330,thread/resource scoped
+4,Agent Runtime,Concurrent session isolation,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q2 Agent Runtime,408,subprocess/session scoped
+4,Agent Runtime,Concurrent session isolation,eino,reports/eino.md,Q2 Agent Runtime,559,run contexts
+4,Agent Runtime,Horizontal scaling / multi-instance,mastra,reports/mastra.md,Q2 Agent Runtime,330,shared storage adapters
+4,Agent Runtime,Horizontal scaling / multi-instance,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q2 Agent Runtime,408,"store helps, CLI per run"
+4,Agent Runtime,Horizontal scaling / multi-instance,eino,reports/eino.md,Q2 Agent Runtime,559,BYO persistence
+4,Agent Runtime,Background / async / scheduled tasks,mastra,reports/mastra.md,Q2 Agent Runtime,330,scheduler/background tasks
+4,Agent Runtime,Background / async / scheduled tasks,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q2 Agent Runtime,408,background task support
+4,Agent Runtime,Background / async / scheduled tasks,eino,reports/eino.md,Q2 Agent Runtime,559,scheduler BYO
+4,Agent Runtime,Worker pool / queue model,mastra,reports/mastra.md,Q2 Agent Runtime,330,workflow/scheduler runtime
+4,Agent Runtime,Worker pool / queue model,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q2 Agent Runtime,408,queue BYO
+4,Agent Runtime,Worker pool / queue model,eino,reports/eino.md,Q2 Agent Runtime,559,queue BYO
+5,Sessions & Persistence,Session / chat data model,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,thread/resource schema
+5,Sessions & Persistence,Session / chat data model,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,typed SessionKey/JSONL
+5,Sessions & Persistence,Session / chat data model,eino,reports/eino.md,Q3 Sessions & Persistence,598,runSession values/events
+5,Sessions & Persistence,Built-in persistence stores,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,many storage adapters
+5,Sessions & Persistence,Built-in persistence stores,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,file plus examples
+5,Sessions & Persistence,Built-in persistence stores,eino,reports/eino.md,Q3 Sessions & Persistence,598,no store implementation
+5,Sessions & Persistence,Pluggable store interface,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,storage abstraction
+5,Sessions & Persistence,Pluggable store interface,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,SessionStore protocol
+5,Sessions & Persistence,Pluggable store interface,eino,reports/eino.md,Q3 Sessions & Persistence,598,CheckPointStore interface
+5,Sessions & Persistence,Mid-run checkpointing (durable),mastra,reports/mastra.md,Q3 Sessions & Persistence,365,workflow snapshots
+5,Sessions & Persistence,Mid-run checkpointing (durable),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,best-effort JSONL
+5,Sessions & Persistence,Mid-run checkpointing (durable),eino,reports/eino.md,Q3 Sessions & Persistence,598,interrupt checkpoint only
+5,Sessions & Persistence,Session fork / branch model,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,clone workaround
+5,Sessions & Persistence,Session fork / branch model,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,fork_session native
+5,Sessions & Persistence,Session fork / branch model,eino,reports/eino.md,Q3 Sessions & Persistence,598,parallel lanes only
+5,Sessions & Persistence,Export / deterministic replay,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,trace/storage replay partial
+5,Sessions & Persistence,Export / deterministic replay,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,JSONL transcript replay
+5,Sessions & Persistence,Export / deterministic replay,eino,reports/eino.md,Q3 Sessions & Persistence,598,gob blobs only
+6,Agent Harness,ReAct loop,mastra,reports/mastra.md,Q1 Agent Harness,183,native workflow loop
+6,Agent Harness,ReAct loop,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Agent Harness,173,CLI native loop
+6,Agent Harness,ReAct loop,eino,reports/eino.md,Q1 Agent Harness,240,ChatModelAgent loop
+6,Agent Harness,Tool dispatch + result handling,mastra,reports/mastra.md,Q1 Agent Harness,183,workflow tool steps
+6,Agent Harness,Tool dispatch + result handling,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Agent Harness,173,CLI tool dispatch
+6,Agent Harness,Tool dispatch + result handling,eino,reports/eino.md,Q1 Agent Harness,240,ToolsNode dispatch
+6,Agent Harness,Explicit turn concept,mastra,reports/mastra.md,Q1 Agent Harness,183,step loop boundaries
+6,Agent Harness,Explicit turn concept,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Agent Harness,173,CLI message turns
+6,Agent Harness,Explicit turn concept,eino,reports/eino.md,Q1 Agent Harness,240,implicit graph branch
+6,Agent Harness,In-process event emission,mastra,reports/mastra.md,Q1 Agent Harness,183,fullStream/events
+6,Agent Harness,In-process event emission,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q1 Agent Harness,173,Python frame router
+6,Agent Harness,In-process event emission,eino,reports/eino.md,Q1 Agent Harness,240,AsyncIterator events
+8,Multi-model Routing,Multi-model routing / fallback,mastra,reports/mastra.md,Q13 Multi-model Routing,1510,router/fallback chains
+8,Multi-model Routing,Multi-model routing / fallback,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q13 Multi-model Routing,1642,model/fallback controls
+8,Multi-model Routing,Multi-model routing / fallback,eino,reports/eino.md,Q13 Multi-model Routing,1982,manual middleware
+8,Multi-model Routing,Per-task model selection,mastra,reports/mastra.md,Q13 Multi-model Routing,1510,per-step model swap
+8,Multi-model Routing,Per-task model selection,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q13 Multi-model Routing,1642,set_model/subagent options
+8,Multi-model Routing,Per-task model selection,eino,reports/eino.md,Q13 Multi-model Routing,1982,agent/model composition
+8,Multi-model Routing,Sub-agent model override,mastra,reports/mastra.md,Q13 Multi-model Routing,1510,child model override
+8,Multi-model Routing,Sub-agent model override,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q13 Multi-model Routing,1642,AgentDefinition model
+8,Multi-model Routing,Sub-agent model override,eino,reports/eino.md,Q13 Multi-model Routing,1982,construct child model
+9,Context Engineering,Auto-compaction,mastra,reports/mastra.md,Q5 Hook & Middleware,637,memory/processors
+9,Context Engineering,Auto-compaction,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q5 Hook & Middleware,752,CLI compaction
+9,Context Engineering,Auto-compaction,eino,reports/eino.md,Q5 Hook & Middleware,1034,summarization middleware
+9,Context Engineering,"Hooks (pre/post turn, pre/post tool)",mastra,reports/mastra.md,Q5 Hook & Middleware,637,8 processor hooks
+9,Context Engineering,"Hooks (pre/post turn, pre/post tool)",claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q5 Hook & Middleware,752,10 hook events
+9,Context Engineering,"Hooks (pre/post turn, pre/post tool)",eino,reports/eino.md,Q5 Hook & Middleware,1034,middleware layers
+9,Context Engineering,Hook mutation / blocking power,mastra,reports/mastra.md,Q5 Hook & Middleware,637,mutate mostly inputs
+9,Context Engineering,Hook mutation / blocking power,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q5 Hook & Middleware,752,mutate/block/defer
+9,Context Engineering,Hook mutation / blocking power,eino,reports/eino.md,Q5 Hook & Middleware,1034,rewrite/wrap tools
+9,Context Engineering,Prompt cache optimization,mastra,reports/mastra.md,Q5 Hook & Middleware,637,manual/BYO
+9,Context Engineering,Prompt cache optimization,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q5 Hook & Middleware,752,cache-aware CLI
+9,Context Engineering,Prompt cache optimization,eino,reports/eino.md,Q5 Hook & Middleware,1034,manual/BYO
+9,Context Engineering,Tool result clearing / progressive disclosure,mastra,reports/mastra.md,Q5 Hook & Middleware,637,workspace/memory patterns
+9,Context Engineering,Tool result clearing / progressive disclosure,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q5 Hook & Middleware,752,native disclosure
+9,Context Engineering,Tool result clearing / progressive disclosure,eino,reports/eino.md,Q5 Hook & Middleware,1034,middleware workaround
+10,Memory & Knowledge,Long-term memory / semantic recall,mastra,reports/mastra.md,Q15 Memory & Knowledge,1556,semantic memory
+10,Memory & Knowledge,Long-term memory / semantic recall,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q15 Memory & Knowledge,1686,CLAUDE.md/memory tool
+10,Memory & Knowledge,Long-term memory / semantic recall,eino,reports/eino.md,Q15 Memory & Knowledge,2058,not bundled
+10,Memory & Knowledge,RAG / knowledge retrieval integration,mastra,reports/mastra.md,Q15 Memory & Knowledge,1556,RAG package/adapters
+10,Memory & Knowledge,RAG / knowledge retrieval integration,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q15 Memory & Knowledge,1686,BYO tools/MCP
+10,Memory & Knowledge,RAG / knowledge retrieval integration,eino,reports/eino.md,Q15 Memory & Knowledge,2058,retriever adapters
+10,Memory & Knowledge,Per-tenant memory scoping,mastra,reports/mastra.md,Q15 Memory & Knowledge,1556,resource scoped memory
+10,Memory & Knowledge,Per-tenant memory scoping,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q15 Memory & Knowledge,1686,filesystem BYO
+10,Memory & Knowledge,Per-tenant memory scoping,eino,reports/eino.md,Q15 Memory & Knowledge,2058,namespace BYO
+11,Skills,Markdown skill format,mastra,reports/mastra.md,Q8 Skills,1057,SKILL.md first-class
+11,Skills,Markdown skill format,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q8 Skills,1248,filesystem skills
+11,Skills,Markdown skill format,eino,reports/eino.md,Q8 Skills,1506,SKILL.md middleware
+11,Skills,Skill invocation mechanism,mastra,reports/mastra.md,Q8 Skills,1057,skill search/read tools
+11,Skills,Skill invocation mechanism,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q8 Skills,1248,CLI lazy invocation
+11,Skills,Skill invocation mechanism,eino,reports/eino.md,Q8 Skills,1506,inline/fork modes
+11,Skills,Scoping (global / tenant / user),mastra,reports/mastra.md,Q8 Skills,1057,resource scoping
+11,Skills,Scoping (global / tenant / user),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q8 Skills,1248,filesystem staging
+11,Skills,Scoping (global / tenant / user),eino,reports/eino.md,Q8 Skills,1506,backend filtering
+11,Skills,Skill composition,mastra,reports/mastra.md,Q8 Skills,1057,refs/scripts/assets
+11,Skills,Skill composition,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q8 Skills,1248,filesystem bundles
+11,Skills,Skill composition,eino,reports/eino.md,Q8 Skills,1506,frontmatter/context
+12,Sub-agents,Sub-agent invocation mechanism,mastra,reports/mastra.md,Q7 Sub-agents,945,first-class delegation
+12,Sub-agents,Sub-agent invocation mechanism,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,Task subagents
+12,Sub-agents,Sub-agent invocation mechanism,eino,reports/eino.md,Q7 Sub-agents,1356,workflow/agent-tool
+12,Sub-agents,Sub-agent invocation (parallel),mastra,reports/mastra.md,Q7 Sub-agents,945,workflow parallelism
+12,Sub-agents,Sub-agent invocation (parallel),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,Task fan-out
+12,Sub-agents,Sub-agent invocation (parallel),eino,reports/eino.md,Q7 Sub-agents,1356,WaitGroup parallel
+12,Sub-agents,Runtime-generated sub-agent configs,mastra,reports/mastra.md,Q7 Sub-agents,945,mostly registered config
+12,Sub-agents,Runtime-generated sub-agent configs,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,inline AgentDefinition
+12,Sub-agents,Runtime-generated sub-agent configs,eino,reports/eino.md,Q7 Sub-agents,1356,static structs
+12,Sub-agents,Sub-agent context isolation,mastra,reports/mastra.md,Q7 Sub-agents,945,parent-memory isolation
+12,Sub-agents,Sub-agent context isolation,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,isolated Task context
+12,Sub-agents,Sub-agent context isolation,eino,reports/eino.md,Q7 Sub-agents,1356,forked run context
+12,Sub-agents,Sub-agent output handling,mastra,reports/mastra.md,Q7 Sub-agents,945,structured/tool result
+12,Sub-agents,Sub-agent output handling,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,Task result messages
+12,Sub-agents,Sub-agent output handling,eino,reports/eino.md,Q7 Sub-agents,1356,agent event/result
+12,Sub-agents,Sub-agent lifecycle events,mastra,reports/mastra.md,Q7 Sub-agents,945,delegation events
+12,Sub-agents,Sub-agent lifecycle events,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q7 Sub-agents,1110,SubagentStart/Stop
+12,Sub-agents,Sub-agent lifecycle events,eino,reports/eino.md,Q7 Sub-agents,1356,workflow events
+13,Resource Manager,Resource manager / registry,mastra,reports/mastra.md,Q9 Resource Manager,1205,skills/resource layer
+13,Resource Manager,Resource manager / registry,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q9 Resource Manager,1361,no registry
+13,Resource Manager,Resource manager / registry,eino,reports/eino.md,Q9 Resource Manager,1658,interfaces only
+13,Resource Manager,Loading sources,mastra,reports/mastra.md,Q9 Resource Manager,1205,blob/filesystem sources
+13,Resource Manager,Loading sources,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q9 Resource Manager,1361,filesystem/plugins
+13,Resource Manager,Loading sources,eino,reports/eino.md,Q9 Resource Manager,1658,backend interface
+13,Resource Manager,Source composition / priority,mastra,reports/mastra.md,Q9 Resource Manager,1205,source precedence
+13,Resource Manager,Source composition / priority,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q9 Resource Manager,1361,filesystem precedence
+13,Resource Manager,Source composition / priority,eino,reports/eino.md,Q9 Resource Manager,1658,backend BYO
+13,Resource Manager,Versioning of skills/agents,mastra,reports/mastra.md,Q9 Resource Manager,1205,VersionedSkillSource
+13,Resource Manager,Versioning of skills/agents,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q9 Resource Manager,1361,BYO versions
+13,Resource Manager,Versioning of skills/agents,eino,reports/eino.md,Q9 Resource Manager,1658,BYO versions
+13,Resource Manager,Scoping & publishing workflow,mastra,reports/mastra.md,Q9 Resource Manager,1205,partial publish flow
+13,Resource Manager,Scoping & publishing workflow,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q9 Resource Manager,1361,BYO workflow
+13,Resource Manager,Scoping & publishing workflow,eino,reports/eino.md,Q9 Resource Manager,1658,BYO workflow
+13,Resource Manager,Lifecycle / governance,mastra,reports/mastra.md,Q9 Resource Manager,1205,partial RBAC/governance
+13,Resource Manager,Lifecycle / governance,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q9 Resource Manager,1361,BYO governance
+13,Resource Manager,Lifecycle / governance,eino,reports/eino.md,Q9 Resource Manager,1658,BYO governance
+14,Tools,"Built-in tools (web search, file ops, exec)",mastra,reports/mastra.md,Q11 Built-in Tools,1433,some primitives
+14,Tools,"Built-in tools (web search, file ops, exec)",claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,Claude Code tools
+14,Tools,"Built-in tools (web search, file ops, exec)",eino,reports/eino.md,Q11 Built-in Tools,1877,eino-ext tools
+14,Tools,Built-in tool quality,mastra,reports/mastra.md,Q11 Built-in Tools,1433,mostly wrappers
+14,Tools,Built-in tool quality,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,agent-aware tools
+14,Tools,Built-in tool quality,eino,reports/eino.md,Q11 Built-in Tools,1877,solid Go adapters
+14,Tools,Tool authoring API,mastra,reports/mastra.md,Q11 Built-in Tools,1433,createTool typed
+14,Tools,Tool authoring API,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,@tool decorator
+14,Tools,Tool authoring API,eino,reports/eino.md,Q11 Built-in Tools,1877,typed Go tools
+14,Tools,Typed tool I/O validation,mastra,reports/mastra.md,Q11 Built-in Tools,1433,Zod/schema validation
+14,Tools,Typed tool I/O validation,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,typed MCP/tools
+14,Tools,Typed tool I/O validation,eino,reports/eino.md,Q11 Built-in Tools,1877,JSON schema structs
+14,Tools,Streaming tools,mastra,reports/mastra.md,Q11 Built-in Tools,1433,partial support
+14,Tools,Streaming tools,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q11 Built-in Tools,1550,tool events only
+14,Tools,Streaming tools,eino,reports/eino.md,Q11 Built-in Tools,1877,streamable tools
+15,MCP,MCP client support,mastra,reports/mastra.md,Q12 MCP,1484,first-class client
+15,MCP,MCP client support,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q12 MCP,1613,first-class client
+15,MCP,MCP client support,eino,reports/eino.md,Q12 MCP,1951,eino-ext MCP
+15,MCP,MCP server support,mastra,reports/mastra.md,Q12 MCP,1484,first-class server
+15,MCP,MCP server support,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q12 MCP,1613,SdkMcpServer
+15,MCP,MCP server support,eino,reports/eino.md,Q12 MCP,1951,server via adapters
+15,MCP,MCP transports,mastra,reports/mastra.md,Q12 MCP,1484,HTTP/SSE/stdio
+15,MCP,MCP transports,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q12 MCP,1613,stdio/SSE/HTTP
+15,MCP,MCP transports,eino,reports/eino.md,Q12 MCP,1951,common transports
+15,MCP,MCP auth / lifecycle,mastra,reports/mastra.md,Q12 MCP,1484,managed lifecycle
+15,MCP,MCP auth / lifecycle,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q12 MCP,1613,strict config/lifecycle
+15,MCP,MCP auth / lifecycle,eino,reports/eino.md,Q12 MCP,1951,adapter-level
+16,Safety & Policy,"Guardrails (input/output, PII, injection)",mastra,reports/mastra.md,Q16 Safety & Policy,1579,processors/scorers
+16,Safety & Policy,"Guardrails (input/output, PII, injection)",claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q16 Safety & Policy,1702,"hooks, no detectors"
+16,Safety & Policy,"Guardrails (input/output, PII, injection)",eino,reports/eino.md,Q16 Safety & Policy,2092,guardrails BYO
+16,Safety & Policy,Tool sandboxing / permission model,mastra,reports/mastra.md,Q16 Safety & Policy,1579,activeTools/RBAC
+16,Safety & Policy,Tool sandboxing / permission model,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q16 Safety & Policy,1702,permissions/sandbox
+16,Safety & Policy,Tool sandboxing / permission model,eino,reports/eino.md,Q16 Safety & Policy,2092,middleware allowlists
+16,Safety & Policy,Sandbox provider integrations,mastra,reports/mastra.md,Q16 Safety & Policy,1579,limited integrations
+16,Safety & Policy,Sandbox provider integrations,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q16 Safety & Policy,1702,Claude sandbox/tools
+16,Safety & Policy,Sandbox provider integrations,eino,reports/eino.md,Q16 Safety & Policy,2092,local backend/tools
+16,Safety & Policy,Default-deny vs default-allow posture,mastra,reports/mastra.md,Q16 Safety & Policy,1579,config-dependent
+16,Safety & Policy,Default-deny vs default-allow posture,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q16 Safety & Policy,1702,permission controls
+16,Safety & Policy,Default-deny vs default-allow posture,eino,reports/eino.md,Q16 Safety & Policy,2092,registered tools callable
+17,Agent Observability,LLM / tool tracing,mastra,reports/mastra.md,Q10 Observability,1312,OTel/dashboard spans
+17,Agent Observability,LLM / tool tracing,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,OTel propagated
+17,Agent Observability,LLM / tool tracing,eino,reports/eino.md,Q10 Observability,1762,callbacks/exporters
+17,Agent Observability,Token & cost tracking,mastra,reports/mastra.md,Q10 Observability,1312,tokens yes cost BYO
+17,Agent Observability,Token & cost tracking,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,tokens and USD
+17,Agent Observability,Token & cost tracking,eino,reports/eino.md,Q10 Observability,1762,"tokens, cost BYO"
+17,Agent Observability,Per-tenant / per-conversation cost,mastra,reports/mastra.md,Q10 Observability,1312,metadata aggregation
+17,Agent Observability,Per-tenant / per-conversation cost,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,SessionKey aggregation
+17,Agent Observability,Per-tenant / per-conversation cost,eino,reports/eino.md,Q10 Observability,1762,rollup BYO
+17,Agent Observability,Audit logging (who/when/what),mastra,reports/mastra.md,Q10 Observability,1312,traces/RBAC logs
+17,Agent Observability,Audit logging (who/when/what),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q10 Observability,1458,"hooks, sink BYO"
+17,Agent Observability,Audit logging (who/when/what),eino,reports/eino.md,Q10 Observability,1762,callbacks only
+18,Multi-tenancy + per-call auth,Run-loop context object,mastra,reports/mastra.md,Q4 Multi-tenancy,453,typed requestContext
+18,Multi-tenancy + per-call auth,Run-loop context object,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,options/env/cwd
+18,Multi-tenancy + per-call auth,Run-loop context object,eino,reports/eino.md,Q4 Multi-tenancy,790,session values
+18,Multi-tenancy + per-call auth,Context propagation into tool calls,mastra,reports/mastra.md,Q4 Multi-tenancy,453,requestContext to tools
+18,Multi-tenancy + per-call auth,Context propagation into tool calls,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,callbacks/closures
+18,Multi-tenancy + per-call auth,Context propagation into tool calls,eino,reports/eino.md,Q4 Multi-tenancy,790,ctx/session values
+18,Multi-tenancy + per-call auth,Forced server-side tool arguments,mastra,reports/mastra.md,Q4 Multi-tenancy,453,tool reads context
+18,Multi-tenancy + per-call auth,Forced server-side tool arguments,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,updatedInput hooks
+18,Multi-tenancy + per-call auth,Forced server-side tool arguments,eino,reports/eino.md,Q4 Multi-tenancy,790,tool middleware
+18,Multi-tenancy + per-call auth,Tenant-aware visible tool filtering,mastra,reports/mastra.md,Q4 Multi-tenancy,453,activeTools/context
+18,Multi-tenancy + per-call auth,Tenant-aware visible tool filtering,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,allowed_tools filtering
+18,Multi-tenancy + per-call auth,Tenant-aware visible tool filtering,eino,reports/eino.md,Q4 Multi-tenancy,790,BeforeAgent filters
+18,Multi-tenancy + per-call auth,Tenant scope on session,mastra,reports/mastra.md,Q4 Multi-tenancy,453,resource/thread keys
+18,Multi-tenancy + per-call auth,Tenant scope on session,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,SessionKey project_key
+18,Multi-tenancy + per-call auth,Tenant scope on session,eino,reports/eino.md,Q4 Multi-tenancy,790,no tenant field
+18,Multi-tenancy + per-call auth,Per-tool-call auth propagation,mastra,reports/mastra.md,Q4 Multi-tenancy,453,requestContext auth
+18,Multi-tenancy + per-call auth,Per-tool-call auth propagation,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,callback controlled
+18,Multi-tenancy + per-call auth,Per-tool-call auth propagation,eino,reports/eino.md,Q4 Multi-tenancy,790,manual ctx auth
+18,Multi-tenancy + per-call auth,Resource scoping (skill/tool visibility),mastra,reports/mastra.md,Q4 Multi-tenancy,453,resource scoping
+18,Multi-tenancy + per-call auth,Resource scoping (skill/tool visibility),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,filesystem staging
+18,Multi-tenancy + per-call auth,Resource scoping (skill/tool visibility),eino,reports/eino.md,Q4 Multi-tenancy,790,backend BYO
+18,Multi-tenancy + per-call auth,Per-tenant rate limit + budget cap,mastra,reports/mastra.md,Q4 Multi-tenancy,453,maxSteps not budget
+18,Multi-tenancy + per-call auth,Per-tenant rate limit + budget cap,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,max_budget_usd
+18,Multi-tenancy + per-call auth,Per-tenant rate limit + budget cap,eino,reports/eino.md,Q4 Multi-tenancy,790,not provided
+19,Eval / testing,Golden datasets / regression suites,mastra,reports/mastra.md,Q17 Eval & Testing,1611,native eval datasets
+19,Eval / testing,Golden datasets / regression suites,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q17 Eval & Testing,1737,separate eval product
+19,Eval / testing,Golden datasets / regression suites,eino,reports/eino.md,Q17 Eval & Testing,2121,not provided
+19,Eval / testing,LLM-as-judge scoring,mastra,reports/mastra.md,Q17 Eval & Testing,1611,scorers built in
+19,Eval / testing,LLM-as-judge scoring,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q17 Eval & Testing,1737,external evals
+19,Eval / testing,LLM-as-judge scoring,eino,reports/eino.md,Q17 Eval & Testing,2121,not provided
+19,Eval / testing,CI eval gates / pre-merge,mastra,reports/mastra.md,Q17 Eval & Testing,1611,runEvals/Vitest
+19,Eval / testing,CI eval gates / pre-merge,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q17 Eval & Testing,1737,DIY CI
+19,Eval / testing,CI eval gates / pre-merge,eino,reports/eino.md,Q17 Eval & Testing,2121,not provided
+20,Local sandbox / dev UX,Local agent runner,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,mastra dev
+20,Local sandbox / dev UX,Local agent runner,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,Claude Code CLI
+20,Local sandbox / dev UX,Local agent runner,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,Go examples
+20,Local sandbox / dev UX,Trace replay / inspection,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,playground/dashboard
+20,Local sandbox / dev UX,Trace replay / inspection,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,JSONL/OTel inspect
+20,Local sandbox / dev UX,Trace replay / inspection,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,exporter tooling
+20,Local sandbox / dev UX,Tenant / org switching,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,resource context
+20,Local sandbox / dev UX,Tenant / org switching,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,cwd staging
+20,Local sandbox / dev UX,Tenant / org switching,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,host BYO
+20,Local sandbox / dev UX,Hot reload for skills/prompts,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,dev hot reload
+20,Local sandbox / dev UX,Hot reload for skills/prompts,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,CLI reload patterns
+20,Local sandbox / dev UX,Hot reload for skills/prompts,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,restart/BYO
+21,Operations,Health checks / graceful shutdown,mastra,reports/mastra.md,Q6.11 Operations,904,server health routes
+21,Operations,Health checks / graceful shutdown,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q6.11 Operations,1060,server BYO
+21,Operations,Health checks / graceful shutdown,eino,reports/eino.md,Q6.11 Operations,1315,server BYO

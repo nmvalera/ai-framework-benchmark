@@ -1,0 +1,13 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+20,Local sandbox / dev UX,Local agent runner,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,mastra dev
+20,Local sandbox / dev UX,Local agent runner,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,Claude Code CLI
+20,Local sandbox / dev UX,Local agent runner,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,Go examples
+20,Local sandbox / dev UX,Trace replay / inspection,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,playground/dashboard
+20,Local sandbox / dev UX,Trace replay / inspection,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,JSONL/OTel inspect
+20,Local sandbox / dev UX,Trace replay / inspection,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,exporter tooling
+20,Local sandbox / dev UX,Tenant / org switching,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,resource context
+20,Local sandbox / dev UX,Tenant / org switching,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,cwd staging
+20,Local sandbox / dev UX,Tenant / org switching,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,host BYO
+20,Local sandbox / dev UX,Hot reload for skills/prompts,mastra,reports/mastra.md,Q18 Local Sandbox & Dev UX,1645,dev hot reload
+20,Local sandbox / dev UX,Hot reload for skills/prompts,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q18 Local Sandbox & Dev UX,1757,CLI reload patterns
+20,Local sandbox / dev UX,Hot reload for skills/prompts,eino,reports/eino.md,Q18 Local Sandbox & Dev UX,2141,restart/BYO

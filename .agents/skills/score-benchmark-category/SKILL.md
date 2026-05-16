@@ -17,6 +17,8 @@ Your job is comparative scoring, not report generation. Work row-by-row across a
 - framework list/order from `create-benchmark`.
 - Optional `FOCUS` — row or framework constraints.
 
+The framework list from `create-benchmark` is authoritative. Score only those frameworks, even if additional reports exist in `REPORTS_DIR`.
+
 ## Taxonomy
 
 Load only your assigned category from the orchestrator skill:
@@ -31,6 +33,7 @@ Use:
 - `row` as the score row label.
 - `expected` as your scoring rubric.
 - `legend` only as display text for the final benchmark; do not let a vague legend override precise `expected` guidance.
+- `details` as the required long-form cell explanation for the viewer when you write scores.
 
 Never edit taxonomy. Taxonomy changes must be made in `create-benchmark/references/taxonomy.csv` before scoring.
 
@@ -48,7 +51,7 @@ Do not write final shared files under `<OUTPUT_DIR>/data/`; the caller merges th
 `scores.csv` schema:
 
 ```csv
-section_order,section,row,framework_id,score,note
+section_order,section,row,framework_id,score,note,details
 ```
 
 `evidence.csv` schema:
@@ -92,6 +95,13 @@ Preferred note format:
 - `0 — no skill concept`
 
 Keep notes short: 2-8 words where possible.
+
+Details format:
+
+- `details` is required for scored cells unless the row is label-only or the evidence is genuinely trivial.
+- Write 3 sentences when the row needs context, comparison, or caveats.
+- For label-only rows such as `Stack type`, use `note` for the one-word display label and `details` for the explanatory rationale.
+- Keep the long note focused on why the score is what it is, not on rehashing the taxonomy legend.
 
 ## Evidence Rules
 

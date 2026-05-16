@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Framework Benchmark</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --panel-2: #f0f3f7;
+      --text: #17202a;
+      --muted: #647184;
+      --line: #dbe1e8;
+      --accent: #0f766e;
+      --score-0: #f8d7da;
+      --score-1: #f9e1c7;
+      --score-2: #f6eec2;
+      --score-3: #dcecc9;
+      --score-4: #c7e6d7;
+      --score-5: #b7ddcf;
+      --unknown: #e7eaf0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    header {
+      padding: 18px 24px 14px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) 180px 180px 220px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    input, select, button {
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      padding: 0 10px;
+    }
+
+    button {
+      cursor: pointer;
+      background: var(--panel-2);
+      font-weight: 600;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 0;
+      height: calc(100vh - 91px);
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border-right: 1px solid var(--line);
+    }
+
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: max-content;
+      min-width: 100%;
+    }
+
+    th, td {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 8px 10px;
+      vertical-align: top;
+      background: var(--panel);
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #eef2f6;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #334155;
+      white-space: nowrap;
+    }
+
+    th:first-child, td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      width: 310px;
+      max-width: 310px;
+      min-width: 310px;
+      border-left: 1px solid var(--line);
+    }
+
+    thead th:first-child {
+      z-index: 4;
+    }
+
+    td.row-label {
+      background: #fff;
+      font-weight: 600;
+    }
+
+    .section-row td {
+      background: #243142;
+      color: white;
+      font-weight: 700;
+      position: sticky;
+      left: 0;
+    }
+
+    .section-row td:not(:first-child) {
+      position: static;
+      color: transparent;
+    }
+
+    .cell {
+      min-width: 210px;
+      max-width: 260px;
+      cursor: pointer;
+    }
+
+    .score {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-right: 0;
+      border: 0;
+    }
+
+    .note {
+      color: #1f2937;
+      line-height: 1.35;
+    }
+
+    .cell-stack {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .score-bar {
+      display: inline-grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 2px;
+      width: 62px;
+      height: 16px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      vertical-align: middle;
+      flex: none;
+    }
+
+    .score-bar.score-0 { border-color: #d53f4c; }
+    .score-bar.score-q { border-color: #647184; }
+
+    .seg {
+      border-radius: 2px;
+      background: #d8dee8;
+    }
+
+    .score-1 .seg.fill { background: #d9534f; }
+    .score-2 .seg.fill { background: #f59e0b; }
+    .score-3 .seg.fill { background: #f0c419; }
+    .score-4 .seg.fill { background: #86d39d; }
+    .score-5 .seg.fill { background: #2f9d62; }
+    .score-0 .seg.fill { background: #d8dee8; }
+    .score-q .seg.fill { background: #d8dee8; }
+
+    .score-bar.score-0,
+    .score-bar.score-1,
+    .score-bar.score-2,
+    .score-bar.score-3,
+    .score-bar.score-4,
+    .score-bar.score-5,
+    .score-bar.score-q {
+      background: #fff;
+    }
+
+    .type-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      color: var(--muted);
+      background: #fff;
+      flex: none;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    aside {
+      overflow: auto;
+      background: var(--panel);
+      padding: 18px;
+    }
+
+    aside h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      line-height: 1.25;
+    }
+
+    aside h3 {
+      margin: 18px 0 8px;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .detail-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfe;
+      margin-top: 12px;
+    }
+
+    .pill-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0 12px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 3px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .legend-list {
+      display: grid;
+      gap: 8px;
+      margin: 8px 0 12px;
+    }
+
+    .legend-item {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .legend-item strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+
+    .legend-item p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.35;
+      font-size: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfe;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 18px;
+    }
+
+    a { color: var(--accent); }
+
+    @media (max-width: 920px) {
+      .toolbar { grid-template-columns: 1fr; }
+      main { grid-template-columns: 1fr; height: auto; }
+      aside { border-top: 1px solid var(--line); }
+      .table-wrap { height: 65vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Framework Benchmark</h1>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search rows, notes, legends, frameworks">
+      <select id="sectionFilter"></select>
+      <select id="scoreFilter">
+        <option value="">All scores</option>
+        <option value="5">Score 5</option>
+        <option value="4">Score 4+</option>
+        <option value="3">Score 3+</option>
+        <option value="lt3">Below 3</option>
+      </select>
+      <button id="reset">Reset filters</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="table-wrap">
+      <table id="matrix" aria-label="Benchmark matrix"></table>
+    </div>
+    <aside id="details">
+      <h2>Benchmark Details</h2>
+      <p class="muted">Select a cell to inspect score rationale and evidence. Hover-free, keyboard-friendly CSV-backed view.</p>
+      <div class="summary" id="summary"></div>
+      <h3>Score Legend</h3>
+      <div class="legend-list" id="scoreLegend"></div>
+      <div class="detail-box" id="detailBox">
+        <strong>No cell selected</strong>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const files = {
+      taxonomy: "data/taxonomy.csv",
+      frameworks: "data/frameworks.csv",
+      scores: "data/scores.csv",
+      evidence: "data/evidence.csv"
+    };
+
+    const state = {
+      taxonomy: [],
+      frameworks: [],
+      scores: [],
+      evidence: [],
+      selected: null
+    };
+
+    function parseCSV(text) {
+      const rows = [];
+      let row = [];
+      let value = "";
+      let quoted = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        const n = text[i + 1];
+        if (quoted) {
+          if (c === '"' && n === '"') {
+            value += '"';
+            i++;
+          } else if (c === '"') {
+            quoted = false;
+          } else {
+            value += c;
+          }
+        } else if (c === '"') {
+          quoted = true;
+        } else if (c === ",") {
+          row.push(value);
+          value = "";
+        } else if (c === "\n") {
+          row.push(value);
+          rows.push(row);
+          row = [];
+          value = "";
+        } else if (c !== "\r") {
+          value += c;
+        }
+      }
+      if (value.length || row.length) {
+        row.push(value);
+        rows.push(row);
+      }
+      const headers = rows.shift() || [];
+      return rows.filter(r => r.length && r.some(Boolean)).map(r => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = r[i] || "");
+        return obj;
+      });
+    }
+
+    async function loadCSV(path) {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(`Failed to load ${path}`);
+      return parseCSV(await res.text());
+    }
+
+    function scoreClass(score) {
+      return score === "?" ? "score-q" : `score-${score}`;
+    }
+
+    function scoreNumber(score) {
+      const n = Number(score);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function scoreLabel(score) {
+      switch (String(score)) {
+        case "0": return "absent";
+        case "1": return "minimal";
+        case "2": return "partial";
+        case "3": return "usable";
+        case "4": return "strong";
+        case "5": return "first-class";
+        case "?": return "evidence missing";
+        default: return "";
+      }
+    }
+
+    function renderScoreBar(score) {
+      if (score === "" || score === null || typeof score === "undefined") return "";
+      if (score === "?") {
+        return `<span class="score-bar score-q" aria-label="Evidence missing"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></span>`;
+      }
+      const n = Math.max(0, Math.min(5, Number(score) || 0));
+      const fillClass = `score-${n}`;
+      const segs = Array.from({ length: 5 }, (_, i) => `<span class="seg ${i < n ? "fill" : ""}"></span>`).join("");
+      return `<span class="score-bar ${fillClass}" aria-label="Score ${n}">${segs}</span>`;
+    }
+
+    function renderCellStack(score, note, rowName) {
+      const label = escapeHTML(note || "");
+      if (!score) {
+        const icon = rowName === "Stack type" && note ? `<span class="type-chip" title="${escapeHTML(note)}">${escapeHTML(String(note).slice(0, 1).toUpperCase())}</span>` : "";
+        return `<span class="cell-stack">${icon}<span class="note">${label}</span></span>`;
+      }
+      if (score === "?") {
+        return `<span class="cell-stack">${renderScoreBar(score)}<span class="note">?</span></span>`;
+      }
+      return `<span class="cell-stack">${renderScoreBar(score)}<span class="note">${label}</span></span>`;
+    }
+
+    function cellFor(row, frameworkId) {
+      return state.scores.find(s =>
+        s.section_order === row.section_order &&
+        s.row === row.row &&
+        s.framework_id === frameworkId
+      );
+    }
+
+    function evidenceFor(row, frameworkId) {
+      return state.evidence.filter(e =>
+        e.section_order === row.section_order &&
+        e.row === row.row &&
+        e.framework_id === frameworkId
+      );
+    }
+
+    function rowMatches(row) {
+      const sectionFilter = document.getElementById("sectionFilter").value;
+      const scoreFilter = document.getElementById("scoreFilter").value;
+      const q = document.getElementById("search").value.trim().toLowerCase();
+      if (sectionFilter && row.section_order !== sectionFilter) return false;
+
+      const cells = state.frameworks.map(f => cellFor(row, f.framework_id)).filter(Boolean);
+      if (scoreFilter) {
+        const nums = cells.map(c => scoreNumber(c.score)).filter(n => n !== null);
+        const ok = scoreFilter === "lt3"
+          ? nums.some(n => n < 3)
+          : nums.some(n => n >= Number(scoreFilter));
+        if (!ok) return false;
+      }
+
+      if (!q) return true;
+      const haystack = [
+        row.section, row.row, row.legend, row.expected,
+        ...state.frameworks.map(f => f.label),
+        ...cells.map(c => `${c.note || ""} ${c.details || ""}`)
+      ].join(" ").toLowerCase();
+      return haystack.includes(q);
+    }
+
+    function renderSummary() {
+      const el = document.getElementById("summary");
+      el.innerHTML = "";
+      state.frameworks.forEach(f => {
+        const vals = state.taxonomy
+          .map(row => cellFor(row, f.framework_id))
+          .filter(Boolean)
+          .map(s => scoreNumber(s.score))
+          .filter(n => n !== null);
+        const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "n/a";
+        const div = document.createElement("div");
+        div.className = "metric";
+        div.innerHTML = `<strong>${avg}</strong><span class="muted">${f.label}</span>`;
+        el.appendChild(div);
+      });
+    }
+
+    function renderFilters() {
+      const select = document.getElementById("sectionFilter");
+      const sections = [...new Map(state.taxonomy.map(r => [r.section_order, r])).values()];
+      select.innerHTML = `<option value="">All sections</option>` +
+        sections.map(s => `<option value="${s.section_order}">${s.section_order}. ${s.section}</option>`).join("");
+    }
+
+    function renderTable() {
+      const table = document.getElementById("matrix");
+      const head = [
+        "<thead><tr><th>Capability</th>",
+        ...state.frameworks.map(f => `<th>${f.label}</th>`),
+        "</tr></thead>"
+      ].join("");
+
+      let body = "<tbody>";
+      let currentSection = null;
+      state.taxonomy.forEach(row => {
+        if (!rowMatches(row)) return;
+        if (currentSection !== row.section_order) {
+          currentSection = row.section_order;
+          body += `<tr class="section-row"><td>${row.section_order}. ${row.section}</td>${state.frameworks.map(() => "<td></td>").join("")}</tr>`;
+        }
+        body += `<tr><td class="row-label" title="${escapeHTML(row.legend)}">— ${escapeHTML(row.row)}</td>`;
+        state.frameworks.forEach(f => {
+          const c = cellFor(row, f.framework_id) || { score: "", note: "" };
+          const score = c.score || "";
+          const note = c.note || "";
+          body += `<td class="cell" data-section="${escapeHTML(row.section_order)}" data-row="${escapeHTML(row.row)}" data-fw="${escapeHTML(f.framework_id)}">${renderCellStack(score, note, row.row)}</td>`;
+        });
+        body += "</tr>";
+      });
+      body += "</tbody>";
+      table.innerHTML = head + body;
+
+      table.querySelectorAll(".cell").forEach(cell => {
+        cell.addEventListener("click", () => showDetails(cell.dataset.section, cell.dataset.row, cell.dataset.fw));
+      });
+    }
+
+    function showDetails(sectionOrder, rowName, frameworkId) {
+      const row = state.taxonomy.find(r => r.section_order === sectionOrder && r.row === rowName);
+      const fw = state.frameworks.find(f => f.framework_id === frameworkId);
+      const score = cellFor(row, frameworkId) || {};
+      const evidence = evidenceFor(row, frameworkId);
+      state.selected = { sectionOrder, rowName, frameworkId };
+
+      const evidenceHtml = evidence.length
+        ? evidence.map(e => `<li><a href="../${escapeHTML(e.report_path)}" target="_blank">${escapeHTML(e.report_path)}</a>${e.line_ref ? `:${escapeHTML(e.line_ref)}` : ""}<br><span class="muted">${escapeHTML(e.report_section)} · ${escapeHTML(e.evidence_note)}</span></li>`).join("")
+        : `<li class="muted">No evidence row found.</li>`;
+      const detailsText = score.details || score.note || "No note.";
+
+      document.getElementById("detailBox").innerHTML = `
+        <h2>${escapeHTML(fw.label)}</h2>
+        <div class="pill-row">
+          <span class="pill">${escapeHTML(row.section_order)}. ${escapeHTML(row.section)}</span>
+          ${score.score ? `<span class="pill">${renderScoreBar(score.score)} score ${escapeHTML(score.score)}</span>` : ""}
+        </div>
+        <h3>${escapeHTML(row.row)}</h3>
+        <h3>What this measures</h3>
+        <p>${escapeHTML(row.legend)}</p>
+        <h3>Cell note</h3>
+        <p>${escapeHTML(score.note || "No note.")}</p>
+        <h3>Details</h3>
+        <p>${escapeHTML(detailsText)}</p>
+        <h3>How to score</h3>
+        <p class="muted">${escapeHTML(row.expected)}</p>
+        <h3>Evidence</h3>
+        <ul>${evidenceHtml}</ul>
+      `;
+    }
+
+    function renderScoreLegend() {
+      const el = document.getElementById("scoreLegend");
+      const rows = [
+        { score: 0, label: "absent", text: "No usable built-in support. The host has to provide the capability from scratch." },
+        { score: 1, label: "minimal", text: "A small primitive exists, but most of the real work still sits in the host application." },
+        { score: 2, label: "partial", text: "There is real support, but the surrounding runtime still carries most of the policy or wiring." },
+        { score: 3, label: "usable", text: "The capability is practical, but there are still meaningful gaps or integration steps." },
+        { score: 4, label: "strong", text: "The feature is close to first-class, with only minor gaps or non-default setup." },
+        { score: 5, label: "first-class", text: "The framework ships the capability directly and it is the natural way to build this part." }
+      ];
+      el.innerHTML = rows.map(r => `
+        <div class="legend-item">
+          ${renderScoreBar(String(r.score))}
+          <div>
+            <strong>${r.score} - ${r.label}</strong>
+            <p>${r.text}</p>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[c]));
+    }
+
+    async function init() {
+      try {
+        [state.taxonomy, state.frameworks, state.scores, state.evidence] = await Promise.all([
+          loadCSV(files.taxonomy),
+          loadCSV(files.frameworks),
+          loadCSV(files.scores),
+          loadCSV(files.evidence)
+        ]);
+        renderFilters();
+        renderSummary();
+        renderScoreLegend();
+        renderTable();
+        ["search", "sectionFilter", "scoreFilter"].forEach(id => {
+          document.getElementById(id).addEventListener("input", renderTable);
+        });
+        document.getElementById("reset").addEventListener("click", () => {
+          document.getElementById("search").value = "";
+          document.getElementById("sectionFilter").value = "";
+          document.getElementById("scoreFilter").value = "";
+          renderTable();
+        });
+      } catch (err) {
+        document.getElementById("matrix").innerHTML = `<tbody><tr><td>${escapeHTML(err.message)}. Serve this directory over HTTP so the browser can load data/*.csv.</td></tr></tbody>`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

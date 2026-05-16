@@ -1,0 +1,19 @@
+section_order,section,row,framework_id,score,note
+13,Resource Manager,Resource manager / registry,mastra,4,skills/resource layer
+13,Resource Manager,Resource manager / registry,claude-agent-sdk-python,1,no registry
+13,Resource Manager,Resource manager / registry,eino,2,interfaces only
+13,Resource Manager,Loading sources,mastra,4,blob/filesystem sources
+13,Resource Manager,Loading sources,claude-agent-sdk-python,2,filesystem/plugins
+13,Resource Manager,Loading sources,eino,3,backend interface
+13,Resource Manager,Source composition / priority,mastra,4,source precedence
+13,Resource Manager,Source composition / priority,claude-agent-sdk-python,2,filesystem precedence
+13,Resource Manager,Source composition / priority,eino,2,backend BYO
+13,Resource Manager,Versioning of skills/agents,mastra,5,VersionedSkillSource
+13,Resource Manager,Versioning of skills/agents,claude-agent-sdk-python,1,BYO versions
+13,Resource Manager,Versioning of skills/agents,eino,1,BYO versions
+13,Resource Manager,Scoping & publishing workflow,mastra,3,partial publish flow
+13,Resource Manager,Scoping & publishing workflow,claude-agent-sdk-python,0,BYO workflow
+13,Resource Manager,Scoping & publishing workflow,eino,1,BYO workflow
+13,Resource Manager,Lifecycle / governance,mastra,3,partial RBAC/governance
+13,Resource Manager,Lifecycle / governance,claude-agent-sdk-python,0,BYO governance
+13,Resource Manager,Lifecycle / governance,eino,1,BYO governance

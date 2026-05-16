@@ -1,0 +1,25 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+18,Multi-tenancy + per-call auth,Run-loop context object,mastra,reports/mastra.md,Q4 Multi-tenancy,453,typed requestContext
+18,Multi-tenancy + per-call auth,Run-loop context object,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,options/env/cwd
+18,Multi-tenancy + per-call auth,Run-loop context object,eino,reports/eino.md,Q4 Multi-tenancy,790,session values
+18,Multi-tenancy + per-call auth,Context propagation into tool calls,mastra,reports/mastra.md,Q4 Multi-tenancy,453,requestContext to tools
+18,Multi-tenancy + per-call auth,Context propagation into tool calls,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,callbacks/closures
+18,Multi-tenancy + per-call auth,Context propagation into tool calls,eino,reports/eino.md,Q4 Multi-tenancy,790,ctx/session values
+18,Multi-tenancy + per-call auth,Forced server-side tool arguments,mastra,reports/mastra.md,Q4 Multi-tenancy,453,tool reads context
+18,Multi-tenancy + per-call auth,Forced server-side tool arguments,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,updatedInput hooks
+18,Multi-tenancy + per-call auth,Forced server-side tool arguments,eino,reports/eino.md,Q4 Multi-tenancy,790,tool middleware
+18,Multi-tenancy + per-call auth,Tenant-aware visible tool filtering,mastra,reports/mastra.md,Q4 Multi-tenancy,453,activeTools/context
+18,Multi-tenancy + per-call auth,Tenant-aware visible tool filtering,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,allowed_tools filtering
+18,Multi-tenancy + per-call auth,Tenant-aware visible tool filtering,eino,reports/eino.md,Q4 Multi-tenancy,790,BeforeAgent filters
+18,Multi-tenancy + per-call auth,Tenant scope on session,mastra,reports/mastra.md,Q4 Multi-tenancy,453,resource/thread keys
+18,Multi-tenancy + per-call auth,Tenant scope on session,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,SessionKey project_key
+18,Multi-tenancy + per-call auth,Tenant scope on session,eino,reports/eino.md,Q4 Multi-tenancy,790,no tenant field
+18,Multi-tenancy + per-call auth,Per-tool-call auth propagation,mastra,reports/mastra.md,Q4 Multi-tenancy,453,requestContext auth
+18,Multi-tenancy + per-call auth,Per-tool-call auth propagation,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,callback controlled
+18,Multi-tenancy + per-call auth,Per-tool-call auth propagation,eino,reports/eino.md,Q4 Multi-tenancy,790,manual ctx auth
+18,Multi-tenancy + per-call auth,Resource scoping (skill/tool visibility),mastra,reports/mastra.md,Q4 Multi-tenancy,453,resource scoping
+18,Multi-tenancy + per-call auth,Resource scoping (skill/tool visibility),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,filesystem staging
+18,Multi-tenancy + per-call auth,Resource scoping (skill/tool visibility),eino,reports/eino.md,Q4 Multi-tenancy,790,backend BYO
+18,Multi-tenancy + per-call auth,Per-tenant rate limit + budget cap,mastra,reports/mastra.md,Q4 Multi-tenancy,453,maxSteps not budget
+18,Multi-tenancy + per-call auth,Per-tenant rate limit + budget cap,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q4 Multi-tenancy,540,max_budget_usd
+18,Multi-tenancy + per-call auth,Per-tenant rate limit + budget cap,eino,reports/eino.md,Q4 Multi-tenancy,790,not provided

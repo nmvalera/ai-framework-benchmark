@@ -1,0 +1,25 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+5,Sessions & Persistence,Session / chat data model,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,thread/resource schema
+5,Sessions & Persistence,Session / chat data model,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,typed SessionKey/JSONL
+5,Sessions & Persistence,Session / chat data model,eino,reports/eino.md,Q3 Sessions & Persistence,598,runSession values/events
+5,Sessions & Persistence,Session lifecycle / persistence,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,storage-managed threads
+5,Sessions & Persistence,Session lifecycle / persistence,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,JSONL plus store
+5,Sessions & Persistence,Session lifecycle / persistence,eino,reports/eino.md,Q3 Sessions & Persistence,598,checkpoint interface only
+5,Sessions & Persistence,Built-in persistence stores,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,many storage adapters
+5,Sessions & Persistence,Built-in persistence stores,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,file plus examples
+5,Sessions & Persistence,Built-in persistence stores,eino,reports/eino.md,Q3 Sessions & Persistence,598,no store implementation
+5,Sessions & Persistence,Persistence timing,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,debounced per turn
+5,Sessions & Persistence,Persistence timing,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,JSONL plus mirror
+5,Sessions & Persistence,Persistence timing,eino,reports/eino.md,Q3 Sessions & Persistence,598,checkpoint on interrupt
+5,Sessions & Persistence,Pluggable store interface,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,storage abstraction
+5,Sessions & Persistence,Pluggable store interface,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,SessionStore protocol
+5,Sessions & Persistence,Pluggable store interface,eino,reports/eino.md,Q3 Sessions & Persistence,598,CheckPointStore interface
+5,Sessions & Persistence,Mid-run checkpointing (durable),mastra,reports/mastra.md,Q3 Sessions & Persistence,365,workflow snapshots
+5,Sessions & Persistence,Mid-run checkpointing (durable),claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,best-effort JSONL
+5,Sessions & Persistence,Mid-run checkpointing (durable),eino,reports/eino.md,Q3 Sessions & Persistence,598,interrupt checkpoint only
+5,Sessions & Persistence,Session fork / branch model,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,clone workaround
+5,Sessions & Persistence,Session fork / branch model,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,fork_session native
+5,Sessions & Persistence,Session fork / branch model,eino,reports/eino.md,Q3 Sessions & Persistence,598,parallel lanes only
+5,Sessions & Persistence,Export / deterministic replay,mastra,reports/mastra.md,Q3 Sessions & Persistence,365,trace/storage replay partial
+5,Sessions & Persistence,Export / deterministic replay,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q3 Sessions & Persistence,432,JSONL transcript replay
+5,Sessions & Persistence,Export / deterministic replay,eino,reports/eino.md,Q3 Sessions & Persistence,598,gob blobs only

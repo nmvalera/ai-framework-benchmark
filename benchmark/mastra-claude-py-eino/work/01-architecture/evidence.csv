@@ -1,0 +1,13 @@
+section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
+1,Architecture,Where the agent loop executes,mastra,reports/mastra.md,Q0 Architecture details,102,in-process workflow
+1,Architecture,Where the agent loop executes,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,Node CLI subprocess
+1,Architecture,Where the agent loop executes,eino,reports/eino.md,Q0 Architecture details,98,in Go process
+1,Architecture,Runtime dependencies,mastra,reports/mastra.md,Q0 Architecture details,102,Node plus storage
+1,Architecture,Runtime dependencies,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,Python plus CLI
+1,Architecture,Runtime dependencies,eino,reports/eino.md,Q0 Architecture details,98,single Go binary
+1,Architecture,Recommended deployment topology,mastra,reports/mastra.md,Q0 Architecture details,102,server/storage pattern
+1,Architecture,Recommended deployment topology,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,production topology BYO
+1,Architecture,Recommended deployment topology,eino,reports/eino.md,Q0 Architecture details,98,library topology BYO
+1,Architecture,Cold-start / instance footprint,mastra,reports/mastra.md,Q0 Architecture details,102,moderate Node footprint
+1,Architecture,Cold-start / instance footprint,claude-agent-sdk-python,reports/claude-agent-sdk-python.md,Q0 Architecture details,101,subprocess cold start
+1,Architecture,Cold-start / instance footprint,eino,reports/eino.md,Q0 Architecture details,98,minimal Go startup
