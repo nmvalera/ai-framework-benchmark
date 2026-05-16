@@ -21,7 +21,7 @@ The canonical output is CSV data plus a short markdown executive summary. Do not
 
 ## Bundle Shape
 
-For `OUTPUT_FORMAT=bundle`, write:
+For `OUTPUT_FORMAT=bundle`, the final layout is:
 
 ```text
 <OUTPUT_DIR>/
@@ -29,22 +29,18 @@ For `OUTPUT_FORMAT=bundle`, write:
     taxonomy.csv
     frameworks.csv
     scores.csv
-    evidence.csv
-  work/
-    <section_order>-<section_slug>/
-      scores.csv
-      evidence.csv
   benchmark.md
 ```
+
+During the run, category workers also write transient files under `<OUTPUT_DIR>/work/<section_order>-<section_slug>/scores.csv`. This directory is removed at the end of the workflow and is gitignored.
 
 Artifact roles:
 
 - `data/taxonomy.csv` — copy of `references/taxonomy.csv`; section/row order, user-facing legends, and scoring guidance.
 - `data/frameworks.csv` — one row per framework in scope.
 - `data/scores.csv` — canonical merged score, short cell note, and longer details cells.
-- `data/evidence.csv` — canonical merged evidence references and caveats.
-- `work/*/scores.csv` and `work/*/evidence.csv` — per-category worker outputs; keep these for audit/debug.
 - `benchmark.md` — concise executive summary for GitHub and slide preparation, derived from the CSVs.
+- `work/` — transient scratch space for per-category worker output; deleted before the workflow returns.
 
 ## Taxonomy
 
@@ -80,10 +76,9 @@ CSV columns:
    - framework list/order
    - any `FOCUS` constraints
 7. Wait for all category workers to finish.
-8. Merge category files from `<OUTPUT_DIR>/work/*/` into:
-   - `<OUTPUT_DIR>/data/scores.csv`
-   - `<OUTPUT_DIR>/data/evidence.csv`
+8. Merge category files from `<OUTPUT_DIR>/work/*/` into `<OUTPUT_DIR>/data/scores.csv`.
 9. Generate `benchmark.md` from canonical CSV data.
+10. Remove `<OUTPUT_DIR>/work/` once the merged `data/` files and `benchmark.md` are written. Only delete after verifying the canonical files exist and are non-empty; if the merge fails, leave `work/` in place for inspection.
 
 If the runtime cannot spawn sub-agents, emulate the same shape locally: process one category at a time and write the same per-category files before merging.
 
@@ -101,7 +96,7 @@ If the user names specific frameworks, treat that as a hard framework focus:
 
 - include only those framework reports;
 - pass only those frameworks to `score-benchmark-category`;
-- do not include other reports in `frameworks.csv`, `scores.csv`, `evidence.csv`, or `benchmark.md`;
+- do not include other reports in `frameworks.csv`, `scores.csv`, or `benchmark.md`;
 - if a requested framework report is missing, stop and report the missing file instead of silently substituting another framework.
 
 ## Merge Rules
@@ -110,9 +105,9 @@ If the user names specific frameworks, treat that as a hard framework focus:
 - Merge by ascending `section_order`, then row order from `data/taxonomy.csv`, then framework order from `data/frameworks.csv`.
 - Reject or fix rows whose `(section_order, section, row)` is absent from taxonomy.
 - Preserve blank scores for not-applicable cells.
-- Preserve `?` scores and carry missing-evidence explanations into `data/evidence.csv`.
-- If duplicate cells exist, resolve them by checking evidence; otherwise flag an integration conflict in `benchmark.md`.
-- Do not alter worker scores silently when calibrating. If the main agent changes a score, update both the canonical score note and evidence note to explain why.
+- Preserve `?` scores; keep missing-evidence explanations inside the `details` column.
+- If duplicate cells exist, resolve them by checking the reports; otherwise flag an integration conflict in `benchmark.md`.
+- Do not alter worker scores silently when calibrating. If the main agent changes a score, update the canonical score note and `details` to explain why.
 
 ## Canonical CSV Schemas
 
@@ -122,19 +117,13 @@ If the user names specific frameworks, treat that as a hard framework focus:
 section_order,section,row,framework_id,score,note,details
 ```
 
-`data/evidence.csv`:
-
-```csv
-section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
-```
-
 Score rules:
 
 - blank score means not applicable.
 - `?` means applicable but evidence is missing.
 - `0` to `5` means scored.
-- `note` is the short cell label shown directly in the table.
-- `details` is the longer explanation shown in the details pane; use 3 sentences unless a shorter note is sufficient.
+- `note` is the short cell label shown next to the score bar: 3-5 words, no leading score prefix (the bar shows the score).
+- `details` is the long-form explanation shown on cell hover and in the details pane: up to 5 sentences focused on why the score is what it is.
 - Row legends stay in `data/taxonomy.csv`.
 - Some rows are label-only. For those, leave `score` blank and use `note` plus `details` instead. `Stack type` is the main example.
 

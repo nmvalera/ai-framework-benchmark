@@ -1,6 +1,6 @@
 ---
 name: score-benchmark-category
-description: "Score one benchmark taxonomy category across all AI framework reports. Used by create-benchmark sub-agents: load one taxonomy section, compare all frameworks row-by-row, and write category-local scores.csv and evidence.csv under OUTPUT_DIR/work/."
+description: "Score one benchmark taxonomy category across all AI framework reports. Used by create-benchmark sub-agents: load one taxonomy section, compare all frameworks row-by-row, and write a category-local scores.csv under OUTPUT_DIR/work/."
 ---
 
 # Score Benchmark Category
@@ -39,11 +39,10 @@ Never edit taxonomy. Taxonomy changes must be made in `create-benchmark/referenc
 
 ## Output Files
 
-Write only category-local files:
+Write only a category-local file:
 
 ```text
 <OUTPUT_DIR>/work/<section_order>-<section_slug>/scores.csv
-<OUTPUT_DIR>/work/<section_order>-<section_slug>/evidence.csv
 ```
 
 Do not write final shared files under `<OUTPUT_DIR>/data/`; the caller merges those after all categories finish.
@@ -54,13 +53,7 @@ Do not write final shared files under `<OUTPUT_DIR>/data/`; the caller merges th
 section_order,section,row,framework_id,score,note,details
 ```
 
-`evidence.csv` schema:
-
-```csv
-section_order,section,row,framework_id,report_path,report_section,line_ref,evidence_note
-```
-
-Write headers first. Append results incrementally after each taxonomy row is scored so progress is durable if the worker is interrupted.
+Write the header first. Append results incrementally after each taxonomy row is scored so progress is durable if the worker is interrupted.
 
 ## Scoring Workflow
 
@@ -71,9 +64,8 @@ For each row in your assigned category:
 3. Bring evidence for all frameworks into the same working context.
 4. Compare the strongest, weakest, and middle cases.
 5. Assign each framework cell a score, note, or both.
-6. Append that row's cells to `scores.csv`.
-7. Append evidence references and caveats to `evidence.csv`.
-8. Move to the next row.
+6. Append that row's cells to `scores.csv`, folding any audit caveats or `?` reasons into `details`.
+7. Move to the next row.
 
 Do not score one framework end-to-end before moving to the next. A `3` in one framework must mean the same level of support as a `3` in another framework for the same row.
 
@@ -88,28 +80,25 @@ Do not score one framework end-to-end before moving to the next. A `3` in one fr
 - `4`: strong support exists, with minor gaps or non-default setup.
 - `5`: first-class capability that directly fits the benchmark use case.
 
-Preferred note format:
+Note format:
 
-- `5 — first-class Postgres checkpointer`
-- `2 — interface only, BYO store`
-- `0 — no skill concept`
-
-Keep notes short: 2-8 words where possible.
+- `note` is the short cell label shown next to the score bar — 3-5 words, no leading score prefix.
+- Examples: `first-class Postgres checkpointer`, `interface only, BYO store`, `no skill concept`.
+- Do NOT start with the numeric score (e.g. never write `5 — first-class Postgres checkpointer`); the bar already displays the score.
 
 Details format:
 
-- `details` is required for scored cells unless the row is label-only or the evidence is genuinely trivial.
-- Write 3 sentences when the row needs context, comparison, or caveats.
+- `details` is the long-form explanation shown on cell hover and in the side panel.
+- Required for scored cells unless the row is label-only or the evidence is genuinely trivial.
+- Up to 5 sentences. Focus on why the score is what it is — context, comparison, caveats — not on restating the taxonomy legend.
 - For label-only rows such as `Stack type`, use `note` for the one-word display label and `details` for the explanatory rationale.
-- Keep the long note focused on why the score is what it is, not on rehashing the taxonomy legend.
 
 ## Evidence Rules
 
-- Prefer report section and line references over long quotes.
-- Keep `evidence_note` concise but sufficient to audit the score.
-- For `?`, write the missing-evidence reason in `evidence.csv`.
-- If evidence conflicts across a report, use `?` or a conservative score and note the conflict.
-- Do not make claims unsupported by generated reports.
+- Ground every score in the framework reports; do not invent evidence.
+- Keep `details` concise but sufficient to audit the score; a brief report section pointer is fine when it adds value.
+- For `?`, state the missing-evidence reason in `details`.
+- If evidence conflicts across a report, use `?` or a conservative score and note the conflict in `details`.
 
 ## Category Completion Response
 
@@ -121,9 +110,8 @@ When finished, return a short summary:
 - Rows scored: N
 - Frameworks scored: N
 - Scores written: <OUTPUT_DIR>/work/<section_order>-<section_slug>/scores.csv
-- Evidence written: <OUTPUT_DIR>/work/<section_order>-<section_slug>/evidence.csv
 - Open questions: N
 - Integration warnings: ...
 ```
 
-Do not paste the full CSV in the final response; the caller reads the files.
+Do not paste the full CSV in the final response; the caller reads the file.

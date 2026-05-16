@@ -101,13 +101,31 @@
 
     thead th {
       position: sticky;
-      top: 0;
       z-index: 3;
       background: #eef2f6;
       font-size: 12px;
       text-transform: uppercase;
       color: #334155;
       white-space: nowrap;
+    }
+
+    thead .eco-row th {
+      top: 0;
+      background: #243142;
+      color: white;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-align: center;
+      padding: 4px 8px;
+      border-bottom: 1px solid #1a2330;
+    }
+
+    thead .eco-row th:first-child {
+      background: #eef2f6;
+    }
+
+    thead .fw-row th {
+      top: 26px;
     }
 
     th:first-child, td:first-child {
@@ -120,8 +138,90 @@
       border-left: 1px solid var(--line);
     }
 
-    thead th:first-child {
-      z-index: 4;
+    thead .eco-row th:first-child {
+      z-index: 6;
+    }
+
+    thead .fw-row th:first-child {
+      z-index: 5;
+    }
+
+    .fw-label {
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    .hide-col {
+      margin-left: 6px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 2px 4px;
+      height: auto;
+      font: inherit;
+      cursor: pointer;
+      border-radius: 4px;
+      vertical-align: middle;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .hide-col svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+    }
+
+    .hide-col:hover {
+      background: rgba(213, 63, 76, 0.12);
+      color: #d53f4c;
+    }
+
+    .hidden-cols {
+      margin-top: 10px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .hidden-cols:empty {
+      display: none;
+    }
+
+    .hidden-cols .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel-2);
+      cursor: pointer;
+      color: var(--text);
+    }
+
+    .hidden-cols .chip::before {
+      content: "+";
+      color: var(--accent);
+      font-weight: 700;
+      margin-right: 4px;
+    }
+
+    .hidden-cols .chip:hover {
+      background: #e6efef;
+    }
+
+    .link-btn {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font: inherit;
+      padding: 0;
+      height: auto;
+      text-decoration: underline;
     }
 
     td.row-label {
@@ -139,7 +239,21 @@
 
     .section-row td:not(:first-child) {
       position: static;
-      color: transparent;
+    }
+
+    .section-row .note,
+    .total-row .note {
+      color: white;
+    }
+
+    .total-row td {
+      background: #0f766e;
+      color: white;
+      font-weight: 700;
+    }
+
+    .avg-note {
+      font-variant-numeric: tabular-nums;
     }
 
     .cell {
@@ -347,6 +461,7 @@
       </select>
       <button id="reset">Reset filters</button>
     </div>
+    <div id="hiddenColumns" class="hidden-cols"></div>
   </header>
 
   <main>
@@ -354,14 +469,16 @@
       <table id="matrix" aria-label="Benchmark matrix"></table>
     </div>
     <aside id="details">
-      <h2>Benchmark Details</h2>
-      <p class="muted">Select a cell to inspect score rationale and evidence. Hover-free, keyboard-friendly CSV-backed view.</p>
-      <div class="summary" id="summary"></div>
-      <h3>Score Legend</h3>
-      <div class="legend-list" id="scoreLegend"></div>
       <div class="detail-box" id="detailBox">
         <strong>No cell selected</strong>
+        <p class="muted">Select a cell in the matrix to view its score, note, and rationale.</p>
       </div>
+      <div id="methodology">
+        <h3>Methodology</h3>
+        <p class="muted">Select a cell to see what the row measures and how it is scored.</p>
+      </div>
+      <h3>Score Legend</h3>
+      <div class="legend-list" id="scoreLegend"></div>
     </aside>
   </main>
 
@@ -369,17 +486,66 @@
     const files = {
       taxonomy: "data/taxonomy.csv",
       frameworks: "data/frameworks.csv",
-      scores: "data/scores.csv",
-      evidence: "data/evidence.csv"
+      scores: "data/scores.csv"
     };
 
     const state = {
       taxonomy: [],
       frameworks: [],
       scores: [],
-      evidence: [],
-      selected: null
+      selected: null,
+      hidden: new Set(loadHidden())
     };
+
+    const ecosystemOrder = { go: 0, python: 1, typescript: 2, rust: 3, other: 4 };
+    const ecosystemLabel = { go: "Go", python: "Python", typescript: "TypeScript", rust: "Rust", other: "Other" };
+
+    function ecosystemOf(f) {
+      const lang = String(f.language || "").toLowerCase();
+      if (lang === "go") return "go";
+      if (lang.startsWith("python")) return "python";
+      if (lang === "typescript" || lang === "javascript" || lang === "ts") return "typescript";
+      if (lang === "rust") return "rust";
+      return "other";
+    }
+
+    function loadHidden() {
+      try {
+        return JSON.parse(localStorage.getItem("benchmarkHidden") || "[]");
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveHidden() {
+      localStorage.setItem("benchmarkHidden", JSON.stringify([...state.hidden]));
+    }
+
+    function orderedFrameworks() {
+      return [...state.frameworks].sort((a, b) => {
+        const ea = ecosystemOrder[ecosystemOf(a)] ?? 99;
+        const eb = ecosystemOrder[ecosystemOf(b)] ?? 99;
+        return ea - eb;
+      });
+    }
+
+    function visibleFrameworks() {
+      return orderedFrameworks().filter(f => !state.hidden.has(f.framework_id));
+    }
+
+    function ecosystemGroups(fws) {
+      const groups = [];
+      let cur = null;
+      fws.forEach(f => {
+        const e = ecosystemOf(f);
+        if (!cur || cur.id !== e) {
+          cur = { id: e, label: ecosystemLabel[e] || e, frameworks: [] };
+          groups.push(cur);
+        }
+        cur.frameworks.push(f);
+      });
+      return groups;
+    }
 
     function parseCSV(text) {
       const rows = [];
@@ -463,8 +629,12 @@
       return `<span class="score-bar ${fillClass}" aria-label="Score ${n}">${segs}</span>`;
     }
 
+    function shortNote(note) {
+      return String(note || "").replace(/^\s*[0-5?]\s*[—\-–]\s*/, "");
+    }
+
     function renderCellStack(score, note, rowName) {
-      const label = escapeHTML(note || "");
+      const label = escapeHTML(shortNote(note));
       if (!score) {
         const icon = rowName === "Stack type" && note ? `<span class="type-chip" title="${escapeHTML(note)}">${escapeHTML(String(note).slice(0, 1).toUpperCase())}</span>` : "";
         return `<span class="cell-stack">${icon}<span class="note">${label}</span></span>`;
@@ -483,12 +653,31 @@
       );
     }
 
-    function evidenceFor(row, frameworkId) {
-      return state.evidence.filter(e =>
-        e.section_order === row.section_order &&
-        e.row === row.row &&
-        e.framework_id === frameworkId
-      );
+    function averageScore(rows, frameworkId) {
+      const nums = rows
+        .map(r => cellFor(r, frameworkId))
+        .filter(Boolean)
+        .map(s => scoreNumber(s.score))
+        .filter(n => n !== null);
+      if (!nums.length) return null;
+      return nums.reduce((a, b) => a + b, 0) / nums.length;
+    }
+
+    function overallAverage(frameworkId) {
+      const sectionAverages = [...new Set(state.taxonomy.map(r => r.section_order))]
+        .map(order => {
+          const sectionRows = state.taxonomy.filter(r => r.section_order === order);
+          return averageScore(sectionRows, frameworkId);
+        })
+        .filter(n => n !== null);
+      if (!sectionAverages.length) return null;
+      return sectionAverages.reduce((a, b) => a + b, 0) / sectionAverages.length;
+    }
+
+    function renderAverageCell(avg) {
+      if (avg === null) return `<td><span class="muted">—</span></td>`;
+      const bar = renderScoreBar(String(Math.round(avg)));
+      return `<td><span class="cell-stack">${bar}<span class="note avg-note">${avg.toFixed(1)}</span></span></td>`;
     }
 
     function rowMatches(row) {
@@ -515,23 +704,6 @@
       return haystack.includes(q);
     }
 
-    function renderSummary() {
-      const el = document.getElementById("summary");
-      el.innerHTML = "";
-      state.frameworks.forEach(f => {
-        const vals = state.taxonomy
-          .map(row => cellFor(row, f.framework_id))
-          .filter(Boolean)
-          .map(s => scoreNumber(s.score))
-          .filter(n => n !== null);
-        const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : "n/a";
-        const div = document.createElement("div");
-        div.className = "metric";
-        div.innerHTML = `<strong>${avg}</strong><span class="muted">${f.label}</span>`;
-        el.appendChild(div);
-      });
-    }
-
     function renderFilters() {
       const select = document.getElementById("sectionFilter");
       const sections = [...new Map(state.taxonomy.map(r => [r.section_order, r])).values()];
@@ -541,26 +713,47 @@
 
     function renderTable() {
       const table = document.getElementById("matrix");
-      const head = [
-        "<thead><tr><th>Capability</th>",
-        ...state.frameworks.map(f => `<th>${f.label}</th>`),
-        "</tr></thead>"
-      ].join("");
+      const visible = visibleFrameworks();
+      const groups = ecosystemGroups(visible);
+
+      const ecoRow = `<tr class="eco-row"><th></th>${groups.map(g =>
+        `<th colspan="${g.frameworks.length}" class="eco-${g.id}">${escapeHTML(g.label)}</th>`
+      ).join("")}</tr>`;
+
+      const eyeOffSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+      const fwRow = `<tr class="fw-row"><th>Capability</th>${visible.map(f =>
+        `<th><span class="fw-label">${escapeHTML(f.label)}</span><button class="hide-col" data-fw="${escapeHTML(f.framework_id)}" title="Hide ${escapeHTML(f.label)}" aria-label="Hide column">${eyeOffSvg}</button></th>`
+      ).join("")}</tr>`;
+
+      const head = `<thead>${ecoRow}${fwRow}</thead>`;
 
       let body = "<tbody>";
+
+      body += `<tr class="total-row"><td title="Mean of each section's average — every section weighs equally">Overall average</td>`;
+      visible.forEach(f => {
+        body += renderAverageCell(overallAverage(f.framework_id));
+      });
+      body += `</tr>`;
+
       let currentSection = null;
       state.taxonomy.forEach(row => {
         if (!rowMatches(row)) return;
         if (currentSection !== row.section_order) {
           currentSection = row.section_order;
-          body += `<tr class="section-row"><td>${row.section_order}. ${row.section}</td>${state.frameworks.map(() => "<td></td>").join("")}</tr>`;
+          const sectionRows = state.taxonomy.filter(r => r.section_order === row.section_order);
+          body += `<tr class="section-row"><td>${row.section_order}. ${row.section}</td>`;
+          visible.forEach(f => {
+            body += renderAverageCell(averageScore(sectionRows, f.framework_id));
+          });
+          body += `</tr>`;
         }
         body += `<tr><td class="row-label" title="${escapeHTML(row.legend)}">— ${escapeHTML(row.row)}</td>`;
-        state.frameworks.forEach(f => {
-          const c = cellFor(row, f.framework_id) || { score: "", note: "" };
+        visible.forEach(f => {
+          const c = cellFor(row, f.framework_id) || { score: "", note: "", details: "" };
           const score = c.score || "";
           const note = c.note || "";
-          body += `<td class="cell" data-section="${escapeHTML(row.section_order)}" data-row="${escapeHTML(row.row)}" data-fw="${escapeHTML(f.framework_id)}">${renderCellStack(score, note, row.row)}</td>`;
+          const details = c.details || "";
+          body += `<td class="cell" data-section="${escapeHTML(row.section_order)}" data-row="${escapeHTML(row.row)}" data-fw="${escapeHTML(f.framework_id)}" title="${escapeHTML(details)}">${renderCellStack(score, note, row.row)}</td>`;
         });
         body += "</tr>";
       });
@@ -570,37 +763,70 @@
       table.querySelectorAll(".cell").forEach(cell => {
         cell.addEventListener("click", () => showDetails(cell.dataset.section, cell.dataset.row, cell.dataset.fw));
       });
+
+      table.querySelectorAll(".hide-col").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          state.hidden.add(btn.dataset.fw);
+          saveHidden();
+          renderTable();
+        });
+      });
+
+      renderHiddenList();
+    }
+
+    function renderHiddenList() {
+      const el = document.getElementById("hiddenColumns");
+      const hiddenFws = orderedFrameworks().filter(f => state.hidden.has(f.framework_id));
+      if (!hiddenFws.length) {
+        el.innerHTML = "";
+        return;
+      }
+      el.innerHTML = `<span>Hidden columns:</span>` +
+        hiddenFws.map(f => `<span class="chip" data-fw="${escapeHTML(f.framework_id)}" title="Show ${escapeHTML(f.label)}">${escapeHTML(f.label)}</span>`).join("") +
+        `<button class="link-btn" id="showAllBtn">Show all</button>`;
+      el.querySelectorAll(".chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          state.hidden.delete(chip.dataset.fw);
+          saveHidden();
+          renderTable();
+        });
+      });
+      el.querySelector("#showAllBtn").addEventListener("click", () => {
+        state.hidden.clear();
+        saveHidden();
+        renderTable();
+      });
     }
 
     function showDetails(sectionOrder, rowName, frameworkId) {
       const row = state.taxonomy.find(r => r.section_order === sectionOrder && r.row === rowName);
       const fw = state.frameworks.find(f => f.framework_id === frameworkId);
       const score = cellFor(row, frameworkId) || {};
-      const evidence = evidenceFor(row, frameworkId);
       state.selected = { sectionOrder, rowName, frameworkId };
 
-      const evidenceHtml = evidence.length
-        ? evidence.map(e => `<li><a href="../${escapeHTML(e.report_path)}" target="_blank">${escapeHTML(e.report_path)}</a>${e.line_ref ? `:${escapeHTML(e.line_ref)}` : ""}<br><span class="muted">${escapeHTML(e.report_section)} · ${escapeHTML(e.evidence_note)}</span></li>`).join("")
-        : `<li class="muted">No evidence row found.</li>`;
-      const detailsText = score.details || score.note || "No note.";
+      const detailsText = score.details || "";
 
       document.getElementById("detailBox").innerHTML = `
         <h2>${escapeHTML(fw.label)}</h2>
         <div class="pill-row">
           <span class="pill">${escapeHTML(row.section_order)}. ${escapeHTML(row.section)}</span>
+          <span class="pill">${escapeHTML(row.row)}</span>
           ${score.score ? `<span class="pill">${renderScoreBar(score.score)} score ${escapeHTML(score.score)}</span>` : ""}
         </div>
-        <h3>${escapeHTML(row.row)}</h3>
+        <h3>Cell note</h3>
+        <p>${escapeHTML(shortNote(score.note) || "No note.")}</p>
+        <h3>Cell details</h3>
+        <p>${detailsText ? escapeHTML(detailsText) : '<span class="muted">No details.</span>'}</p>
+      `;
+
+      document.getElementById("methodology").innerHTML = `
+        <h3>Methodology</h3>
         <h3>What this measures</h3>
         <p>${escapeHTML(row.legend)}</p>
-        <h3>Cell note</h3>
-        <p>${escapeHTML(score.note || "No note.")}</p>
-        <h3>Details</h3>
-        <p>${escapeHTML(detailsText)}</p>
         <h3>How to score</h3>
         <p class="muted">${escapeHTML(row.expected)}</p>
-        <h3>Evidence</h3>
-        <ul>${evidenceHtml}</ul>
       `;
     }
 
@@ -637,14 +863,12 @@
 
     async function init() {
       try {
-        [state.taxonomy, state.frameworks, state.scores, state.evidence] = await Promise.all([
+        [state.taxonomy, state.frameworks, state.scores] = await Promise.all([
           loadCSV(files.taxonomy),
           loadCSV(files.frameworks),
-          loadCSV(files.scores),
-          loadCSV(files.evidence)
+          loadCSV(files.scores)
         ]);
         renderFilters();
-        renderSummary();
         renderScoreLegend();
         renderTable();
         ["search", "sectionFilter", "scoreFilter"].forEach(id => {
@@ -654,6 +878,8 @@
           document.getElementById("search").value = "";
           document.getElementById("sectionFilter").value = "";
           document.getElementById("scoreFilter").value = "";
+          state.hidden.clear();
+          saveHidden();
           renderTable();
         });
       } catch (err) {

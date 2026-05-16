@@ -36,11 +36,12 @@ Before drilling into the question bank, map the existing report if one exists, t
 
 Existing report state:
 - If `OUTPUT_PATH` already exists, read it first.
-- Note which sections are already complete, stale, thin, contradictory, or missing citations.
-- Preserve useful existing findings, examples, and file references when they are still accurate.
-- Update stale claims against the current framework commit, docs, changelog, and GitHub Releases.
-- Do not delete working report content just because you are restructuring; carry it forward unless it is wrong or outside the benchmark scope.
-- **The questionnaire (`references/questions.md`) may have changed since the existing report was written** — sections may have been added, removed, renamed, renumbered, split, or merged, and sub-bullets may have shifted. Diff the current report's headings and sub-bullets against the current `references/questions.md` and restructure the report so it matches the new version exactly (heading text, ordering, sub-bullet numbering, ⭐ markers). This is reformatting, not forgetting: move existing content to its new location, merge or split paragraphs to fit the new sub-bullets, and only drop content that is genuinely outside the new scope. If existing content does not map cleanly to any current sub-bullet, prefer to re-home it under the closest match rather than discard it.
+- **Default mode when a report already exists: restructure, do NOT re-research.** Treat the existing report as the primary source of truth for facts about the stack. Your first job is to reconcile its shape with the current `references/questions.md`, not to re-derive findings from the framework source.
+- Diff the existing report's headings and sub-bullets against the current `references/questions.md`. If sections have been added, removed, renamed, renumbered, split, or merged — or if sub-bullets have shifted — restructure the report so it matches the new version exactly (heading text, ordering, sub-bullet numbering, ⭐ markers). This is reformatting, not forgetting: move existing content to its new location, merge or split paragraphs to fit the new sub-bullets, and only drop content that is genuinely outside the new scope.
+- If existing content does not map cleanly to any current sub-bullet, prefer to re-home it under the closest match rather than discard it. Do not perform a hard remapping (rewriting every line from scratch) unless there is a clear reason — e.g. the section was fundamentally redefined, the existing content is wrong, or it contradicts the current framework commit.
+- **Only fall back to exploring the stack when, after restructuring, a sub-bullet has no answer in the existing report and that answer is genuinely missing — not just relocated.** Limit fresh research to those specific gaps; do not re-derive sub-bullets that already have a usable answer.
+- Note which sections, after restructuring, are still complete, stale, thin, contradictory, or missing citations. Update stale claims against the current framework commit, docs, changelog, and GitHub Releases only where the existing claim is wrong or out of date — not as a routine pass.
+- Preserve useful existing findings, examples, and file references when they are still accurate. Do not delete working content just because you are restructuring; carry it forward unless it is wrong or outside the benchmark scope.
 
 Online documentation:
 - Project status: whether the framework is open-source, license, owning organization, maintainers, commercial backing, and support model.
