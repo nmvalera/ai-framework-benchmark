@@ -469,11 +469,66 @@
 
     a { color: var(--accent); }
 
+    aside {
+      position: relative;
+    }
+
+    .aside-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 4;
+      width: 26px;
+      height: 26px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      color: var(--muted);
+    }
+
+    .aside-toggle:hover {
+      background: var(--panel-2);
+      color: var(--text);
+    }
+
+    .aside-toggle svg {
+      width: 14px;
+      height: 14px;
+      transition: transform 0.15s ease;
+    }
+
+    body.aside-collapsed main {
+      grid-template-columns: minmax(0, 1fr) 36px;
+    }
+
+    body.aside-collapsed aside {
+      padding: 10px 4px;
+      overflow: hidden;
+    }
+
+    body.aside-collapsed aside > :not(.aside-toggle) {
+      display: none;
+    }
+
+    body.aside-collapsed .aside-toggle {
+      right: 5px;
+    }
+
+    body.aside-collapsed .aside-toggle svg {
+      transform: rotate(180deg);
+    }
+
     @media (max-width: 920px) {
       .toolbar { grid-template-columns: 1fr; }
       main { grid-template-columns: 1fr; height: auto; }
       aside { border-top: 1px solid var(--line); }
       .table-wrap { height: 65vh; }
+      body.aside-collapsed main { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -500,6 +555,9 @@
       <table id="matrix" aria-label="Benchmark matrix"></table>
     </div>
     <aside id="details">
+      <button class="aside-toggle" id="asideToggle" type="button" aria-label="Collapse details panel" title="Collapse details panel" aria-expanded="true" aria-controls="details">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </button>
       <div class="detail-box" id="detailBox">
         <strong>No cell selected</strong>
         <p class="muted">Select a cell in the matrix to view its score, note, and rationale.</p>
@@ -559,6 +617,29 @@
 
     function saveHidden() {
       localStorage.setItem("benchmarkHidden", JSON.stringify([...state.hidden]));
+    }
+
+    function isAsideCollapsed() {
+      return localStorage.getItem("benchmarkAsideCollapsed") === "1";
+    }
+
+    function applyAsideCollapsed(collapsed) {
+      document.body.classList.toggle("aside-collapsed", collapsed);
+      const btn = document.getElementById("asideToggle");
+      if (!btn) return;
+      const label = collapsed ? "Expand details panel" : "Collapse details panel";
+      btn.setAttribute("title", label);
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    }
+
+    function setupAsideToggle() {
+      applyAsideCollapsed(isAsideCollapsed());
+      document.getElementById("asideToggle").addEventListener("click", () => {
+        const next = !isAsideCollapsed();
+        localStorage.setItem("benchmarkAsideCollapsed", next ? "1" : "0");
+        applyAsideCollapsed(next);
+      });
     }
 
     function orderedFrameworks() {
@@ -918,6 +999,7 @@
         renderFilters();
         renderScoreLegend();
         renderTable();
+        setupAsideToggle();
         ["search", "sectionFilter", "scoreFilter"].forEach(id => {
           document.getElementById(id).addEventListener("input", renderTable);
         });
@@ -934,6 +1016,7 @@
       }
     }
 
+    applyAsideCollapsed(isAsideCollapsed());
     init();
   </script>
 </body>
