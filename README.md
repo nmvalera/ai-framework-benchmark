@@ -1,8 +1,8 @@
 # AI Framework Benchmark
 
-Technical benchmark of AI agent frameworks for building a long-lived, long-running agent piloted by skills with multi-tenancy.
+Technical benchmark of AI agent frameworks for building a long-lived, skills-piloted agent exposed to external clients, with per-tenant tool and skill scoping enforced by the runtime rather than the LLM.
 
-> **Scope disclaimer.** This benchmark is calibrated for **long-lived, multi-tenant production agents piloted by skills**. Benchmark rewards first-party support over BYO glue. A low score here is not a verdict on general framework quality, it means the framework leaves more development work for *this specific* use case. If you are building a single-tenant chatbot demo or a short-lived assistant, the rankings will not predict your experience.
+> **Scope disclaimer.** This benchmark is calibrated for **long-lived production agents exposed to external clients and piloted by skills**. In this context, *multi-tenancy* means the runtime — not the LLM — picks the tool set available to each tenant, scopes the skill library to that tenant, and injects tenant identity into tool calls server-side rather than trusting LLM-provided arguments. Benchmark rewards first-party support over BYO glue. A low score here is not a verdict on general framework quality — it means the framework leaves more development work for *this specific* use case. If you are building a single-tenant chatbot demo or a short-lived assistant, the rankings will not predict your experience.
 
 ## Results
 
@@ -56,7 +56,7 @@ Each framework is scored across the following capability areas.
 15. **MCP** — Whether the framework supports MCP.
 16. **Safety & Policy** — Whether the framework provides guardrails to keep the AI from saying or doing things you do not want.
 17. **Agent Observability** — Whether you can see what the AI is actually doing in production, debug it, and prove it behaved correctly.
-18. **Multi-tenancy** — Whether the framework enables safely isolating each client's data, tools, and skills across agent sessions.
+18. **Multi-tenancy** — Whether the runtime can pick the tool set per tenant, scope the skill library to a tenant, and inject tenant identity into tool calls server-side rather than via LLM-provided arguments.
 19. **Eval / testing** — Whether the framework provides AI agent evaluation and testing capabilities to measure performance and behavior.
 20. **Local sandbox / dev UX** — Whether the framework provides a local sandbox and development environment to build and iterate on the agent day-to-day.
 

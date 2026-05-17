@@ -15,6 +15,6 @@ section_order,section,definition
 15,MCP,"Whether the framework supports MCP."
 16,Safety & Policy,Whether the framework provides guardrails to keep the AI from saying or doing things you do not want.
 17,Agent Observability,"Whether you can see what the AI is actually doing in production, debug it, and prove it behaved correctly."
-18,Multi-tenancy,"Whether the framework enables to safely isolate client's data, tools & skills across agent sessions."  
+18,Multi-tenancy,"Whether the runtime can pick the tool set per tenant, scope the skill library to a tenant, and inject tenant identity into tool calls server-side rather than via LLM-provided arguments."
 19,Eval / testing,"Whether the framework provides AI Agent evalutation and testing capabilities to measure the agent's performance and behavior."
 20,Local sandbox / dev UX,"Whether the framework provides a local sandbox and development environment to build and iterate on the agent day-to-day."

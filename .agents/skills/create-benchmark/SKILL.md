@@ -170,4 +170,4 @@ Score display:
 - Use `score-benchmark-category` for category scoring; keep row-level scoring details out of this orchestrator.
 - Preserve the distinction between first-party support and host-built glue.
 - Avoid broad claims that are not backed by generated reports.
-- Do not use domain-specific wording beyond the benchmark goal: a long-running agent piloted by skills with multi-tenancy.
+- Do not use domain-specific wording beyond the benchmark goal: a long-running, skills-piloted agent exposed to external clients, with per-tenant tool and skill scoping enforced by the runtime rather than the LLM.

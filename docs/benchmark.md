@@ -3,7 +3,7 @@
 > Generated on 2026-05-17 from 19 framework reports under `docs/reports/`. Sections 0 (General) and 1 (Architecture) rescored against the refactored taxonomy on 2026-05-17; section 3 relabeled (`Agent API` → `HTTP API`).
 > Canonical data lives in [`data/`](data/) (`taxonomy.csv`, `frameworks.csv`, `scores.csv`). The auxiliary `evidence.csv` carries longer per-cell evidence excerpts.
 
-The benchmark targets **a long-running, multi-tenant agent piloted by skills**. Calibration favors first-party support over BYO glue.
+The benchmark targets **a long-running, skills-piloted agent exposed to external clients**, where the runtime — not the LLM — picks the tool set available to each tenant, scopes the skill library to that tenant, and injects tenant identity into tool calls server-side. Calibration favors first-party support over BYO glue.
 
 ## Score legend
 
