@@ -152,14 +152,23 @@
     }
 
     a.fw-label {
-      color: inherit;
+      color: var(--accent);
       text-decoration: none;
-      border-bottom: 1px dotted currentColor;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
 
     a.fw-label:hover {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
+      text-decoration: underline;
+    }
+
+    .fw-link-icon {
+      width: 11px;
+      height: 11px;
+      flex: none;
+      opacity: 0.85;
     }
 
     .hide-col {
@@ -752,9 +761,10 @@
       ).join("")}</tr>`;
 
       const eyeOffSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+      const extLinkSvg = `<svg class="fw-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>`;
       const fwRow = `<tr class="fw-row"><th>Capability</th>${visible.map(f => {
         const labelHTML = f.report_path
-          ? `<a class="fw-label" href="${escapeHTML(REPO_BLOB_URL + f.report_path)}" target="_blank" rel="noopener" title="Open the ${escapeHTML(f.label)} analysis on GitHub">${escapeHTML(f.label)}</a>`
+          ? `<a class="fw-label" href="${escapeHTML(REPO_BLOB_URL + f.report_path)}" target="_blank" rel="noopener" title="Open the ${escapeHTML(f.label)} analysis on GitHub"><span>${escapeHTML(f.label)}</span>${extLinkSvg}</a>`
           : `<span class="fw-label">${escapeHTML(f.label)}</span>`;
         return `<th>${labelHTML}<button class="hide-col" data-fw="${escapeHTML(f.framework_id)}" title="Hide ${escapeHTML(f.label)}" aria-label="Hide column">${eyeOffSvg}</button></th>`;
       }).join("")}</tr>`;
