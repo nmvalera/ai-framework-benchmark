@@ -16,7 +16,7 @@ This skill coordinates the full benchmark workflow. It does not replace `analyse
 
 - `FRAMEWORK_INDEX` — usually `framework-index.json`.
 - `FRAMEWORKS_DIR` — usually `frameworks/`.
-- `REPORTS_DIR` — usually `reports/`.
+- `REPORTS_DIR` — usually `docs/reports/`.
 - `MATRIX_OUTPUT_PATH` — usually `docs/benchmark.md`.
 - Optional `FOCUS` — a subset of framework ids or benchmark capabilities.
 
@@ -55,7 +55,7 @@ This skill coordinates the full benchmark workflow. It does not replace `analyse
 Use one worker sub-agent per framework. A worker owns only:
 
 - its external framework checkout path(s) under `frameworks/`;
-- its one report file under `reports/`;
+- its one report file under `docs/reports/`;
 - no other reports, skills, or benchmark matrix files.
 
 Sub-agent prompt shape:

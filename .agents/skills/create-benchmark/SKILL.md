@@ -5,13 +5,13 @@ description: "Orchestrate benchmark synthesis after `analyse-ai-framework` repor
 
 # Create Benchmark Bundle
 
-You create the final benchmark bundle from generated framework reports. Do not re-analyse frameworks unless a report is missing or contradictory. Prefer evidence already present in `reports/*.md`.
+You create the final benchmark bundle from generated framework reports. Do not re-analyse frameworks unless a report is missing or contradictory. Prefer evidence already present in `docs/reports/*.md`.
 
 The canonical output is CSV data plus a short markdown executive summary. Do not generate the HTML/JavaScript viewer here; the viewer is maintained separately and reads the CSV files.
 
 ## Inputs
 
-- `REPORTS_DIR` — generated framework reports, usually `reports/`.
+- `REPORTS_DIR` — generated framework reports, usually `docs/reports/`.
 - `OUTPUT_DIR` — benchmark bundle directory, default `docs/`.
 - Optional `FOCUS` — narrow to specific sections, rows, or frameworks.
 - Optional `TITLE` — default `Stack Choice: Where the Agent Loop Lives`.

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "description": "Frameworks currently studied by this benchmark.",
+  "description": "Frameworks currently analysed by this benchmark.",
   "default_frameworks_dir": "frameworks",
-  "default_reports_dir": "reports",
+  "default_reports_dir": "docs/reports",
   "frameworks": [
     {
       "id": "adk-go",
@@ -10,7 +10,7 @@
       "ecosystem": "go",
       "repo_url": "https://github.com/google/adk-go",
       "framework_path": "frameworks/adk-go",
-      "report_path": "reports/adk-go.md"
+      "report_path": "docs/reports/adk-go.md"
     },
     {
       "id": "agno",
@@ -18,7 +18,7 @@
       "ecosystem": "python",
       "repo_url": "https://github.com/agno-agi/agno",
       "framework_path": "frameworks/agno",
-      "report_path": "reports/agno.md"
+      "report_path": "docs/reports/agno.md"
     },
     {
       "id": "autoagents",
@@ -26,7 +26,7 @@
       "ecosystem": "rust",
       "repo_url": "https://github.com/liquidos-ai/AutoAgents",
       "framework_path": "frameworks/autoagents",
-      "report_path": "reports/autoagents.md"
+      "report_path": "docs/reports/autoagents.md"
     },
     {
       "id": "claude-agent-sdk-python",
@@ -34,7 +34,7 @@
       "ecosystem": "python",
       "repo_url": "https://github.com/anthropics/claude-agent-sdk-python",
       "framework_path": "frameworks/claude-agent-sdk-python",
-      "report_path": "reports/claude-agent-sdk-python.md"
+      "report_path": "docs/reports/claude-agent-sdk-python.md"
     },
     {
       "id": "claude-agent-sdk-typescript",
@@ -42,7 +42,7 @@
       "ecosystem": "typescript",
       "repo_url": "https://github.com/anthropics/claude-agent-sdk-typescript",
       "framework_path": "frameworks/claude-agent-sdk-typescript",
-      "report_path": "reports/claude-agent-sdk-typescript.md"
+      "report_path": "docs/reports/claude-agent-sdk-typescript.md"
     },
     {
       "id": "crewai",
@@ -50,7 +50,7 @@
       "ecosystem": "python",
       "repo_url": "https://github.com/crewAIInc/crewAI",
       "framework_path": "frameworks/crewai",
-      "report_path": "reports/crewai.md"
+      "report_path": "docs/reports/crewai.md"
     },
     {
       "id": "eino",
@@ -72,7 +72,7 @@
           "branch": "main"
         }
       ],
-      "report_path": "reports/eino.md"
+      "report_path": "docs/reports/eino.md"
     },
     {
       "id": "genkit-go",
@@ -81,7 +81,7 @@
       "repo_url": "https://github.com/firebase/genkit",
       "repo_note": "Multi-language monorepo; Go SDK lives under go/.",
       "framework_path": "frameworks/genkit",
-      "report_path": "reports/genkit-go.md"
+      "report_path": "docs/reports/genkit-go.md"
     },
     {
       "id": "langgraph",
@@ -89,7 +89,7 @@
       "ecosystem": "python",
       "repo_url": "https://github.com/langchain-ai/langgraph",
       "framework_path": "frameworks/langgraph",
-      "report_path": "reports/langgraph.md"
+      "report_path": "docs/reports/langgraph.md"
     },
     {
       "id": "llamaindex",
@@ -97,7 +97,7 @@
       "ecosystem": "python",
       "repo_url": "https://github.com/run-llama/llama_index",
       "framework_path": "frameworks/llamaindex",
-      "report_path": "reports/llamaindex.md"
+      "report_path": "docs/reports/llamaindex.md"
     },
     {
       "id": "mastra",
@@ -105,7 +105,7 @@
       "ecosystem": "typescript",
       "repo_url": "https://github.com/mastra-ai/mastra",
       "framework_path": "frameworks/mastra",
-      "report_path": "reports/mastra.md"
+      "report_path": "docs/reports/mastra.md"
     },
     {
       "id": "microsoft-agent-framework",
@@ -113,7 +113,7 @@
       "ecosystem": "python/dotnet",
       "repo_url": "https://github.com/microsoft/agent-framework",
       "framework_path": "frameworks/microsoft-agent-framework",
-      "report_path": "reports/microsoft-agent-framework.md"
+      "report_path": "docs/reports/microsoft-agent-framework.md"
     },
     {
       "id": "openai-agents-python",
@@ -121,7 +121,7 @@
       "ecosystem": "python",
       "repo_url": "https://github.com/openai/openai-agents-python",
       "framework_path": "frameworks/openai-agents-python",
-      "report_path": "reports/openai-agents-python.md"
+      "report_path": "docs/reports/openai-agents-python.md"
     },
     {
       "id": "openai-agents-js",
@@ -129,7 +129,7 @@
       "ecosystem": "typescript",
       "repo_url": "https://github.com/openai/openai-agents-js",
       "framework_path": "frameworks/openai-agents-js",
-      "report_path": "reports/openai-agents-js.md"
+      "report_path": "docs/reports/openai-agents-js.md"
     },
     {
       "id": "pydantic-ai",
@@ -137,7 +137,7 @@
       "ecosystem": "python",
       "repo_url": "https://github.com/pydantic/pydantic-ai",
       "framework_path": "frameworks/pydantic-ai",
-      "report_path": "reports/pydantic-ai.md"
+      "report_path": "docs/reports/pydantic-ai.md"
     },
     {
       "id": "rig",
@@ -145,7 +145,7 @@
       "ecosystem": "rust",
       "repo_url": "https://github.com/0xPlaygrounds/rig",
       "framework_path": "frameworks/rig",
-      "report_path": "reports/rig.md"
+      "report_path": "docs/reports/rig.md"
     },
     {
       "id": "strands-agents-python",
@@ -163,7 +163,7 @@
           "framework_path": "frameworks/strands-agents-tools"
         }
       ],
-      "report_path": "reports/strands-agents-python.md"
+      "report_path": "docs/reports/strands-agents-python.md"
     },
     {
       "id": "strands-agents-typescript",
@@ -171,7 +171,7 @@
       "ecosystem": "typescript",
       "repo_url": "https://github.com/strands-agents/sdk-typescript",
       "framework_path": "frameworks/strands-agents-sdk-typescript",
-      "report_path": "reports/strands-agents-typescript.md"
+      "report_path": "docs/reports/strands-agents-typescript.md"
     },
     {
       "id": "vercel-ai",
@@ -179,7 +179,7 @@
       "ecosystem": "typescript",
       "repo_url": "https://github.com/vercel/ai",
       "framework_path": "frameworks/vercel-ai",
-      "report_path": "reports/vercel-ai.md"
+      "report_path": "docs/reports/vercel-ai.md"
     }
   ]
 }

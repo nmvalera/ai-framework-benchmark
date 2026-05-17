@@ -8,7 +8,7 @@ Technical benchmark of AI agent frameworks for building a long-lived, long-runni
 
 - benchmark summary [page](https://nmvalera.github.io/ai-framework-benchmark/)
 - full results [`docs/benchmark.md`](docs/benchmark.md)
-- extended framework analysis [reports](/reports/)
+- extended framework analysis [reports](docs/reports/)
 
 ## Methodology
 
@@ -22,7 +22,7 @@ Each framework is analysed by a dedicated, independent sub-agent running the [`a
 - the in-repo changelog and GitHub Releases for recent architectural changes;
 - the official documentation, used for clarification only — never as the primary source.
 
-The sub-agent maps the repository, answers every question with concrete file:line references, includes light usage examples for the core use case, and marks missing features as `Not provided — BYO` instead of inventing workarounds. The output is one long-form markdown report per framework under [`reports/`](reports/).
+The sub-agent maps the repository, answers every question with concrete file:line references, includes light usage examples for the core use case, and marks missing features as `Not provided — BYO` instead of inventing workarounds. The output is one long-form markdown report per framework under [`docs/reports/`](docs/reports/).
 
 Phase 1 sub-agents do not see each other's reports. Every framework is analysed in isolation against the same methodology, so the resulting reports are comparable without any cross-agent coordination.
 
@@ -94,7 +94,7 @@ Use this skill to orchestrate the full flow: read `framework-index.json`, run on
 
 ### `analyse-ai-framework`
 
-Use this skill to produce a deep technical analysis of one framework. It reads the shared question bank and writes a long-form markdown report under `reports/`.
+Use this skill to produce a deep technical analysis of one framework. It reads the shared question bank and writes a long-form markdown report under `docs/reports/`.
 
 ### `create-benchmark`
 
@@ -123,6 +123,11 @@ framework-index.json
         questions.md
     create-benchmark/
       SKILL.md
-reports/
-  *.md
+docs/
+  index.html
+  benchmark.md
+  data/
+    *.csv
+  reports/
+    *.md
 ```

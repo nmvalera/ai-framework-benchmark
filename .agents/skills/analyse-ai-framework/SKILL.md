@@ -13,7 +13,7 @@ You're producing a deep technical analysis of one AI agent SDK / framework. The 
 - `REPO_URL` — Git URL to add as a submodule under `frameworks/`, OR `LOCAL` if you should analyse a repo already on disk
 - `FRAMEWORK_PATH` — where the framework lives, normally `frameworks/<framework-slug>/`
 - `LOCAL_PATHS` (only for `LOCAL`) — the dirs/files to focus on
-- `OUTPUT_PATH` — where the analysis lives (e.g. `reports/mastra.md`)
+- `OUTPUT_PATH` — where the analysis lives (e.g. `docs/reports/mastra.md`)
 
 ## Step 1 — Add/update the framework submodule (or locate)
 
