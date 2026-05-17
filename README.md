@@ -2,14 +2,11 @@
 
 Technical benchmark of AI agent frameworks for building a long-lived, long-running agent piloted by skills with multi-tenancy.
 
-> **Scope disclaimer.** This benchmark is calibrated for **long-lived, multi-tenant production agents piloted by skills**. Benchmark rewards first-party support over BYO glue. A low score here is not a verdict on general framework quality, it means the framework leaves more host work for *this specific* use case. If you are building a single-tenant chatbot demo or a short-lived assistant, the rankings will not predict your experience.
+> **Scope disclaimer.** This benchmark is calibrated for **long-lived, multi-tenant production agents piloted by skills**. Benchmark rewards first-party support over BYO glue. A low score here is not a verdict on general framework quality, it means the framework leaves more development work for *this specific* use case. If you are building a single-tenant chatbot demo or a short-lived assistant, the rankings will not predict your experience.
 
-The benchmark focuses on the engineering surface needed to run 
-- many isolated agent sessions in production
-- persisting state
-- multi-tenancy: where the loop executes, how session state is persisted, how tenant and user context reaches tools, whether skills and sub-agents are first-class, and what has to be built around the framework.
+The benchmark results summary be found [here](https://nmvalera.github.io/ai-framework-benchmark/)
 
-Full results: [`docs/benchmark.md`](docs/benchmark.md). Interactive viewer (once GitHub Pages is enabled): https://nmvalera.github.io/ai-framework-benchmark/.
+Full results: [`docs/benchmark.md`](docs/benchmark.md). Interactive viewer : ai-framework-benchmark/.
 
 ## Methodology
 
@@ -55,39 +52,27 @@ Each framework is scored across the following capability areas. Definitions belo
 
 Current selected framework set:
 
-Python:
-
-- Agno Python
-- Claude Agent SDK Python
-- CrewAI Python
-- LangGraph Python
-- LlamaIndex Python
-- OpenAI Agents Python
-- Pydantic AI
-- Strands Agents Python
-
-TypeScript:
-
-- Claude Agent SDK TypeScript
-- Mastra TypeScript
-- OpenAI Agents TypeScript
-- Strands Agents TypeScript
-- Vercel AI SDK TypeScript
-
-Go:
-
-- ADK Go
-- Eino Go
-- Genkit Go
-
-Rust:
-
-- AutoAgents Rust
-- Rig Rust
-
-Multi-language:
-
-- Microsoft Agent Framework
+| Framework | One-line description |
+| --- | --- |
+| [ADK Go](https://github.com/google/adk-go) | Google's official Go-native agent SDK with a built-in HTTP/WebSocket/A2A server, Vertex AI integration, and embedded Web UI, all in one binary. |
+| [Agno Python](https://github.com/agno-agi/agno) | Opinionated, batteries-included Python framework whose built-in FastAPI server ("AgentOS") covers scheduler, RBAC, traces, evals, knowledge, and 130+ tools out of the box. |
+| [AutoAgents Rust](https://github.com/liquidos-ai/AutoAgents) | Rust-native library with a typed agent executor and an optional actor runtime for multi-agent coordination. |
+| [Claude Agent SDK Python](https://github.com/anthropics/claude-agent-sdk-python) | Anthropic's Python wrapper around the Claude Code CLI; the agent loop runs in a bundled Node.js binary that your process subprocesses. |
+| [Claude Agent SDK TypeScript](https://github.com/anthropics/claude-agent-sdk-typescript) | Anthropic's TypeScript wrapper around the same Claude Code binary as the Python SDK, with a ~200 MB native binary spawned per session. |
+| [CrewAI Python](https://github.com/crewAIInc/crewAI) | Multi-agent-first Python framework built around "Crews" (sequential or hierarchical task teams) and event-driven "Flows". |
+| [Eino Go](https://github.com/cloudwego/eino) | Go-native library combining a graph orchestration engine with a higher-level agent toolkit shipping prebuilt ReAct, workflow, and supervisor patterns. |
+| [Genkit Go](https://github.com/firebase/genkit) | Firebase's flow-centric, in-process Go library with a dev-only reflection server consumed by the JS-based Genkit CLI. |
+| [LangGraph Python](https://github.com/langchain-ai/langgraph) | Python graph-based agent runtime with first-class Postgres/SQLite checkpointers; the production HTTP server is a separate closed-source paid component. |
+| [LlamaIndex Python](https://github.com/run-llama/llama_index) | Large Python ecosystem (~300 packages) whose agent layer sits on top of an event-driven workflow engine; historically focused on RAG and ingestion. |
+| [Mastra TypeScript](https://github.com/mastra-ai/mastra) | Full-stack TypeScript framework where the agent loop is itself a workflow, with first-class skills, resource manager, and broad platform tooling. |
+| [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) | Microsoft's dual-language (Python + .NET) library that converges Semantic Kernel and AutoGen, with a graph-based workflow runtime and optional hosted Azure runtimes. |
+| [OpenAI Agents Python](https://github.com/openai/openai-agents-python) | Lightweight in-process Python library built directly on top of the official OpenAI SDK, with no subprocess or vendor runtime. |
+| [OpenAI Agents TypeScript](https://github.com/openai/openai-agents-js) | Thin in-process TypeScript SDK exposing `Agent` / `Runner` classes; no bundled server, no subprocess, no hosted runtime. |
+| [Pydantic AI](https://github.com/pydantic/pydantic-ai) | Provider-agnostic, library-first Python agent built as a typed Pydantic-graph state machine that runs in your process. |
+| [Rig Rust](https://github.com/0xPlaygrounds/rig) | Rust library where the agent loop runs as plain async functions in your Tokio runtime; no bundled server or sidecar. |
+| [Strands Agents Python](https://github.com/strands-agents/sdk-python) | Model-driven, in-process Python SDK whose agent loop is a pure async generator; the host owns the entire runtime. |
+| [Strands Agents TypeScript](https://github.com/strands-agents/sdk-typescript) | Library-only, in-process TypeScript SDK with an optional Express adapter that exposes agents over the A2A protocol. |
+| [Vercel AI SDK TypeScript](https://github.com/vercel/ai) | TypeScript library providing the agent-loop primitives to mount on your own HTTP handler, plus first-party React/Vue/Svelte/Angular hooks. |
 
 ## Skills
 
