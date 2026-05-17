@@ -12,19 +12,29 @@ Technical benchmark of AI agent frameworks for building a long-lived, long-runni
 
 ## Methodology
 
-Each framework is studied with the same question bank so the reports can be compared consistently. The methodology favors source-code inspection over documentation summaries:
+The benchmark runs in two phases. Phase 1 produces one in-depth audit per framework. Phase 2 turns those audits into a single comparable scoring matrix. The two phases parallelize on different axes — Phase 1 fans out by framework, Phase 2 fans out by scoring category — which is what keeps each framework audited in isolation while still calibrating scores across the whole set.
 
-- add or update the framework source under `frameworks/` as a Git submodule;
-- record the exact commit and branch studied;
-- map the repository before answering detailed questions;
-- inspect the in-repo changelog and GitHub Releases for recent architectural changes;
-- answer every question with concrete file and line references;
-- include light usage examples for the core use case;
-- mark missing features as `Not provided — BYO` instead of inventing workarounds.
+### Phase 1 — Framework audit
 
-The per-framework reports live in [`reports/`](reports/). The study workflow is packaged as a project-scoped Codex skill in [`.agents/skills/study-ai-framework/`](.agents/skills/study-ai-framework/). The question bank is separated into [`.agents/skills/study-ai-framework/questions.md`](.agents/skills/study-ai-framework/questions.md) so readers can inspect the benchmark rubric directly.
+Each framework is audited by a dedicated, independent sub-agent running the [framework-audit skill](.agents/skills/study-ai-framework/) against the same shared [question bank](.agents/skills/study-ai-framework/questions.md). For every framework the sub-agent works from:
 
-The studied framework set is tracked in [`framework-index.json`](framework-index.json).
+- the actual source code, pinned as a Git submodule under [`frameworks/`](frameworks/) at a recorded commit and branch;
+- the in-repo changelog and GitHub Releases for recent architectural changes;
+- the official documentation, used for clarification only — never as the primary source.
+
+The sub-agent maps the repository, answers every question with concrete file:line references, includes light usage examples for the core use case, and marks missing features as `Not provided — BYO` instead of inventing workarounds. The output is one long-form markdown report per framework under [`reports/`](reports/).
+
+Phase 1 sub-agents do not see each other's reports. Every framework is audited in isolation against the same methodology, so the resulting reports are comparable without any cross-agent coordination.
+
+### Phase 2 — Benchmark creation
+
+Phase 2 fans out by **scoring category** instead of by framework. Each section of [`docs/data/taxonomy.csv`](docs/data/taxonomy.csv) is handed to a dedicated sub-agent running the [category-scoring skill](.agents/skills/score-benchmark-category/), which reads the Phase 1 audits and produces score cells for its category. A top-level [`create-benchmark`](.agents/skills/create-benchmark/) skill orchestrates the workers and merges per-category CSVs into the canonical [`docs/data/scores.csv`](docs/data/scores.csv).
+
+Within a category, the sub-agent scores **one row at a time across all frameworks** before moving on. This horizontal sweep is what calibrates the rubric: a 3 in framework A means the same level of support as a 3 in framework B for the same row.
+
+Where Phase 1 reads vertically (one framework, all questions), Phase 2 reads horizontally (one question, all frameworks).
+
+The audited framework set is tracked in [`framework-index.json`](framework-index.json).
 
 ## What is benchmarked
 
