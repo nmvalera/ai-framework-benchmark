@@ -2,7 +2,7 @@
 
 Technical benchmark of AI agent frameworks for building a long-lived, long-running agent piloted by skills with multi-tenancy.
 
-> **Scope disclaimer.** This benchmark is calibrated for **long-lived, multi-tenant production agents piloted by skills**. Calibration rewards first-party support over BYO glue. A low score here is not a verdict on general framework quality — it means the framework leaves more host work for *this specific* use case. If you are building a single-tenant chatbot demo or a short-lived assistant, the rankings will not predict your experience.
+> **Scope disclaimer.** This benchmark is calibrated for **long-lived, multi-tenant production agents piloted by skills**. Benchmark rewards first-party support over BYO glue. A low score here is not a verdict on general framework quality, it means the framework leaves more host work for *this specific* use case. If you are building a single-tenant chatbot demo or a short-lived assistant, the rankings will not predict your experience.
 
 The benchmark focuses on the engineering surface needed to run many isolated agent sessions in production: where the loop executes, how session state is persisted, how tenant and user context reaches tools, whether skills and sub-agents are first-class, and what has to be built around the framework.
 

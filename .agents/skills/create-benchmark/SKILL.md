@@ -27,6 +27,7 @@ For `OUTPUT_FORMAT=bundle`, the final layout is:
 <OUTPUT_DIR>/
   data/
     taxonomy.csv
+    sections.csv
     frameworks.csv
     scores.csv
   benchmark.md
@@ -37,6 +38,7 @@ During the run, category workers also write transient files under `<OUTPUT_DIR>/
 Artifact roles:
 
 - `data/taxonomy.csv` — copy of `references/taxonomy.csv`; section/row order, user-facing legends, and scoring guidance.
+- `data/sections.csv` — copy of `references/sections.csv`; one short user-facing definition per taxonomy section, rendered inline next to the section header in the viewer.
 - `data/frameworks.csv` — one row per framework in scope.
 - `data/scores.csv` — canonical merged score, short cell note, and longer details cells.
 - `benchmark.md` — concise executive summary for GitHub and slide preparation, derived from the CSVs.
@@ -44,7 +46,7 @@ Artifact roles:
 
 ## Taxonomy
 
-`references/taxonomy.csv` is the single source of truth. Do not duplicate taxonomy rows in this skill.
+`references/taxonomy.csv` is the single source of truth for rows. `references/sections.csv` is the single source of truth for one-line, user-facing definitions of each taxonomy section (used inline by the viewer next to the section header). Do not duplicate either file's content in this skill.
 
 Use `scripts/load_taxonomy.py` to inspect it:
 
@@ -65,7 +67,7 @@ CSV columns:
 ## Workflow
 
 1. Create `<OUTPUT_DIR>/data/` and `<OUTPUT_DIR>/work/`.
-2. Copy `references/taxonomy.csv` to `<OUTPUT_DIR>/data/taxonomy.csv`.
+2. Copy `references/taxonomy.csv` to `<OUTPUT_DIR>/data/taxonomy.csv` and `references/sections.csv` to `<OUTPUT_DIR>/data/sections.csv`.
 3. Resolve frameworks in scope and write `<OUTPUT_DIR>/data/frameworks.csv`.
 4. Load taxonomy sections with `scripts/load_taxonomy.py --list-sections`.
 5. Spawn one `score-benchmark-category` worker per taxonomy section in scope.
@@ -110,6 +112,15 @@ If the user names specific frameworks, treat that as a hard framework focus:
 - Do not alter worker scores silently when calibrating. If the main agent changes a score, update the canonical score note and `details` to explain why.
 
 ## Canonical CSV Schemas
+
+`data/sections.csv`:
+
+```csv
+section_order,section,definition
+```
+
+- One row per taxonomy section (matches the distinct `(section_order, section)` pairs in `taxonomy.csv`).
+- `definition` is one short sentence (≤ ~30 words) shown inline next to the section header in the viewer.
 
 `data/scores.csv`:
 

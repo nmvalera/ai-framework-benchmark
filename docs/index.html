@@ -241,6 +241,17 @@
       position: static;
     }
 
+    .section-name {
+      font-weight: 700;
+    }
+
+    .section-def {
+      margin-left: 6px;
+      font-weight: 400;
+      color: rgba(255, 255, 255, 0.72);
+      line-height: 1.35;
+    }
+
     .section-row .note,
     .total-row .note {
       color: white;
@@ -485,17 +496,24 @@
   <script>
     const files = {
       taxonomy: "data/taxonomy.csv",
+      sections: "data/sections.csv",
       frameworks: "data/frameworks.csv",
       scores: "data/scores.csv"
     };
 
     const state = {
       taxonomy: [],
+      sections: [],
       frameworks: [],
       scores: [],
       selected: null,
       hidden: new Set(loadHidden())
     };
+
+    function sectionDefinition(sectionOrder) {
+      const row = state.sections.find(s => s.section_order === String(sectionOrder));
+      return row ? row.definition : "";
+    }
 
     const ecosystemOrder = { go: 0, python: 1, typescript: 2, rust: 3, other: 4 };
     const ecosystemLabel = { go: "Go", python: "Python", typescript: "TypeScript", rust: "Rust", other: "Other" };
@@ -741,7 +759,9 @@
         if (currentSection !== row.section_order) {
           currentSection = row.section_order;
           const sectionRows = state.taxonomy.filter(r => r.section_order === row.section_order);
-          body += `<tr class="section-row"><td>${row.section_order}. ${row.section}</td>`;
+          const def = sectionDefinition(row.section_order);
+          const defHTML = def ? `<span class="section-def">${escapeHTML(def)}</span>` : "";
+          body += `<tr class="section-row"><td><span class="section-name">${escapeHTML(row.section_order)}. ${escapeHTML(row.section)}</span>${defHTML}</td>`;
           visible.forEach(f => {
             body += renderAverageCell(averageScore(sectionRows, f.framework_id));
           });
@@ -863,8 +883,9 @@
 
     async function init() {
       try {
-        [state.taxonomy, state.frameworks, state.scores] = await Promise.all([
+        [state.taxonomy, state.sections, state.frameworks, state.scores] = await Promise.all([
           loadCSV(files.taxonomy),
+          loadCSV(files.sections),
           loadCSV(files.frameworks),
           loadCSV(files.scores)
         ]);
