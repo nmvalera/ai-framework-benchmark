@@ -4,38 +4,14 @@ Technical benchmark of AI agent frameworks for building a long-lived, long-runni
 
 > **Scope disclaimer.** This benchmark is calibrated for **long-lived, multi-tenant production agents piloted by skills**. Benchmark rewards first-party support over BYO glue. A low score here is not a verdict on general framework quality, it means the framework leaves more host work for *this specific* use case. If you are building a single-tenant chatbot demo or a short-lived assistant, the rankings will not predict your experience.
 
-The benchmark focuses on the engineering surface needed to run many isolated agent sessions in production: where the loop executes, how session state is persisted, how tenant and user context reaches tools, whether skills and sub-agents are first-class, and what has to be built around the framework.
+The benchmark focuses on the engineering surface needed to run 
+- many isolated agent sessions in production
+- persisting state
+- multi-tenancy: where the loop executes, how session state is persisted, how tenant and user context reaches tools, whether skills and sub-agents are first-class, and what has to be built around the framework.
 
 Full results: [`docs/benchmark.md`](docs/benchmark.md). Interactive viewer (once GitHub Pages is enabled): https://nmvalera.github.io/ai-framework-benchmark/.
 
-## TL;DR
-
-**Top 5** (aggregate mean across 98 scored rows; full ranking and per-section scores in [`docs/benchmark.md`](docs/benchmark.md)):
-
-| # | Framework | Mean | Why it ranks |
-| - | --- | --- | --- |
-| 1 | **Mastra** (TS) | 4.15 | Only first-class skills + resource manager; strong multi-tenancy; broad platform |
-| 2 | **Agno** (Python) | 3.65 | Bundled AgentOS server, scheduler/background tasks, 130+ built-in tools |
-| 3 | **Microsoft Agent Framework** (Py + .NET) | 3.44 | Durable workflows + Cosmos sessions, IntegrityLabel guardrails |
-| 4 | **Pydantic AI** (Python) | 3.18 | Typed `deps`/`metadata`, `before_tool_validate` forced args, Gateway USD limits |
-| 5 | **Claude Agent SDK** (TS) | 3.11 | Context engineering (5/5), `maxBudgetUsd`, reference Postgres/Redis/S3 `SessionStore` |
-
-**Best for…**
-
-- **Multi-tenancy from day one** → Mastra, Pydantic AI, LangGraph (only stacks combining typed run-loop context, server-controlled tenant fields, per-turn tool filtering, and a forced-args hook)
-- **Skills as a runtime concept** → Mastra (5.00), Eino (4.60), Microsoft Agent Framework (4.40), ADK Go (4.20)
-- **Durable mid-run checkpointing** → LangGraph (5/5 — per-task `put_writes`)
-- **Per-tenant USD budget caps** → Claude Agent SDKs (`max_budget_usd`), Pydantic AI (`UsageLimits` + Gateway)
-- **Bundled HTTP server, simplest deploy shape** → Agno (AgentOS), ADK Go (REST/SSE/WS/A2A in-binary), Microsoft Agent Framework
-
-**Avoid if…**
-
-- You want **pure-OSS** multi-tenant runtime end-to-end → LangGraph's HTTP/queue/replay layer (`langgraph_api`) and CrewAI AMP are paid platform components
-- You **can't afford a ~200 MB binary or ~1 GB/session RAM** → Claude Agent SDK Py/TS subprocess the bundled Node binary; ~20–30 s worst-case cold start
-- You need **tenant identifiers on the runtime** → CrewAI has no `tenantId`/`userId` on `Crew`/`Agent`/`Task`
-- You want **everything first-party** beyond the loop → Vercel AI SDK, AutoAgents, Rig are library-only (zero session store, zero registry, zero skill loader)
-
-## Approach
+## Methodology
 
 Each framework is studied with the same question bank so the reports can be compared consistently. The methodology favors source-code inspection over documentation summaries:
 
@@ -50,6 +26,30 @@ Each framework is studied with the same question bank so the reports can be comp
 The per-framework reports live in [`reports/`](reports/). The study workflow is packaged as a project-scoped Codex skill in [`.agents/skills/study-ai-framework/`](.agents/skills/study-ai-framework/). The question bank is separated into [`.agents/skills/study-ai-framework/questions.md`](.agents/skills/study-ai-framework/questions.md) so readers can inspect the benchmark rubric directly.
 
 The studied framework set is tracked in [`framework-index.json`](framework-index.json).
+
+## What is benchmarked
+
+Each framework is scored across the following capability areas. Definitions below are written for product readers; the per-row scoring rubric sits in [`docs/data/taxonomy.csv`](docs/data/taxonomy.csv).
+
+0. **General** — How serious, well-funded, and well-documented the project is.
+1. **Architecture** — Where the AI actually runs and what the dependencies are.
+2. **Chat UI** — Whether the framework ships ready-to-use chat interface components out of the box or you have to build one yourself.
+3. **HTTP API** — Whether the framework ships ready-to-use web API components to interface with the agent, or you have to wrap one yourself.
+4. **Agent Runtime** — Whether the framework can handle many users running agents at the same time without breaking down.
+5. **Sessions & Persistence** — Whether the framework ships a session store to persist conversation messages and state.
+6. **Agent Harness** — How the framework manages the agent loop, interacts with models and tools, and exposes messages and events.
+9. **Context Engineering** — How much control the framework gives over what the AI sees each turn, which drives both answer quality and cost.
+10. **Memory & Knowledge** — Whether the AI can remember things about each user across conversations and tap into your company's knowledge base.
+11. **Skills** — Whether you can extend the agent with packaged capabilities (e.g. "expense reports", "support tickets") without rebuilding the agent each time.
+12. **Sub-agents** — Whether the agent can delegate sub-tasks to specialist child agents.
+13. **Resource Manager** — Whether prompts, skills, and tools can be versioned and rolled out to the agent like product features.
+14. **Tools** — How rich the catalog of built-in AI tools is (search, send email, edit files…) and how easy it is to add your own.
+15. **MCP** — Whether the framework supports MCP.
+16. **Safety & Policy** — Whether the framework provides guardrails to keep the AI from saying or doing things you do not want.
+17. **Agent Observability** — Whether you can see what the AI is actually doing in production, debug it, and prove it behaved correctly.
+18. **Multi-tenancy** — Whether the framework enables safely isolating each client's data, tools, and skills across agent sessions.
+19. **Eval / testing** — Whether the framework provides AI agent evaluation and testing capabilities to measure performance and behavior.
+20. **Local sandbox / dev UX** — Whether the framework provides a local sandbox and development environment to build and iterate on the agent day-to-day.
 
 ## Frameworks
 
