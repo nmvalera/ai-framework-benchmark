@@ -18,9 +18,9 @@ The benchmark targets **a long-running, multi-tenant agent piloted by skills**. 
 | `?` | Applicable, but generated report lacks evidence. |
 | blank | Not applicable to that stack. |
 
-## Frameworks studied
+## Frameworks analysed
 
-19 frameworks, all studied at HEAD on `main` on 2026-05-16:
+19 frameworks, all analysed at HEAD on `main` on 2026-05-16:
 
 - **Python** — Agno, Claude Agent SDK, CrewAI, LangGraph, LlamaIndex, OpenAI Agents, Pydantic AI, Strands Agents
 - **TypeScript** — Claude Agent SDK, Mastra, OpenAI Agents, Strands Agents, Vercel AI SDK
@@ -77,7 +77,7 @@ None — all 1862 score cells have evidence; no `?` cells remain.
 
 ## Notes on methodology
 
-- 19 framework reports were generated in parallel by `study-ai-framework` sub-agents on 2026-05-16, each citing file:line references in the studied submodule.
+- 19 framework reports were generated in parallel by `analyse-ai-framework` sub-agents on 2026-05-16, each citing file:line references in the analysed submodule.
 - 20 `score-benchmark-category` workers scored one taxonomy section each, calibrating row-by-row across all 19 frameworks before moving to the next row. Sections 0 (General) and 1 (Architecture) were rescored on 2026-05-17 after the taxonomy was refactored (new General rows, Stack/footprint/release-history moved into Architecture, new `Vendor lock-in` row).
 - Canonical CSVs sort by `(section_order, section, row)` from `taxonomy.csv`, then framework order from `frameworks.csv`.
 - The Microsoft Agent Framework submodule was checked out with `GIT_LFS_SKIP_SMUDGE=1`; non-source assets are missing but `python/` and `dotnet/` source trees are intact.

@@ -1,16 +1,16 @@
 ---
-name: study-ai-framework
-description: In-depth benchmark study of an AI agent SDK/framework — deployment & architecture, message taxonomy, harness loop, runtime, sessions & persistence, multi-tenancy, hooks, API surface, sub-agents, skills, resource manager, observability, built-in tools, MCP, multi-model routing, plus secondary capabilities (UI, memory, guardrails, eval, dev UX). Produces a structured reference markdown report with file:line code excerpts and light usage examples. Use when comparing AI agent stacks (Mastra, LangGraph, Claude Agent SDK, Vercel AI SDK, ADK, OpenAI Agents, CrewAI, Eino, Genkit, etc.) for an architectural decision. Triggers on "benchmark this stack", "study this SDK in depth", "compare agent frameworks".
+name: analyse-ai-framework
+description: In-depth benchmark analysis of an AI agent SDK/framework — deployment & architecture, message taxonomy, harness loop, runtime, sessions & persistence, multi-tenancy, hooks, API surface, sub-agents, skills, resource manager, observability, built-in tools, MCP, multi-model routing, plus secondary capabilities (UI, memory, guardrails, eval, dev UX). Produces a structured reference markdown report with file:line code excerpts and light usage examples. Use when comparing AI agent stacks (Mastra, LangGraph, Claude Agent SDK, Vercel AI SDK, ADK, OpenAI Agents, CrewAI, Eino, Genkit, etc.) for an architectural decision. Triggers on "benchmark this stack", "analyse this SDK in depth", "compare agent frameworks".
 ---
 
-# Study an AI agent stack — benchmark methodology
+# Analyse an AI agent stack — benchmark methodology
 
 You're producing a deep technical analysis of one AI agent SDK / framework. The audience is engineers picking a stack for a production, multi-tenant, long-running agent piloted by skills. Your report will sit alongside sibling reports on other stacks and **consistency of vocabulary, ordering, and depth across reports matters as much as raw depth**.
 
 ## Inputs the caller provides
 
 - `STACK_NAME` — human-readable (e.g. `Mastra TS`, `Claude Agent SDK Py`)
-- `REPO_URL` — Git URL to add as a submodule under `frameworks/`, OR `LOCAL` if you should study a repo already on disk
+- `REPO_URL` — Git URL to add as a submodule under `frameworks/`, OR `LOCAL` if you should analyse a repo already on disk
 - `FRAMEWORK_PATH` — where the framework lives, normally `frameworks/<framework-slug>/`
 - `LOCAL_PATHS` (only for `LOCAL`) — the dirs/files to focus on
 - `OUTPUT_PATH` — where the analysis lives (e.g. `reports/mastra.md`)
@@ -22,11 +22,11 @@ External repos:
 mkdir -p frameworks
 git submodule add <REPO_URL> <FRAMEWORK_PATH>   # first time only
 git submodule update --init --depth=1 <FRAMEWORK_PATH>
-cd <FRAMEWORK_PATH> && git rev-parse HEAD      # capture the commit you studied — report it!
+cd <FRAMEWORK_PATH> && git rev-parse HEAD      # capture the commit you analysed — report it!
 cd <FRAMEWORK_PATH> && git branch --show-current
 ```
 
-Use one Git submodule per framework so the benchmark repository records exactly which upstream repo and commit each report studied. A shallow submodule checkout is fine — you are reading, not contributing. If the submodule already exists, run `git submodule update --init --depth=1 <FRAMEWORK_PATH>` and optionally `cd <FRAMEWORK_PATH> && git fetch --depth=1 origin <branch-or-tag>` before studying a newer commit.
+Use one Git submodule per framework so the benchmark repository records exactly which upstream repo and commit each report analysed. A shallow submodule checkout is fine — you are reading, not contributing. If the submodule already exists, run `git submodule update --init --depth=1 <FRAMEWORK_PATH>` and optionally `cd <FRAMEWORK_PATH> && git fetch --depth=1 origin <branch-or-tag>` before analysing a newer commit.
 
 For `LOCAL`, just `cd` to the listed paths and record `git rev-parse HEAD` + branch.
 
@@ -87,13 +87,13 @@ Read and follow `references/questions.md` in this skill directory. **That file i
 Output to `OUTPUT_PATH` in this structure:
 
 ````markdown
-# <STACK_NAME> — Benchmark Study
+# <STACK_NAME> — Benchmark Analysis
 
 > **Repo**: <REPO_URL>
-> **Commit studied**: <git rev-parse HEAD>
+> **Commit analysed**: <git rev-parse HEAD>
 > **Branch**: <git branch --show-current>
 > **Framework path**: <FRAMEWORK_PATH>
-> **Studied on**: <YYYY-MM-DD>
+> **Analysed on**: <YYYY-MM-DD>
 
 ## TL;DR
 
@@ -141,6 +141,6 @@ For each question in `references/questions.md`:
 ## Return to caller
 
 After writing the report, return a short text summary (under 300 words) covering:
-- Commit hash + branch you studied
+- Commit hash + branch you analysed
 - The 2–3 most decision-relevant findings (architectural shape, biggest gap, biggest surprise)
 - Any blocker / gap that disqualifies the stack for the use case (or "no blocker found")

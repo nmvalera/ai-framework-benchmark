@@ -1,11 +1,11 @@
 ---
 name: create-benchmark
-description: "Orchestrate benchmark synthesis after `study-ai-framework` reports exist: read taxonomy, spawn one score-benchmark-category worker per taxonomy section, merge per-category CSVs into canonical benchmark data, and write a concise markdown summary."
+description: "Orchestrate benchmark synthesis after `analyse-ai-framework` reports exist: read taxonomy, spawn one score-benchmark-category worker per taxonomy section, merge per-category CSVs into canonical benchmark data, and write a concise markdown summary."
 ---
 
 # Create Benchmark Bundle
 
-You create the final benchmark bundle from generated framework reports. Do not restudy frameworks unless a report is missing or contradictory. Prefer evidence already present in `reports/*.md`.
+You create the final benchmark bundle from generated framework reports. Do not re-analyse frameworks unless a report is missing or contradictory. Prefer evidence already present in `reports/*.md`.
 
 The canonical output is CSV data plus a short markdown executive summary. Do not generate the HTML/JavaScript viewer here; the viewer is maintained separately and reads the CSV files.
 
@@ -89,7 +89,7 @@ If the runtime cannot spawn sub-agents, emulate the same shape locally: process 
 Write `<OUTPUT_DIR>/data/frameworks.csv` with:
 
 ```csv
-framework_id,label,language,report_path,repo_url,commit,branch,studied_date,notes
+framework_id,label,language,report_path,repo_url,commit,branch,analysed_date,notes
 ```
 
 Use stable lowercase `framework_id` values such as `langgraph`, `mastra`, `openai-agents-python`.

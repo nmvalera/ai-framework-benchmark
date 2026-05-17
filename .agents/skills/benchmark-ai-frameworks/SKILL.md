@@ -2,7 +2,7 @@
 name: benchmark-ai-frameworks
 description: >-
   Orchestrate the full AI framework benchmark flow from framework-index.json:
-  prepare framework submodules, run one study-ai-framework report per framework
+  prepare framework submodules, run one analyse-ai-framework report per framework
   in dedicated parallel sub-agents, then synthesize reports with create-benchmark.
   Use when refreshing all framework reports, adding a new framework to the
   benchmark, or generating the overall comparison matrix.
@@ -10,7 +10,7 @@ description: >-
 
 # Benchmark AI Frameworks
 
-This skill coordinates the full benchmark workflow. It does not replace `study-ai-framework` or `create-benchmark`; it sequences them across the framework set.
+This skill coordinates the full benchmark workflow. It does not replace `analyse-ai-framework` or `create-benchmark`; it sequences them across the framework set.
 
 ## Inputs
 
@@ -32,20 +32,20 @@ This skill coordinates the full benchmark workflow. It does not replace `study-a
    - Use Git submodules for external repos.
    - For multi-repo frameworks, initialize each `repos[]` entry.
    - For `LOCAL`, verify the local path exists and record its current commit/branch.
-3. Run each framework study with `study-ai-framework`.
-   - Each study must run in a dedicated sub-agent with its own context.
-   - Launch independent framework studies in parallel whenever possible.
+3. Run each framework analysis with `analyse-ai-framework`.
+   - Each analysis must run in a dedicated sub-agent with its own context.
+   - Launch independent framework analyses in parallel whenever possible.
    - Give each sub-agent exactly one framework entry, its framework path(s), and its report path.
    - Tell sub-agents to preserve and update an existing report if `report_path` already exists.
-   - Sub-agents must not edit reports owned by other framework studies.
-4. Wait for all selected framework study sub-agents to complete.
+   - Sub-agents must not edit reports owned by other framework analyses.
+4. Wait for all selected framework analysis sub-agents to complete.
 5. Check coverage:
    - every selected framework has a report at `report_path`;
-   - every selected report records repo URL, commit, branch when available, framework path, and studied date;
-   - every selected report follows the section list and numbering defined by the `study-ai-framework` skill. This skill does not duplicate that list; the canonical source lives in the `study-ai-framework` skill's `references/` directory.
+   - every selected report records repo URL, commit, branch when available, framework path, and analysed date;
+   - every selected report follows the section list and numbering defined by the `analyse-ai-framework` skill. This skill does not duplicate that list; the canonical source lives in the `analyse-ai-framework` skill's `references/` directory.
 6. Run `create-benchmark` with `REPORTS_DIR`, `MATRIX_OUTPUT_PATH`, and optional `FOCUS`.
 7. Return a short summary:
-   - frameworks studied or refreshed;
+   - frameworks analysed or refreshed;
    - reports changed;
    - benchmark matrix path;
    - blockers, missing evidence, or failed sub-agent runs.
@@ -61,7 +61,7 @@ Use one worker sub-agent per framework. A worker owns only:
 Sub-agent prompt shape:
 
 ```text
-Use the study-ai-framework skill for exactly this framework.
+Use the analyse-ai-framework skill for exactly this framework.
 
 Framework entry:
 <single JSON object from framework-index.json>
@@ -79,5 +79,5 @@ Preserve useful existing report content if OUTPUT_PATH exists. Update it against
 
 - Treat `framework-index.json` as the source of truth for the public/currently selected benchmark set. Local or private reports may exist outside the index and should be ignored unless the user explicitly selects them.
 - Keep framework ids stable; changing an id changes report ownership and matrix columns.
-- Do not synthesize the matrix until all selected studies have completed or failed clearly.
+- Do not synthesize the matrix until all selected analyses have completed or failed clearly.
 - Do not fill matrix cells from memory when the corresponding report lacks evidence; use `?` and list missing evidence.

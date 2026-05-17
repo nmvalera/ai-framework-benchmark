@@ -1,4 +1,4 @@
-framework_id,label,language,report_path,repo_url,commit,branch,studied_date,notes
+framework_id,label,language,report_path,repo_url,commit,branch,analysed_date,notes
 adk-go,ADK Go,go,reports/adk-go.md,https://github.com/google/adk-go,3f835cd3ba3ed801d36a68bfac16e35e125aea17,main,2026-05-16,Google ADK Go-native in-process loop with bundled REST+SSE+WS+A2A server
 agno,Agno Python,python,reports/agno.md,https://github.com/agno-agi/agno,bb7ddb05ba5163209dc426b2809a673d97755476,main,2026-05-16,agno==2.6.7
 autoagents,AutoAgents Rust,rust,reports/autoagents.md,https://github.com/liquidos-ai/AutoAgents,57ebeaa4e18989909013ebd58351b3ef6a5586e0,main,2026-05-16,Rust in-process library; optional ractor-based actor runtime
