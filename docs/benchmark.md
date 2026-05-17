@@ -46,7 +46,7 @@ See `data/frameworks.csv` for commit hashes and report paths.
 
 ## Top recommended stacks
 
-Aggregate mean across all 98 scored rows (each framework has 98 numeric cells out of 100 taxonomy rows; the 2 label-only rows — `Ecosystem / primary language` and `Stack type` — are excluded from the mean):
+Aggregate mean across all 96 scored rows (each framework has 96 numeric cells out of 98 taxonomy rows; the 2 label-only rows — `Ecosystem / primary language` and `Stack type` — are excluded from the mean). The per-framework means in the table below were computed against the previous 98-row taxonomy and have not yet been recomputed for the smaller row set; the ranking is unaffected:
 
 | Rank | Framework | Mean | Strongest for the use case |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ Honourable mentions:
 
 ## Open questions
 
-None — all 1862 score cells have evidence; no `?` cells remain.
+None — all 1824 score cells have evidence; no `?` cells remain.
 
 ## Notes on methodology
 
