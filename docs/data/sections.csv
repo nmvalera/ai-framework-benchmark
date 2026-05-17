@@ -1,21 +1,20 @@
 section_order,section,definition
-0,General,"How serious, well-funded, and well-documented the project is, which tells you whether it is safe to depend on for production."
-1,Architecture,"Where the AI actually runs and what it depends on, which drives the cost and complexity of operating it."
-2,Chat UI,Whether the framework ships a chat interface out of the box or you have to build one yourself.
-3,HTTP API,"Whether the framework ships a ready-to-use web API your product can call, or you have to wrap one yourself."
+0,General,"How serious, well-funded, and well-documented the project is."
+1,Architecture,"Where the AI actually runs and what are the dependencies."
+2,Chat UI,Whether the framework ships ready-to-use chat interface components out of the box or you have to build one yourself.
+3,HTTP API,"Whether the framework ships ready-to-use web API components to interface with the agent, or you have to wrap one yourself."
 4,Agent Runtime,Whether the framework can handle many users running agents at the same time without breaking down.
-5,Sessions & Persistence,"Whether conversations are reliably saved, resumed after a crash, and replayable later — the line between a demo and a production product."
-6,Agent Harness,"Whether the framework manages the back-and-forth between the AI and its tools for you, or you have to write that loop yourself."
-8,Multi-model Routing,"Whether you can mix different AI models (cheap for easy tasks, smart for hard ones) without rewriting the agent."
-9,Context Engineering,"How much control the framework gives you over what the AI sees each turn, which drives both answer quality and cost."
+5,Sessions & Persistence,"Whether the framework ships a session store to persist conversations messages and state."
+6,Agent Harness,"How the framework manages the agent loop, interacts with models and tools, and exposes messages and events."
+9,Context Engineering,"How much control the framework gives over what the AI sees each turn, which drives both answer quality and cost."
 10,Memory & Knowledge,Whether the AI can remember things about each user across conversations and tap into your company's knowledge base.
 11,Skills,"Whether you can extend the agent with packaged capabilities (e.g. ""expense reports"", ""support tickets"") without rebuilding the agent each time."
-12,Sub-agents,"Whether the agent can delegate sub-tasks to specialist child agents, the way a team lead hands work off to specialists."
-13,Resource Manager,"Whether prompts, skills, and tools can be versioned and rolled out like product features, instead of being buried in code."
-14,Tools,"How rich the catalog of actions the AI can take is (search, send email, edit files…) and how easy it is to add your own."
-15,MCP,"Whether the framework supports MCP, the emerging open standard for plugging external tools into AI agents."
+12,Sub-agents,"Whether the agent can delegate sub-tasks to specialist child agents."
+13,Resource Manager,"Whether prompts, skills, and tools can be versioned and rolled out to the agent like product features."
+14,Tools,"How rich the catalog of built-in AI Tools (search, send email, edit files…) and how easy it is to add your own."
+15,MCP,"Whether the framework supports MCP."
 16,Safety & Policy,Whether the framework provides guardrails to keep the AI from saying or doing things you do not want.
 17,Agent Observability,"Whether you can see what the AI is actually doing in production, debug it, and prove it behaved correctly."
-18,Multi-tenancy + per-call auth,"Whether the framework safely isolates one customer's data and actions from another's — the foundation of any B2B product."
-19,Eval / testing,"Whether the framework helps you test that the AI still works after changes, so you can ship updates without breaking user trust."
-20,Local sandbox / dev UX,How fast and pleasant it is for your engineers to build and iterate on the agent day-to-day.
+18,Multi-tenancy,"Whether the framework enables to safely isolate client's data, tools & skills across agent sessions."  
+19,Eval / testing,"Whether the framework provides AI Agent evalutation and testing capabilities to measure the agent's performance and behavior."
+20,Local sandbox / dev UX,"Whether the framework provides a local sandbox and development environment to build and iterate on the agent day-to-day."
