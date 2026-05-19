@@ -144,10 +144,30 @@ Score rules:
 
 - title and generation context;
 - score legend;
+- **category × framework heatmap** (see "Heatmap" below) — render it via `scripts/render_heatmap.py` and embed the output near the top, after the legend, so readers see the comparative picture before the prose;
 - 3-6 executive conclusions;
 - top recommended stacks and why;
 - major disqualifiers or high-risk gaps;
 - note that canonical data lives under `data/`.
+
+## Heatmap
+
+`benchmark.md` must contain a markdown table with **categories as rows and frameworks as columns**, showing the mean of each (section, framework)'s numeric scores. Generate it with:
+
+```bash
+python3 .agents/skills/create-benchmark/scripts/render_heatmap.py --data-dir <OUTPUT_DIR>/data
+```
+
+Embed the raw output directly into `benchmark.md` — do not edit cells by hand. Re-run the script every time `scores.csv` changes so the table stays in sync.
+
+Cell encoding (handled by the script):
+
+- 🟥 mean < 2.0
+- 🟨 2.0 ≤ mean < 3.5
+- 🟩 mean ≥ 3.5
+- ⬜ no scorable cells in that (section, framework)
+
+A trailing row shows each framework's overall mean across every scored cell. Label-only rows (Stack type, Ecosystem / primary language) are excluded from means automatically because their `score` is blank.
 
 Score legend:
 

@@ -106,21 +106,19 @@ Answer:
 
 ---
 
-### Q6 — Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
+### Q6 — Multi-tenancy & Tenant Identity ⭐ THE KEY QUESTION
 
-The audience runs a multi-tenant long-running agent piloted by skills. They need to (a) pass `tenantId` / `userId` / `targetingStrategyId` / `locale` etc. into the harness, (b) use that context to **filter** which tools/skills the LLM can see, and (c) **force** specific tool arguments from the harness — *not* trust the LLM to fill them in. The LLM could hallucinate or be prompt-injected into using the wrong tenant id.
+The audience runs a multi-tenant long-running agent piloted by skills. They need to (a) pass `tenantId` / `userId` / `targetingStrategyId` / `locale` etc. into the harness as **tenant identity** (deliberately not "context", to avoid confusion with the LLM context window), (b) use that identity to **select** which tools/skills the LLM can see, and (c) **force** specific tool arguments from the harness — *not* trust the LLM to fill them in. The LLM could hallucinate or be prompt-injected into using the wrong tenant id.
 
 Answer:
 
-- **6.1 Full run-loop input struct** — every field beyond `messages`. Show the type.
-- **6.2 Context propagation into a tool call** — how does harness-provided context reach `tool.execute(...)`? Show the call path.
-- **6.3 Tool call interface** — `execute` / handler signature: arguments, return type, the context object. Show real code.
+- **6.1 Run-loop tenant identity** — every field beyond `messages` that carries caller/tenant/user/locale information into the loop. Show the type.
+- **6.2 Tenant identity propagation into tool calls** — how does harness-provided tenant identity reach `tool.execute(...)`? Show the call path.
+- **6.3 Tool call interface** — `execute` / handler signature: arguments, return type, the tenant-identity object. Show real code.
 - **6.4 Forcing tool arguments from the harness** — can you say "for tool `topicSearch`, always pass `tenantId=acme-corp` regardless of what the LLM generates"? Show the mechanism (e.g. `PreToolUse → updatedInput`, `experimental_refineToolInput`, `_inject_tool_args`, typed `spec T`). If the stack lacks this, say so plainly — it's a real gap.
-- **6.5 Filtering visible tools** — can the harness change the toolset visible to the LLM at session-start or per-turn based on context? Show the mechanism (`activeTools`, `allowed_tools`, `prepareStep`, …).
-- **6.6 Tenant scope on session** — is tenant identity a first-class field on the session, or stuffed in metadata?
-- **6.7 Per-tool-call auth propagation** — does the caller's identity reach every tool call automatically (so tools execute under their permissions)?
-- **6.8 Resource scoping primitives** — can skills / sub-agents / tools be scoped global/tenant/user at registration time, or only filtered at runtime?
-- **6.9 Per-tenant rate limit + budget cap** — token/cost ceilings enforced per tenant. (Most stacks lack this; only flag 🟢 if you find a USD budget cap, not just turn caps.)
+- **6.5 Tenant-aware visible tool selection** — can the harness change the toolset visible to the LLM at session-start or per-turn based on tenant identity? Show the mechanism (`activeTools`, `allowed_tools`, `prepareStep`, …).
+- **6.6 Per-tool-call auth propagation** — does the caller's identity reach every tool call automatically (so tools execute under their permissions)?
+- **6.7 Per-tenant rate limit + budget cap** — token/cost ceilings enforced per tenant. (Most stacks lack this; only flag 🟢 if you find a USD budget cap, not just turn caps.)
 
 ⭐ **Required — light usage example** (5–15 lines). Show how to:
 1. Pass `tenantId="acme"`, `targetingStrategyId="strat-42"`, `userId="u-123"` into the run-loop call.
@@ -148,8 +146,9 @@ Answer:
   - **emit additional tool calls in response to a tool result** (Claude Agent SDK supports this via `additional_messages` from `PostToolUse` — does this stack?)
 - **7.4 Auto-compaction** — built-in summarization/truncation, or BYO? When does it trigger?
 - **7.5 Prompt cache optimization** — provider-cache-aware (Anthropic, OpenAI)? Stable-prefix preservation, breakpoint placement, automatic vs. manual?
-- **7.6 Tool result clearing / progressive disclosure** — strategies to keep large tool outputs out of the main context (filesystem stash, summary, on-demand re-read).
-- **7.7 Architectural diagram** of where hooks fire across the loop (ASCII or mermaid).
+- **7.6 Tool result clearing** — can large tool outputs be removed from the visible message history after use (in-place removal or replacement with a stub)? Show the API.
+- **7.7 Progressive disclosure** — strategies to keep large content out of the main context until needed (filesystem stash, summary handle, on-demand re-read, lazy resource fetch). Distinct from in-place clearing.
+- **7.8 Architectural diagram** of where hooks fire across the loop (ASCII or mermaid).
 
 ⭐ **Required — light usage example** (5–15 lines). Show:
 1. A `SessionStart` hook that injects "tenant=acme, locale=fr-FR, today=2026-05-16" as a system message.
@@ -167,16 +166,15 @@ This question covers everything observable from outside the process **over HTTP*
 Answer:
 
 - **8.1 Does the framework ship an HTTP server?** First-party server, library-only, or both? Name the exact package or sub-module that exposes the agent.
-- **8.2 HTTP streaming transport** — SSE? WebSocket? HTTP long-poll? Proprietary stream format? Multiple, configurable?
+- **8.2 HTTP streaming protocol (SSE/WS)** — SSE? WebSocket? HTTP long-poll? Proprietary stream format? Multiple, configurable?
 - **8.3 HTTP endpoints that start an agent run** — request shape (body, headers, query). Show one real endpoint with method + path.
-- **8.4 Live agentic event stream format** — sample frames the HTTP client receives: start, mid-stream, terminal. Show the wire format.
-- **8.5 Auth termination at the HTTP boundary** — does the framework terminate auth (JWT validation, tenant scoping) at the route handler, or leave it entirely to the host?
-- **8.6 Resume / replay endpoint** — how does an HTTP client reopen a session (user reopens a tab) or replay agent events?
-- **8.7 Interrupt / cancel via HTTP** — DELETE? AbortSignal over the same connection? Close-stream-and-call-cancel? Show the request shape.
-- **8.8 Tool-arg streaming (partial JSON)** — does the HTTP stream expose tool arguments as they generate (before the LLM finishes the call)? What's the frame shape?
-- **8.9 HITL approval workflow over HTTP** — how does an HTTP client send a tool-approval / rejection verdict? Same endpoint? Different one? Payload shape? Is there a pause state observable to the client?
-- **8.10 Tool-call state reconstruction** — ⭐ critical. How does the HTTP client link `tool_use` and `tool_result` events from the stream? Explicit `tool_call_id`, or implicit/positional? Show the event types and the linkage mechanism.
-- **8.11 Health checks / graceful shutdown** — `/healthz`, `/readyz`, `/metrics`, SIGTERM drain?
+- **8.4 Interrupt / cancel in-flight run** — DELETE? AbortSignal over the same connection? Close-stream-and-call-cancel? Show the request shape.
+- **8.5 Resume / replay endpoint** — how does an HTTP client reopen a session (user reopens a tab) or replay agent events?
+- **8.6 HITL approval workflow** — how does an HTTP client send a tool-approval / rejection verdict over HTTP? Same endpoint? Different one? Payload shape? Is there a pause state observable to the client?
+- **8.7 Token streaming** — how partial assistant text, partial tool arguments (before the LLM finishes the call), and live agent activity events (tool-use, tool-result, lifecycle frames) stream to the HTTP client. Show sample wire frames for each of the three: text delta, partial tool args, agent activity event.
+- **8.8 Authentication & Authorisation** — does the framework terminate auth (JWT validation, tenant identity extraction) at the route handler, and enforce per-resource authorization (route-level, thread-level, resource-level)?
+- **8.9 Tool-call state reconstruction** — ⭐ critical. How does the HTTP client link `tool_use` and `tool_result` events from the stream? Explicit `tool_call_id`, or implicit/positional? Show the event types and the linkage mechanism.
+- **8.10 Health checks / graceful shutdown** — `/healthz`, `/readyz`, `/metrics`, SIGTERM drain?
 
 ⭐ **Required — light usage example** (5–15 lines). Show:
 1. A `curl` or `httpie` call to start a run with `X-Tenant-Id: acme` header and a user message.
@@ -199,6 +197,7 @@ Answer:
 - **9.5 Concurrency model** — serial, parallel, fan-out? Where in the code is parallelism actually implemented (the line that does the `Promise.all` / `sync.WaitGroup` / etc.)?
 - **9.6 Context isolation** — does the sub-agent see the parent's context or start fresh? Where is this enforced?
 - **9.7 Lifecycle events** — does the parent stream get sub-agent lifecycle events (started, progress, completed)?
+- **9.8 Sub-agent model override** — can a child agent run on a different model than the parent (e.g. Sonnet supervisor + Haiku workers)? Show the override mechanism.
 
 ⭐ **Required — light usage example** (5–15 lines). Show:
 1. Defining 3 persona sub-agents (`persona-young-mom`, `persona-tech-bro`, `persona-retiree`), each with its own system prompt and a `topicSearch` tool.
@@ -218,8 +217,9 @@ Answer:
 - **10.3 Loader mechanism** — filesystem scan? Programmatic registration via SDK call? Plugin system?
 - **10.4 Invocation** — is invoking a skill a *tool call*, a *system-prompt injection*, or a third mechanism (e.g. lazy fetch via a `skill_read` tool)?
 - **10.5 Loading mode** — eager (all skills in system prompt) or lazy (metadata-only in prompt, body fetched on use)?
-- **10.6 Runtime scoping (global / tenant / user)** — can the same agent surface a different skill catalog per tenant *at runtime*? Show the filter mechanism. (Registry-side scoping is Q11.5.)
-- **10.7 Skill composition** — can a skill reference / include other skills, or call sub-agents, or pull in references/scripts/assets bundled alongside the `SKILL.md`?
+- **10.6 Skill composition** — can a skill reference / include other skills, or call sub-agents, or pull in references/scripts/assets bundled alongside the `SKILL.md`?
+
+Scoping (global / tenant / user) is covered by the Resource Manager question (Q11), not here.
 
 ⭐ **Required — light usage example** (10–20 lines). Show:
 1. Authoring a `SKILL.md` titled "Generate-Audience-From-Brief" with frontmatter.
@@ -245,8 +245,8 @@ Answer:
   - **HTTP fetch** (arbitrary HTTPS URL with caching)
 - **11.3 Source composition / priority** — can multiple sources stack (e.g. `local > tenant-bucket > global-registry`)? What wins on conflict?
 - **11.4 Versioning model** — semver? content-hash? immutable refs? rollback support?
-- **11.5 Scoping at the registry layer** — can a resource be marked "tenant X only" / "user Y only" at *publish time*, not just filtered at *runtime* (Q10.6)?
-- **11.6 Publishing workflow** — draft → review → publish → promote? Multi-environment (dev / staging / prod)? Approval gates?
+- **11.5 Scoping** — can a resource be marked "tenant X only" / "user Y only" at *publish time*, with the runtime visibility derived from that scope (per-tenant skill catalog, per-tenant tool list)? Cover both registry-side scoping and runtime enforcement together — the two halves of the same primitive.
+- **11.6 Deployment workflow** — draft → review → publish → promote? Multi-environment (dev / staging / prod)? Approval gates between environments?
 - **11.7 Lifecycle / governance** — lifecycle states (draft, active, deprecated, retired)? RBAC on who can publish/scope/retire?
 - **11.8 Programmatic API** — list / search / sync / pin resources from code? Show the API.
 - **11.9 Caching & sync model** — does the SDK pull resources on each request, cache locally, watch for changes, sync periodically?
@@ -280,11 +280,10 @@ Answer:
 
 Answer:
 
-- **13.1 Built-in tools shipped in the box** — web search, file ops (read/write/edit), code exec, fetch, glob, grep, bash, monitor? List the catalog with a one-line purpose each.
-- **13.2 Built-in tool quality** — are they thin wrappers or do they encode patterns (e.g. Claude Code's `Edit` with anchor matching, `Read` with line numbers, `Monitor` with line-event streaming)?
-- **13.3 Tool authoring API** — what does a developer write to add a new tool? Show the smallest possible tool definition (signature, JSON-schema generation, dispatch).
-- **13.4 Typed tool I/O** — runtime validation of LLM-generated args (Zod / Pydantic / JSON-schema)? What happens on invalid args?
-- **13.5 Streaming tools** — can a tool yield partial results to the model mid-execution (e.g. progress events)?
+- **13.1 Built-in tools shipped in the box** — web search, file ops (read/write/edit), code exec, fetch, glob, grep, bash, monitor? List the catalog with a one-line purpose each, and call out which are thin wrappers vs. which encode agent-aware patterns (e.g. Claude Code's `Edit` with anchor matching, `Read` with line numbers, `Monitor` with line-event streaming).
+- **13.2 Tool authoring API** — what does a developer write to add a new tool? Show the smallest possible tool definition (signature, JSON-schema generation, dispatch).
+- **13.3 Streaming tools** — can a tool yield partial results to the model mid-execution (e.g. progress events)?
+- **13.4 Tool sandboxing / permission model** — allow/deny lists, `canUseTool`-style hooks, per-tool ACL, sandboxed exec providers (E2B, Daytona, Modal). What is the default posture (deny vs. allow)?
 
 ---
 
@@ -305,10 +304,10 @@ Answer:
 Answer:
 
 - **15.1 Multi-provider support** — Anthropic, OpenAI, Gemini, Bedrock, Vertex, Azure, LiteLLM / AnyLLM adapters? Native or third-party?
-- **15.2 Per-task model selection** — cheap-for-triage / expensive-for-hard-tasks routing — first-party (registry / gateway) or BYO?
-- **15.3 Automatic fallback chain** — when a provider has an outage or rate-limits, does the SDK retry on a fallback model? Show the config.
-- **15.4 Mid-stream model switching** — can you switch model at a turn boundary, or only at session start?
-- **15.5 Sub-agent model overrides** — can a sub-agent run on a different model than the parent (e.g. Sonnet supervisor + Haiku workers)?
+- **15.2 Automatic fallback chain** — when a provider has an outage or rate-limits, does the SDK retry on a fallback model? Show the config.
+- **15.3 Mid-stream model switching** — can you switch model at a turn boundary, or only at session start?
+
+Sub-agent model override is covered in Q9.8 (Sub-agents), not here.
 
 ---
 
@@ -318,9 +317,9 @@ Most backend-focused SDKs leave this to the host; some (Vercel AI SDK, Mastra, L
 
 Answer:
 
-- **16.1 Streaming chat hook** — first-party frontend hook (e.g. React `useChat`) that handles message streaming, history, chat state?
+- **16.1 Generative UI components** — first-party support for rendering rich UI artifacts the agent generates (forms, cards, charts).
 - **16.2 Tool call rendering primitives** — frontend primitives for rendering which tool is running, with what args, returning what result.
-- **16.3 Generative UI components** — first-party support for rendering rich UI artifacts the agent generates (forms, cards, charts).
+- **16.3 Streaming chat hook** — first-party frontend hook (e.g. React `useChat`) that handles message streaming, history, chat state?
 - **16.4 BYO pattern** — if no first-party UI, what's the recommended pattern? (parse the SSE stream into your own React state, etc.)
 
 ---
@@ -335,14 +334,13 @@ Answer:
 
 ---
 
-### Q18 — Safety, Guardrails & Tool Sandboxing
+### Q18 — Safety & Policy
 
 Answer:
 
 - **18.1 Input/output guardrails** — PII redaction, prompt-injection detection, hallucination detection — first-party or BYO?
-- **18.2 Tool sandboxing / permission model** — allow/deny lists, `canUseTool`-style hooks, per-tool ACL.
-- **18.3 Sandbox provider integrations** — E2B, Daytona, Modal, code interpreters?
-- **18.4 Default-deny vs. default-allow** — what's the default posture?
+
+Tool sandboxing, sandbox provider integrations, and the default-allow/default-deny posture are scored under Q13 (Tools), where they belong with the rest of the tool surface.
 
 ---
 

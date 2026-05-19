@@ -52,8 +52,8 @@ Each framework is scored across the following capability areas.
 10. **Memory & Knowledge** — Whether the AI can remember things about each user across conversations and tap into your company's knowledge base.
 11. **Skills** — Whether you can extend the agent with packaged capabilities (e.g. "expense reports", "support tickets") without rebuilding the agent each time.
 12. **Sub-agents** — Whether the agent can delegate sub-tasks to specialist child agents.
-13. **Resource Manager** — Whether prompts, skills, and tools can be versioned and rolled out to the agent like product features.
-14. **Tools** — How rich the catalog of built-in AI tools is (search, send email, edit files…) and how easy it is to add your own.
+13. **Resource Manager** — Whether prompts, skills, and tools can be versioned, scoped per tenant/user, and rolled out to the agent like product features.
+14. **Tools** — How rich the catalog of built-in AI tools is (search, send email, edit files…), how easy it is to author your own, and how tool execution is sandboxed.
 15. **MCP** — Whether the framework supports MCP.
 16. **Safety & Policy** — Whether the framework provides guardrails to keep the AI from saying or doing things you do not want.
 17. **Observability** — Whether you can see what the AI is actually doing in production, debug it, and prove it behaved correctly.
