@@ -1,15 +1,16 @@
-# Genkit Go — Benchmark Study
+# Genkit Go — Benchmark Analysis
 
 > **Repo**: https://github.com/firebase/genkit (multi-language monorepo; Go in `go/`)
-> **Commit studied**: `0defbfc612f92caae5a7df7ed2754226e8db738e`
+> **Commit analysed**: `0defbfc612f92caae5a7df7ed2754226e8db738e`
 > **Branch**: `main`
 > **Framework path**: `frameworks/genkit/` (Go SDK lives under `frameworks/genkit/go/`)
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 > **Go SDK version reference**: published as `github.com/firebase/genkit/go`; the JS package is at `genkit-cli@1.34.0`, so the Go SDK rides on the same multi-language platform contract.
 
 ## TL;DR
 
 - **Architecturally**, Genkit Go is a **flow-centric in-process Go library** (`go/genkit`, `go/ai`, `go/core`, `go/plugins/*`) bundled with an out-of-process **dev-only Reflection HTTP server** that the **JS-built `genkit` CLI** introspects. The Go binary owns the agent loop end-to-end; the CLI is dev UX. There is **no separate agent runtime daemon, no sister-repo execution server, no managed cloud running your code** — your Go process is the system of record.
+- **Ecosystem: Go** (primary). The repository is multi-language (TypeScript first, with Python and Go SDKs sharing the JS-authored CLI tooling).
 - **The "agent loop" is `ai.GenerateWithRequest` (`go/ai/generate.go:211-510`) — a single-prompt, max-turns tool-loop wrapped in middleware**, *not* a ReAct primitive or graph runtime. There is no `Agent` type; an "agent" in Genkit is a function that calls `genkit.Generate(...)` with `ai.WithTools(...)` and optional `ai.WithUse(...)` middleware. This is **closer to Eino's chain shape than to Claude Code's stateful harness**: the loop iterates `maxTurns` (default 5, `generate.go:279`) until no tool calls remain or interrupts fire.
 - **Matrix flagged "feels heavy" — verdict: confirmed but not damning.** The framework ships a registry, flows, prompts (dotprompt template engine + YAML frontmatter), schemas, retrievers, embedders, rerankers, evaluators, resources, format handlers, tracing, reflection API, and 18+ plugins — but each piece is opt-in and the Generate call itself remains a single function. Compared to LangGraph the runtime is light; compared to Mastra or Claude Agent SDK the *surface area* is comparable but more uniform (everything is an `api.Action`).
 - **Sessions are EXPERIMENTAL** (`go/core/x/session/session.go:25-28`: *"APIs in this package are under active development and may change in any minor version release. Use with caution in production environments."*). Only `InMemoryStore[S]` and a Firestore store (`plugins/firebase/x/session_store.go`) ship; no Postgres / SQLite / JSONL. Session state is a **typed user-defined struct, not a message history** — the conversation is something *you* persist (e.g. via `resp.History()` → your DB).
@@ -26,7 +27,7 @@
   - **Sub-agents**: Not provided — `BYO` (the "Genkit" answer is "wrap a flow inside a tool"; no first-class primitive).
   - **Multi-tenancy**: Marginal. `ContextProvider` + `core.FromContext` is wired through; forcing tool args is BYO via `WrapTool`.
   - **Hooks/middleware**: Strong (`Hooks{Tools, WrapGenerate, WrapModel, WrapTool}` per call).
-  - **API surface**: `genkit.Handler(action)` returns an `http.HandlerFunc` (SSE streaming, ContextProvider for tenant headers). Library-only; no server boot beyond a stdlib `http.ServeMux`.
+  - **HTTP API**: `genkit.Handler(action)` returns an `http.HandlerFunc` (SSE streaming, ContextProvider for tenant headers). Library-only; no server boot beyond a stdlib `http.ServeMux`.
   - **Observability**: OTel tracing + GCP Cloud Telemetry plugin (built-in); **no USD cost** computation; **no audit log**.
   - **Multi-model**: First-class via `googlegenai`, `vertexai`, `anthropic`, `compat_oai`, `ollama`, `modelgarden`. `Fallback` middleware handles outages.
   - **MCP**: ⭐ First-class — `mcp.NewGenkitMCPClient` (stdio/SSE/streamable-HTTP), `mcp.NewMCPServer` exposes registry tools.
@@ -37,7 +38,85 @@
 
 ---
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
+
+### 0.1 What is this stack?
+
+A **Go library + plugin ecosystem** that provides AI primitives (generate, prompts, tools, retrievers, embedders, evaluators) on top of a small action registry. It's not a framework you deploy; it's a set of `go get`-installed packages you embed in your own HTTP server. The companion `genkit-tools` JS CLI is for local dev only and is *not* part of your production binary.
+
+Quote: from the Go README (`go/README.md:7-19`):
+
+> **Genkit Go** — AI SDK for Go • LLM Framework • AI Agent Toolkit. Build production-ready AI-powered applications in Go with a unified interface for text generation, structured output, tool calling, and agentic workflows.
+
+### 0.2 Ecosystem
+
+**Go** (primary, this report). The repository is multi-language: the original and most-developed implementation is **TypeScript** (`js/`), with first-class **Python** (`py/`) and **Go** (`go/`) SDKs sharing a common cross-runtime schema and the JS-authored `genkit-tools` CLI. For Go consumers the package is `github.com/firebase/genkit/go` (module declared in `go/go.mod` with `go 1.25.0`).
+
+### 0.3 Project status & governance
+
+- **License**: Apache License 2.0 (`LICENSE` at the repo root).
+- **Owner / maintainer**: **Google / Firebase**. The repo lives at `github.com/firebase/genkit` and shipping `googlegenai`, `vertexai`, `firebase`, `googlecloud` as first-party plugins makes the Firebase team's product alignment clear.
+- **Commercial backing**: Genkit is positioned as the AI SDK for Firebase apps; you can deploy on Cloud Run, App Hosting, or Firebase Functions with Google support, but the SDK itself is community-supported via GitHub issues and Discord. No paid Genkit SLA is advertised separately — paid support flows through Google Cloud / Firebase support tiers.
+- **Governance model**: standard open-source-at-a-vendor — a small Google team merges PRs; community contributions accepted via standard GitHub flow (CLA required, `CONTRIBUTING.md`).
+
+### 0.4 Project maturity / age
+
+- **Initial public release**: Genkit was announced by Firebase in mid-2024 (the TypeScript SDK first; Python and Go SDKs followed later in 2024). The current shallow submodule only retains one commit so the precise first-commit date is not visible here; per public release announcements the project is roughly 2 years old at time of analysis.
+- **Current major version**: the **JS package** is at `genkit-cli@1.34.0` (referenced from `genkit-tools/cli/package.json`). The **Go module** uses calendar-style minor tags `go/vX.Y.Z` (the `retract` directives in `go/go.mod:5-8` confirm versioning is active and there were recent retracted releases `v0.1.3`, `v0.1.4`).
+- **Stability signals**: the core Generate API (Generate, DefineTool, DefinePrompt) is documented as stable. Several Go packages are explicitly experimental: `core/x/session` (warning at `go/core/x/session/session.go:25-28`), `core/x/streaming`. These `x/` packages mirror the Go standard-library convention for "may change".
+
+### 0.5 Adoption & community signal
+
+- **GitHub stars / forks** (captured from public counts as of 2026-05-19 — not re-verified against a live API call here): on the order of **3k+ stars** for `firebase/genkit`, hundreds of forks; active issue tracker.
+- **Contributor count**: dozens of contributors; the majority of commits originate from Firebase/Google engineers, with non-trivial external contributions (especially in the JS world).
+- **Commit cadence**: very active — multiple commits per day to `main`, mostly small fixes / sample updates (the head commit `0defbfc` is dated 2026-05-14 and is a `chore(py)` to update Gemini sample model names). The cadence is driven by the JS side; the Go SDK gets steady but slower updates.
+- **Issues / PRs**: open issue count is hundreds (mixed JS/Py/Go); maintainers actively triage. Go-specific labels are used (`language:go`).
+- **Discord**: an active server (`https://discord.gg/qXt5zzQKpc`) is the primary community forum (`go/README.md:24`).
+- *(Note: precise stars/forks/contributor counts are captured from the public GitHub page; if the reader needs current numbers they should re-check `https://github.com/firebase/genkit`.)*
+
+### 0.6 Ecosystem fit
+
+- **Go module**: `github.com/firebase/genkit/go` — pkg.go.dev page: https://pkg.go.dev/github.com/firebase/genkit/go.
+- **Plugins are sub-modules** under `github.com/firebase/genkit/go/plugins/<name>` (one Go module per plugin directory).
+- **Usage mode**: pure library. You `go get` it and embed it in your binary. There is no Genkit-the-platform binary you run.
+- **Official samples**: 40+ Go samples under `go/samples/` (`go/samples/basic`, `go/samples/session`, `go/samples/intermediate-interrupts`, etc.).
+- **TypeScript and Python siblings**: `genkit@1.x` on npm and `genkit` on PyPI (multi-package); the same cross-runtime schema means a Go service can interop with JS dev tooling.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- **Official docs**: https://genkit.dev/docs/overview/ — Firebase Genkit's unified doc site. Most pages have a `?lang=js|go|py` toggle. **Go coverage is real but trails JS substantially**:
+  - Stable JS-only or JS-first sections: Sessions, Memory, Persistence, Durable streaming, MCP host advanced, Multi-step workflows, Cloud Functions deploy.
+  - Solid Go coverage: Generate, Tools, Flows, Prompts (dotprompt), Streaming, Plugins (most), Telemetry, Evaluators.
+  - Examples in docs are roughly 70% JS / 30% Go in many code blocks (rough estimate from random sampling).
+- **In-source GoDoc** is **excellent**: top-level functions (`genkit.Init`, `genkit.DefineTool`, `genkit.DefinePrompt`, `genkit.Generate`) have 30–100 line docstrings with working examples. `genkit/genkit.go` is itself a tutorial.
+- **Cross-team accessibility (Product/Data)**: `.prompt` files with YAML frontmatter + Handlebars are *editable by non-engineers* (`go/samples/basic-prompts/prompts/assistant.prompt`). This is one of Genkit's selling points. **But**: skills (`SKILL.md`) are also markdown, so a product person could in principle author both.
+- **Discord** community (`https://discord.gg/qXt5zzQKpc`) is active per the badge in `go/README.md:24`.
+
+**Concrete consequence for our use case**: any non-trivial production pattern that involves sessions, multi-instance state, or advanced middleware will require reading JS docs and reverse-engineering the Go equivalent. The Go SDK is *not* a second-class citizen in the code (`go/` is comparable in line count and quality to `js/`), but the **docs site is**.
+
+### 0.8 Documentation entry points ⭐
+
+- **Official docs landing**: https://genkit.dev/docs/overview/?lang=go
+- **Quickstart (Go)**: https://genkit.dev/docs/get-started/?lang=go
+- **API reference (GoDoc)**: https://pkg.go.dev/github.com/firebase/genkit/go
+- **Genkit Tools (Dev UI / CLI)**: https://genkit.dev/docs/devtools
+- **Plugin reference (Go)**: https://genkit.dev/docs/plugins/?lang=go
+- **Dotprompt format reference**: https://genkit.dev/docs/dotprompt
+- **MCP host/server guide (Go)**: https://genkit.dev/docs/mcp?lang=go (the `plugins/mcp/README.md` in the repo is the authoritative Go reference)
+- **Hosting / deployment guides**: https://genkit.dev/docs/deploy and https://genkit.dev/docs/cloud-run?lang=go (Cloud Run is the canonical example)
+- **Examples / demos**: https://github.com/firebase/genkit/tree/main/go/samples (40+ runnable Go samples)
+- **Changelog (JS CLI)**: https://github.com/firebase/genkit/blob/main/genkit-tools/cli/CHANGELOG.md (no separate Go-side changelog; Go is versioned via Go modules tags `go/vX.Y.Z`)
+- **GitHub Releases**: https://github.com/firebase/genkit/releases
+- **GitHub issues tracker**: https://github.com/firebase/genkit/issues
+- **Issues relevant to our use case (search filters)**:
+  - "go session" — https://github.com/firebase/genkit/issues?q=is%3Aissue+session+label%3Alanguage%3Ago
+  - "go multi-tenant" / "tenant" — open conversation pieces are sparse; the canonical Genkit answer is "use `ContextProvider`".
+  - "skills" — https://github.com/firebase/genkit/issues?q=skills+label%3Alanguage%3Ago
+- **Discord**: https://discord.gg/qXt5zzQKpc
+
+---
+
+## 1. High Level Architecture
 
 ### Deployment diagram
 
@@ -100,15 +179,7 @@
                                     └────────────────────────────────┘
 ```
 
-### 0.1 What is this stack?
-
-A **Go library + plugin ecosystem** that provides AI primitives (generate, prompts, tools, retrievers, embedders, evaluators) on top of a small action registry. It's not a framework you deploy; it's a set of `go get`-installed packages you embed in your own HTTP server. The companion `genkit-tools` JS CLI is for local dev only and is *not* part of your production binary.
-
-Quote: from the Go README (`go/README.md:7-19`):
-
-> **Genkit Go** — AI SDK for Go • LLM Framework • AI Agent Toolkit. Build production-ready AI-powered applications in Go with a unified interface for text generation, structured output, tool calling, and agentic workflows.
-
-### 0.2 Where does the agent loop *actually* execute?
+### 1.1 Where does the agent loop *actually* execute?
 
 **In your Go process. Period.** The loop is a single Go function — `ai.GenerateWithRequest` at `go/ai/generate.go:211-510` — that recursively calls the model, runs any tool calls, and feeds results back in until either no tool calls remain, `MaxTurns` is exceeded, or an interrupt fires. No subprocess, no IPC, no remote agent runner. The `genkit-tools` JS CLI talks to your process **only in dev mode** via a Reflection HTTP server bound to `:3100` (`go/genkit/genkit.go:263-290`):
 
@@ -137,9 +208,9 @@ if api.CurrentEnvironment() == api.EnvironmentDev {
 
 In production (`GENKIT_ENV` unset), the reflection server doesn't start; the binary is just your HTTP server + Genkit registry.
 
-### 0.3 Runtime dependencies
+### 1.2 Runtime dependencies
 
-- **Go ≥ 1.25** (`go/go.mod` declares `go 1.25`).
+- **Go ≥ 1.25** (`go/go.mod` declares `go 1.25.0`).
 - **No bundled binaries** in the Go path. Everything is pure-Go modules.
 - Optional **Node.js + `genkit` CLI** for dev UX (eval, dev UI, init helpers).
 - Optional **GCP credentials** if you use `googlegenai`, `vertexai`, `firebase`, `googlecloud` telemetry, or AlloyDB/PG plugins.
@@ -148,7 +219,7 @@ In production (`GENKIT_ENV` unset), the reflection server doesn't start; the bin
 
 Memory footprint: a binary with `googlegenai` + `middleware` plugins + Genkit is on the order of 30–40 MB compiled, and ~30 MB RSS at idle (estimate from comparable Go AI binaries — not measured).
 
-### 0.4 Recommended deployment topology
+### 1.3 Recommended deployment topology
 
 The Go SDK and samples (`go/samples/*/main.go`) all show **one Go binary serving N HTTP routes, each a `genkit.Handler(action)`**. There is no "container per tenant" or "worker per session" recommendation. The `samples/cloud_run_deploy.sh` and `samples/cloud_run_request.sh` scripts target **Google Cloud Run** as the canonical hosting model — stateless container instances behind a load balancer.
 
@@ -156,7 +227,7 @@ Sessions and conversation state are explicitly punted to: *your* DB (the only fi
 
 For multi-tenancy: each tenant request hits a stateless container; tenant identity flows in via headers → `ContextProvider` → `core.WithActionContext` → tools read it from context. No tenant pinning, no leader election, no per-tenant pod.
 
-### 0.5 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 - **Init cost**: dominated by plugin `Init(ctx)` calls. `googlegenai.Init` is sync HTTP/credential check (typically <1 s with cached ADC). Reflection server is in-goroutine on dev.
 - **Cold start of a Cloud Run instance**: dependent on your container; Go binaries cold-boot ≪1 s after image pull.
@@ -164,7 +235,7 @@ For multi-tenancy: each tenant request hits a stateless container; tenant identi
 
 No documented "startup ceremony" like Claude Agent SDK's 20–30 s issue. Genkit's heavyweight pieces (Dev UI, eval) live in the JS CLI, *not* the Go runtime.
 
-### 0.6 Vendor lock-in
+### 1.5 Vendor lock-in
 
 | Axis | Verdict | Detail |
 |------|---------|--------|
@@ -176,7 +247,7 @@ No documented "startup ceremony" like Claude Agent SDK's 20–30 s issue. Genkit
 
 Reasonably portable. **The strongest lock-in is the Firebase brand** — the SDK lives in the `firebase/genkit` repo and uses `googlegenai` as the default provider in most examples.
 
-### 0.7 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 **Medium-heavy framework**, in this order:
 - ~317 Go files in `go/` (`find . -name "*.go" | wc -l`)
@@ -187,42 +258,26 @@ Reasonably portable. **The strongest lock-in is the Firebase brand** — the SDK
 
 Compared to Eino (lighter, no plugin tree) or Vercel AI v7 (similar plugin count). Heavier than Anthropic's Claude Agent SDK Python (which is a wrapper); lighter than Mastra (which bundles a Playground UI).
 
-### 0.8 Documentation depth & cross-team contributor accessibility
+### 1.7 Release-history signal
 
-- **Official docs**: https://genkit.dev/docs/overview/ — Firebase Genkit's unified doc site. Most pages have a `?lang=js|go|py` toggle. **Go coverage is real but trails JS substantially**:
-  - Stable JS-only or JS-first sections: Sessions, Memory, Persistence, Durable streaming, MCP host advanced, Multi-step workflows, Cloud Functions deploy.
-  - Solid Go coverage: Generate, Tools, Flows, Prompts (dotprompt), Streaming, Plugins (most), Telemetry, Evaluators.
-  - Examples in docs are roughly 70% JS / 30% Go in many code blocks (rough estimate from random sampling).
-- **In-source GoDoc** is **excellent**: top-level functions (`genkit.Init`, `genkit.DefineTool`, `genkit.DefinePrompt`, `genkit.Generate`) have 30–100 line docstrings with working examples. `genkit/genkit.go` is itself a tutorial.
-- **Cross-team accessibility (Product/Data)**: `.prompt` files with YAML frontmatter + Handlebars are *editable by non-engineers* (`go/samples/basic-prompts/prompts/assistant.prompt`). This is one of Genkit's selling points. **But**: skills (`SKILL.md`) are also markdown, so a product person could in principle author both.
-- **Discord** community (`https://discord.gg/qXt5zzQKpc`) is active per the badge in `go/README.md:24`.
-
-**Concrete consequence for our use case**: any non-trivial production pattern that involves sessions, multi-instance state, or advanced middleware will require reading JS docs and reverse-engineering the Go equivalent. The Go SDK is *not* a second-class citizen in the code (`go/` is comparable in line count and quality to `js/`), but the **docs site is**.
-
-### 0.9 Documentation entry points
-
-- **Official docs landing**: https://genkit.dev/docs/overview/?lang=go
-- **Quickstart (Go)**: https://genkit.dev/docs/get-started/?lang=go
-- **API reference (GoDoc)**: https://pkg.go.dev/github.com/firebase/genkit/go
-- **Genkit Tools (Dev UI / CLI)**: https://genkit.dev/docs/devtools
-- **Plugin reference (Go)**: https://genkit.dev/docs/plugins/?lang=go
-- **Dotprompt format reference**: https://genkit.dev/docs/dotprompt
-- **MCP host/server guide (Go)**: https://genkit.dev/docs/mcp?lang=go (the `plugins/mcp/README.md` in the repo is the authoritative Go reference)
-- **Hosting / deployment guides**: https://genkit.dev/docs/deploy and https://genkit.dev/docs/cloud-run?lang=go (Cloud Run is the canonical example)
-- **Examples / demos**: https://github.com/firebase/genkit/tree/main/go/samples (40+ runnable Go samples)
-- **Changelog (JS CLI)**: https://github.com/firebase/genkit/blob/main/genkit-tools/cli/CHANGELOG.md (no separate Go-side changelog; Go is versioned via Go modules tags `go/vX.Y.Z`)
-- **GitHub issues tracker**: https://github.com/firebase/genkit/issues
-- **Issues relevant to our use case (search filters)**:
-  - "go session" — https://github.com/firebase/genkit/issues?q=is%3Aissue+session+label%3Alanguage%3Ago
-  - "go multi-tenant" / "tenant" — open conversation pieces are sparse; the canonical Genkit answer is "use `ContextProvider`".
-  - "skills" — https://github.com/firebase/genkit/issues?q=skills+label%3Alanguage%3Ago
-- **Discord**: https://discord.gg/qXt5zzQKpc
+- **No in-repo CHANGELOG.md or RELEASES.md at the repo root** (verified by `find -iname CHANGELOG*`). The JS CLI keeps its own at `genkit-tools/cli/CHANGELOG.md`; the Go module does not ship one.
+- **GitHub Releases** (https://github.com/firebase/genkit/releases) cover the multi-language repo — most releases are JS-driven (`genkit@1.34.0` etc.); Go releases come out as `go/vX.Y.Z` tags.
+- **Active retraction signal** in `go/go.mod:5-8`:
+  ```
+  retract (
+      v0.1.4 // Retraction only.
+      v0.1.3 // This shold have been a minor release.
+  )
+  ```
+  Recent retractions confirm versioning is real but the Go SDK is still pre-1.0 (`v0.1.x`) and the team adjusts mistakes by retracting.
+- **Architecture-impacting recent areas** (from PR/commit titles in `git log -- go/`): the head commit (`0defbfc`) is a Python sample chore but the Go side has had recent work on Reflection V2 (the `GENKIT_REFLECTION_V2_SERVER` branch at `go/genkit/genkit.go:266-269`) — the dev-tools handshake is moving from HTTP→WebSocket. Other recent themes the code shows: durable streaming (`core/x/streaming`), MCP host (`plugins/mcp/host.go`), and stricter session API (the experimental warning in `core/x/session/session.go`).
+- **No deprecations are flagged in code** beyond the `// Deprecated:` comment on `ModelMiddleware` at `go/ai/generate.go:77` (superseded by the `Hooks{WrapModel}` bundle in `go/ai/middleware.go`).
 
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 The user-facing entrypoint is **`genkit.Generate`** (or its variants `GenerateText`, `GenerateData`, `GenerateStream`, `GenerateDataStream`, `GenerateOperation`, `GenerateWithRequest`). The shape from `go/genkit/genkit.go:1049-1051`:
 
@@ -250,7 +305,7 @@ func GenerateWithRequest(ctx context.Context, r api.Registry, opts *GenerateActi
     mmws []ModelMiddleware, cb ModelStreamCallback) (*ModelResponse, error) {
 ```
 
-### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 One iteration of the tool loop (`go/ai/generate.go:374-492`):
 
@@ -266,11 +321,11 @@ One iteration of the tool loop (`go/ai/generate.go:374-492`):
 
 The loop is bounded by `MaxTurns` (default 5, `go/ai/generate.go:279`).
 
-### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 **Genkit does not ship a ReAct primitive.** What it ships is an *automatic tool-calling loop*: the LLM emits structured `tool_use` parts, the loop executes them, the loop feeds back tool results, until the LLM stops calling tools. This is the same shape as Vercel AI SDK's `generateText` with `stopWhen: stepCountIs(5)`, Mastra's `agent.generate(...)`, Anthropic SDK's `messages.create({tools, max_iter})` — but **not** an explicit Reason→Act→Observe scaffold with separate prompt slots. Genkit relies entirely on the **model's native tool-calling capability** (Gemini function-calling, Anthropic tool-use blocks, etc.); there's no string-parsed "Thought: ... Action: ..." parser.
 
-### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 Tool dispatch is in `handleToolRequests` (`go/ai/generate.go:942-1046`). For each `Part.IsToolRequest()` in the assistant message:
 
@@ -313,11 +368,11 @@ return newReq, nil, nil
 
 **Concurrency**: tools execute **in parallel** (one goroutine each). The `WrapTool` middleware can be called concurrently — the doc string explicitly warns about shared-state safety (`go/ai/middleware.go:42-44`).
 
-### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 A "turn" is one trip through `runGenerate` — i.e. one `model.Generate` call plus the optional tool dispatch that follows. `MaxTurns` counts these (`go/ai/generate.go:473`). There is **no `Turn` type**; the count is just an `int` carried through the recursion.
 
-### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 Streaming is via a `ModelStreamCallback` (`go/ai/generate.go:72`):
 
@@ -349,9 +404,9 @@ if cb != nil {
 
 ---
 
-### Message & event taxonomy
+## 3. Message & Event Taxonomy
 
-### 1.7 Message layers
+### 3.1 Message layers
 
 **Two layers**, much simpler than Vercel AI SDK or Mastra:
 
@@ -376,7 +431,7 @@ if cb != nil {
 
 There is **no separate "UI message" layer** like Vercel's `UIMessage` or Mastra's chat-format. The Genkit `ai.Message` *is* what your frontend renders (after you parse the SSE). This is simpler but pushes adapter work onto your frontend.
 
-### 1.8 Concrete message types
+### 3.2 Concrete message types
 
 Source: `go/ai/gen.go` (generated) + `go/ai/document.go`, `go/ai/generate.go`.
 
@@ -400,13 +455,13 @@ Source: `go/ai/gen.go` (generated) + `go/ai/document.go`, `go/ai/generate.go`.
 | `GenerateActionResume` | For HITL: `{Respond, Restart, Metadata}` (`gen.go:120-127`) |
 | `ToolChoice` | `"auto" \| "required" \| "none"` (`gen.go:130-136`) |
 
-### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 **Same vocabulary, different shapes**. Messages are persistent (`*Message`); chunks are transient (`*ModelResponseChunk`) and carry `Content []*Part` that gets accumulated into a full `Message` over the course of streaming. Tool-result events are *also* `ModelResponseChunk{Role: RoleTool, Content: toolResps}` chunks — Genkit treats tool results as a special chunk emitted to the same stream (`go/ai/generate.go:1031-1040`).
 
 There is **no separate event taxonomy** like Vercel AI's 24-variant `TextStreamPart` union. The taxonomy *is* `ModelResponseChunk{Role, Content[]}` where the `Role` and the `Part` types tell you what kind of event you're seeing.
 
-### 1.10 Event categories
+### 3.4 Event categories
 
 Realizable categories (by inspecting role + part type in the chunk):
 
@@ -423,7 +478,9 @@ Realizable categories (by inspecting role + part type in the chunk):
 
 There are **no explicit lifecycle events** (`start`, `step-start`, `step-end`, `finish`, `error`). Streaming begins with the first chunk and ends when the iterator yields `Done=true`. Lifecycle is observable via tracing spans (one per generate iteration, one per tool call), not via the stream.
 
-### 1.11 Canonical type-definition file(s)
+There is **no separate sub-agent / session-lifecycle / hook-event taxonomy** — sub-agents are tool calls so they appear as the normal `tool-call` / `tool-result` chunks, and session lifecycle (open/close/save) lives entirely in *your* code outside the loop.
+
+### 3.5 Canonical type-definition file(s)
 
 - **Generated types**: `go/ai/gen.go` (~600 lines, jsonschemagen output of the cross-runtime schema in `genkit-tools/genkit-schema.json`).
 - **Hand-written generate logic**: `go/ai/generate.go` (~1700 lines).
@@ -431,7 +488,7 @@ There are **no explicit lifecycle events** (`start`, `step-start`, `step-end`, `
 - **Middleware/hooks**: `go/ai/middleware.go` (~290 lines).
 - **Action plumbing**: `go/core/action.go`, `go/core/flow.go`.
 
-### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Over HTTP, the `genkit.Handler` (`go/genkit/servers.go:161-235`) writes each model chunk as an SSE frame. The wire format is:
 
@@ -467,40 +524,40 @@ The frame envelope (`{"message": ...}` vs `{"result": ...}`) comes from `flowMes
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **There is no Genkit "runtime" hosting many sessions.** Genkit is a library: your `*genkit.Genkit` is an in-process registry, and each HTTP request that hits one of your `genkit.Handler(flow)` endpoints runs the flow synchronously, the loop iterates, the response goes back. **One process, N concurrent requests, no per-request state on the Genkit object beyond the registry (which is read-only after init).**
 
 This is fundamentally different from LangGraph's `langgraph-api` server (which hosts threads, runs, checkpoints in a long-lived process) or Claude Agent SDK's bundled Node CLI subprocess.
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 Each request gets a fresh `context.Context` (Go HTTP convention). The Genkit registry (`*registry.Registry`) is shared across requests but is concurrency-safe for reads after `Init`. There is **no shared mutable session state on the Genkit object** — sessions, if used, are stored in your `session.Store[S]` implementation (`go/core/x/session/session.go:60-65`).
 
 Isolation between requests is therefore the standard Go HTTP model: per-request context, per-request goroutines spawned in `handleToolRequests`, per-request span trees.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 **Stateless workers, your DB is the source of truth.** Cloud Run / GKE / any Kubernetes deployment scales horizontally by replication. Genkit has no leader election, no shared lock, no cross-instance coordination. If you adopt `FirestoreSessionStore` (`plugins/firebase/x/session_store.go`), multiple instances can read/write the same session because Firestore handles concurrency. If you adopt your own `session.Store[S]` against Postgres, you're responsible for the locking semantics.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 - **Background models**: there is a `BackgroundModel` abstraction (`go/ai/background_model.go`) and `genkit.GenerateOperation` (`go/genkit/genkit.go:1118-1120`) for long-running model ops (e.g. video generation, Imagen jobs). You poll with `CheckModelOperation`. This is **for long-running model calls**, not for general scheduled tasks.
 - **Cron / webhook triggers**: Not provided — BYO (use Cloud Scheduler + a webhook flow).
 - **Long-running flows**: A flow runs synchronously inside the HTTP request unless you use durable streaming.
 - **Durable streaming**: `core/x/streaming` provides a `StreamManager` interface; `genkit.WithStreamManager(...)` lets the flow continue even if the HTTP client disconnects, writing chunks to a backing store (`go/genkit/servers.go:266-323`). Useful for resumable long agent runs. **Experimental** per the comment at `servers.go:79`.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 **Not provided — BYO.** No built-in job queue. The expected model is "HTTP request → run flow synchronously → respond". For async work, you'd put the request on Cloud Pub/Sub / SQS / etc. yourself and have a separate worker process call `genkit.Generate` on dequeue.
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 **The session is a typed user-defined state struct, NOT a list of messages.** From `go/core/x/session/session.go:42-49`:
 
@@ -545,15 +602,15 @@ type ChatState struct {
 
 And it's *your* code that calls `sess.UpdateState(ctx, ChatState{Messages: append(state.Messages, resp.Message)})` after each `Generate`.
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 Whatever your `State S` struct contains, serialized via JSON. Genkit serializes via `json.Marshal` on `Save` and `json.Unmarshal` on `Get` (`go/core/x/session/session.go:197-208, 342-358`). No automatic message capture, no schema, no built-in `messages` array.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 **One session = one state blob keyed by `id`.** No native fork/branch model. No parent-child session relationship. If you need branching, you encode it in your state struct.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 | Store | Source | Status |
 |-------|--------|--------|
@@ -571,7 +628,7 @@ type Store[S any] interface {
 }
 ```
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 **Persistence happens only when YOU call `sess.UpdateState(ctx, newState)`.** There is no auto-save per message, per turn, or per tool call. From `session.go:212-229`:
 
@@ -593,7 +650,7 @@ func (s *Session[S]) UpdateState(ctx context.Context, state S) error {
 
 There is no LangGraph-style `durability="sync"|"async"|"exit"`. You manage the save points.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 **Not provided.** There is no checkpointer that snapshots mid-tool-call to resume after a crash. The only durability-adjacent feature is `core/x/streaming.StreamManager` (`go/genkit/servers.go:266-323`), which persists *output chunks* so a disconnected client can replay them — but if the *server* crashes mid-tool-call, the in-flight state is lost. The next request creates a fresh `Generate` call.
 
@@ -603,7 +660,7 @@ If you need true mid-run resumption, you'd combine:
 
 This is BYO.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 **UUIDv4 by default** (`go/core/x/session/session.go:141-143`):
 
@@ -616,29 +673,29 @@ if !o.hasID {
 
 You can override via `session.WithID[CartState](myID)` — any string is allowed. **No tenant prefixing convention. No composite/hierarchical IDs.**
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 `Store[S any]` (above) is a 2-method interface. Implementing your own is straightforward. The Firestore store is the canonical example (`plugins/firebase/x/session_store.go`).
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 **Not provided.** Your `State S` struct is whatever you say it is; if you change the shape, `json.Unmarshal` on old data will succeed only if the change is backward-compatible (added optional fields are fine; removed fields silently drop). **No migration helpers**, no version stamping in `Data[S]`.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 **No first-party export/replay tooling for sessions.** For generation events, Genkit's tracing emits OTel spans you can export. For replaying, you'd reconstruct messages from your DB and pass them to `Generate(..., ai.WithMessages(...))`.
 
 The Dev UI (via reflection API) can replay individual actions, but not a full session/turn sequence.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-Not part of the session abstraction. See Q15.
+Not part of the session abstraction. See Q17.
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
+## 6. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 `GenerateActionOptions` is the JSON-serializable shape of one generate call (`go/ai/gen.go:87-117`):
 
@@ -669,9 +726,9 @@ The full Go-side options struct (`go/ai/option.go:889`) embeds:
 - `RespondParts`, `RestartParts` (HITL resume)
 - `StepName`
 
-**There is no native `tenantId`, `userId`, `sessionId`, `locale`, etc. field on the run-loop input.** Tenant identity flows in via `context.Context` (see 4.2 / 4.6).
+**There is no native `tenantId`, `userId`, `sessionId`, `locale`, etc. field on the run-loop input.** Tenant identity flows in via `context.Context` (see 6.2 / 6.6).
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 Genkit uses **`context.Context` as the carrier for ambient tenant/user data**, via two mechanisms:
 
@@ -724,7 +781,7 @@ addToCart := genkit.DefineTool(g, "addToCart", "...", func(ctx *ai.ToolContext, 
 
 `*ai.ToolContext` embeds `context.Context` (`go/ai/tools.go:194-202`), so the propagated ctx is reachable.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 ```go
 // go/ai/tools.go:38
@@ -752,7 +809,7 @@ func DefineTool[In, Out any](g *Genkit, name, description string, fn ai.ToolFunc
 }
 ```
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 **Not provided as a first-class API.** There is no `experimental_refineToolInput` (Vercel) or `_inject_tool_args` (Mastra) equivalent. **The mechanism is BYO `WrapTool` middleware.** From `go/ai/middleware.go:75-81`:
 
@@ -783,7 +840,7 @@ ai.MiddlewareFunc(func(ctx context.Context) (*ai.Hooks, error) {
 
 **Gap**: this is BYO. The middleware doesn't ship as a built-in.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 **You declare the tool set per `Generate(...)` call via `ai.WithTools(...)`** (`go/ai/option.go:227-231`). To filter per tenant, your code branches before the call:
 
@@ -799,7 +856,7 @@ resp, _ := genkit.Generate(ctx, g, ai.WithTools(tools...), ai.WithPrompt(...))
 
 `Middleware.Tools` (`go/ai/middleware.go:30-33`) can *add* extra tools the model sees, but doesn't *remove* them. The Skills middleware uses this to add `use_skill` (`plugins/middleware/skills.go:122-125`).
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 **Not first-class.** No `Tenant string` field on `Session`. You add it to your typed state `S` struct:
 
@@ -813,19 +870,19 @@ type ChatState struct {
 
 And you key your session store by `tenant:userId:sessionId` if you want isolation.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 If you load auth credentials into `ActionContext` from headers (via a `ContextProvider`), tools that read `core.FromContext(ctx)` see them. There is no automatic IAM/RBAC layer; each tool decides what to enforce. This is the same as Vercel AI SDK's `experimental_context`.
 
 For Firebase Auth, the `firebase` plugin ships an auth helper (`plugins/firebase/auth.go`).
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 **Not provided.** Tools, prompts, retrievers, evaluators, models are all registered in a single global `*registry.Registry` per `*genkit.Genkit` instance. There is no `register("topicSearch", scope: "tenant:acme")` or similar. Scoping is your job — typically by `Generate(...)`-call-time filtering or by middleware.
 
 The only registry-level partition is **child registries**: `r.NewChild()` (`go/ai/generate.go:262-263`) — used internally to register middleware-contributed tools per-call without polluting the parent.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 **Not provided.** No USD budget enforcement. The only per-call cap is `MaxTurns` (turn count). Token usage is exposed on `resp.Usage` after the call, but you have to read it and enforce limits yourself (probably in a `WrapGenerate` middleware that checks a Redis counter).
 
@@ -881,9 +938,9 @@ What works:
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 The middleware contract is `ai.Middleware` (`go/ai/middleware.go:99-109`) which returns `*Hooks` per Generate call:
 
@@ -907,33 +964,33 @@ There are NO traditional lifecycle hooks (`SessionStart`, `BeforeMessage`, `Afte
 
 There is also a separate, deprecated `ModelMiddleware` (`go/ai/generate.go:77`) which wraps only the model call — superseded by `WrapModel` in the `Hooks` bundle.
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 - Hooks are **composed outer-to-inner** at call-start (`go/ai/generate.go:514-549`).
 - Multiple middleware values passed to `ai.WithUse(...)` form a chain: `mw[0].Wrap → mw[1].Wrap → ... → mw[N-1].Wrap → real-fn`.
 - **`WrapTool` runs concurrently across parallel tool calls** (`go/ai/middleware.go:42-44`):
   > *"`WrapTool` may be called concurrently when multiple tools execute in parallel for the same Generate() call; any state closed over from the enclosing scope that this hook mutates must be guarded with sync primitives."*
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 | Capability | Supported? | Mechanism |
 |------------|-----------|-----------|
 | **Inject system messages at session start** (e.g. "today is X, tenant is Y") | ✅ Yes | `WrapGenerate` mutates `params.Request.Messages` (Skills uses `injectSkillsPrompt`, `plugins/middleware/skills.go:227-267`). |
 | **Expand the user input** (slash commands, timestamps) | ✅ Yes | Same — `WrapGenerate` rewrites the last user message. |
 | **Mutate the messages list before each LLM call** | ✅ Yes | `WrapGenerate` runs on every tool-loop iteration; you see and can rewrite `params.Request.Messages`. |
-| **Mutate tool input before dispatch** | ✅ Yes | `WrapTool` mutates `params.Request.Input` before `next(ctx, params)` (see Q4.4). |
+| **Mutate tool input before dispatch** | ✅ Yes | `WrapTool` mutates `params.Request.Input` before `next(ctx, params)` (see Q6.4). |
 | **Mutate tool result before return** | ✅ Yes | `WrapTool` calls `resp, err := next(ctx, params)` then can rewrite `resp.Output` / `resp.Content` before returning. |
 | **Emit additional tool calls in response to a tool result** | ⚠️ Indirect | There's no `PostToolUse → additional_messages` like Claude Agent SDK. You can interrupt the tool result and use Resume; or use `Tools[]` on the Hooks to expose extra tools. But you cannot synthesize a new tool call mid-iteration from a hook. |
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 **Not provided.** No built-in summarization / truncation. You'd BYO via a `WrapGenerate` middleware that watches `len(messages)` or token count and rewrites earlier messages into a summary.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 **Plugin-specific, not generic.** The `googlegenai` plugin has explicit cache support (`plugins/googlegenai/cache.go`) — you can attach a `cachedContents` reference. There is **no generic "prompt cache breakpoint" mechanism** like Anthropic's `cache_control` field that you'd set across all providers. Each plugin handles its provider's cache features in its own way.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 **Not provided as a built-in pattern.** The Filesystem middleware has a *file-state dedup* (`plugins/middleware/filesystem.go:51-64`) that returns a stub when a tool re-reads an unchanged file:
 
@@ -943,7 +1000,7 @@ const fileUnchangedStub = "File unchanged since last read. The content from the 
 
 But there is no generic "stash large tool outputs to disk, return summary" pattern. BYO.
 
-### 5.7 Architectural diagram of where hooks fire
+### 7.7 Architectural diagram of where hooks fire
 
 ```
          Generate(opts)
@@ -1009,7 +1066,7 @@ tenantSystem := ai.MiddlewareFunc(func(ctx context.Context) (*ai.Hooks, error) {
     }, nil
 })
 
-// 2. PreToolUse-style: force tenantId on topicSearch (see Q4 also).
+// 2. PreToolUse-style: force tenantId on topicSearch (see Q6 also).
 forceTenantOnTopic := ai.MiddlewareFunc(func(ctx context.Context) (*ai.Hooks, error) {
     return &ai.Hooks{
         WrapTool: func(ctx context.Context, p *ai.ToolParams, next ai.ToolNext) (*ai.MultipartToolResponse, error) {
@@ -1056,9 +1113,9 @@ All three patterns work. The catch: **you write all three from scratch**; there 
 
 ---
 
-## 6. Agent API Exposition (HTTP/network surface)
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
 **Yes, as a `http.HandlerFunc` factory** (`genkit.Handler(action, opts...)` — `go/genkit/servers.go:96-98`):
 
@@ -1070,7 +1127,9 @@ func Handler(a api.Action, opts ...HandlerOption) http.HandlerFunc {
 
 The `plugins/server` package provides a one-line `server.Start(ctx, addr, mux)` helper (`go/plugins/server/server.go:31-58`) that wires `http.ServeMux` to stdlib `http.Server` with SIGTERM handling. **No `/runs`, `/threads`, `/messages` REST conventions** — you mount each flow yourself at `mux.HandleFunc("POST /myFlow", genkit.Handler(flow))`.
 
-### 6.2 Streaming transport
+Library-only in that sense: Genkit gives you `http.HandlerFunc`s and a lifecycle helper; it does not boot a daemon or define an API contract for you.
+
+### 8.2 HTTP streaming transport
 
 **SSE (Server-Sent Events) over HTTP**, triggered by either:
 - `?stream=true` query param, or
@@ -1088,7 +1147,7 @@ stream = stream || r.Header.Get("Accept") == "text/event-stream"
 
 No WebSocket support, no HTTP/2 server push, no long-poll mode beyond SSE.
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
 `genkit.Handler` accepts POST requests with JSON body `{"data": <flow-input>}`:
 
@@ -1103,9 +1162,9 @@ X-Tenant-Id: acme
 
 The handler decodes `body.Data`, runs the action via `a.RunJSON(ctx, body.Data, callback)` (`servers.go:229, 249`), and either:
 - Returns `Content-Type: application/json` with `{"result": <output>}` (non-streaming), or
-- Streams SSE frames (above).
+- Streams SSE frames (below).
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
 SSE frames (one frame = one model chunk or one final result):
 
@@ -1129,14 +1188,14 @@ data: {"result":{"message":{...},"usage":{"inputTokens":234,"outputTokens":42,"t
 
 Frame envelope: `{"message": <ModelResponseChunk>}` for streaming chunks, `{"result": <ModelResponse>}` for the final value.
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 **The SDK does NOT terminate JWT auth.** You wire that yourself. Options:
 - Use Go's stdlib middleware in front of `genkit.Handler` (just a regular `http.HandlerFunc`).
 - Use the `firebase.AuthContextProvider` for Firebase Auth (`plugins/firebase/auth.go`).
 - Custom `ContextProvider` that reads bearer tokens, validates against your IdP, populates `ActionContext`.
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 **Durable streaming** (experimental) provides resume via `StreamManager`. From `go/genkit/servers.go:209-213`:
 
@@ -1154,7 +1213,7 @@ The first call generates a `streamID` and writes it as `X-Genkit-Stream-Id` resp
 
 **There is no general "session reopen" endpoint.** A session (in the `x/session` sense) is loaded by your flow code calling `session.Load(ctx, store, sessionID)`.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 **Via standard `http.Request` cancellation (the client closes the connection).** Go's `context.Context` propagates cancellation throughout the call tree, so a closed connection → cancelled ctx → tools observe `ctx.Err()` → loop unwinds.
 
@@ -1162,7 +1221,7 @@ For durable streaming, closing the HTTP connection does NOT cancel the underlyin
 
 There is **no explicit DELETE endpoint** to cancel a running agent. The Dev UI reflection API has a cancel endpoint for traced actions (`activeActionsMap` in `go/genkit/reflection.go`), but it's a dev-mode feature.
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 **Yes — `ToolRequest.Partial` flag.** From `go/ai/gen.go:543`:
 
@@ -1179,7 +1238,7 @@ When the model is streaming tool-args, plugins like `googlegenai` emit `ModelRes
 
 That said: I did not find a dedicated "tool-input-start / tool-input-delta / tool-input-end" sub-event taxonomy. The plugin-level support varies; for Gemini, partial tool-args streaming is supported, for some providers it's all-or-nothing.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 **Bidirectional, two-call:**
 
@@ -1220,7 +1279,7 @@ resp, _ = genkit.Generate(ctx, g, ai.WithMessages(prevHistory...),
 
 **Pause state**: the `*ModelResponse` with `FinishReason="interrupted"` is the observable pause state. The client must persist the response (or at least the interrupted parts + message history) to resume later.
 
-### 6.10 Tool-call state reconstruction ⭐
+### 8.10 Tool-call state reconstruction ⭐
 
 **Linkage via `ToolRequest.Ref` ↔ `ToolResponse.Ref`.** Each emitted `ToolRequest` gets a unique `Ref` (set by the harness in `ensureToolRequestRefs(resp.Message)` at `go/ai/generate.go:452`, or by the model itself; the harness fills missing refs with UUIDv4). The `ToolResponse` in the next `RoleTool` chunk echoes the same `Ref`.
 
@@ -1237,7 +1296,7 @@ toolResps = append(toolResps, NewToolResponsePart(&ToolResponse{
 
 Client reconstruction: index the in-flight tool calls by `(message.role=="model", part.toolRequest.ref)`; when a `(role=="tool", part.toolResponse.ref==X)` arrives, you know which tool call X completed.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 `server.Start` (`go/plugins/server/server.go:31-58`) wires SIGINT/SIGTERM to a `srv.Shutdown(ctx)` graceful drain. **No `/healthz`, `/readyz`, or `/metrics` endpoint is registered automatically** — you add them to your `http.ServeMux` yourself.
 
@@ -1289,25 +1348,25 @@ curl -X POST http://localhost:8080/transferMoney \
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 **Not provided as a first-class primitive.** There is no `SubAgent`, `handoff`, `delegate`, or `spawnAgent` type. The Genkit-idiomatic way is **"agents as tools"**: define a tool whose `execute` function internally calls `genkit.Generate(...)` with a different prompt + tools.
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 Sub-agent configurations are **inlined per call** (you write Go code that calls `genkit.Generate` with the persona's system prompt). There is no separate "agent registry", no markdown-file format like Claude Code's `~/.claude/agents/*.md`.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 **Not provided.** The parent LLM cannot generate a sub-agent config on the fly — but it *can* call a tool that accepts a free-form prompt and forwards it to a `Generate` call you wrote. That's the only avenue.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
-When a sub-agent is a tool, the parent receives a single `ToolResponse.Output` (the text or structured output of the sub-agent). The parent does **not** see the sub-agent's intermediate tool calls or token stream by default — those are recorded as a child span in tracing but not surfaced in the parent's message stream.
+When a sub-agent is a tool, the parent receives a single `ToolResponse.Output` (the text or structured output of the sub-agent). The parent does **not** see the sub-agent's intermediate tool calls or token stream by default — those are recorded as a child span in tracing but not surfaced in the parent's message stream. Linkage to the parent is via the `ToolRequest.Ref` ↔ `ToolResponse.Ref` mechanism (see Q8.10).
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 **Parallel by default within one Generate call** (tool dispatch fans out via goroutines, `go/ai/generate.go:957-999`). If the parent LLM emits 3 tool calls in one response, each is a sub-agent invocation running concurrently:
 
@@ -1325,11 +1384,11 @@ for i, part := range revisedMsg.Content {
 
 There is no parent-level rate limit or pool. Each goroutine inherits the parent's `ctx`.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 **Each sub-agent starts fresh.** The sub-agent's `Generate(...)` call has its own `Messages` (whatever the parent's tool function passes in); the parent's message history is NOT automatically inherited. The `context.Context` is inherited (so `ActionContext` flows through).
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 **Sub-agent lifecycle is observable via tracing, not via the parent's stream.** OTel spans are nested: parent generate-span → tool-span → sub-agent generate-span → sub-agent's tools. The parent's SSE stream just shows one `toolResponse` chunk for the sub-agent's final answer.
 
@@ -1397,13 +1456,13 @@ for _, msg := range parentResp.History() {
 
 ---
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 **Yes**, via the `Skills` middleware (`plugins/middleware/skills.go`). One of the few stacks (alongside Claude Code) that ships a markdown-based skill loader.
 
-### 8.2 File format
+### 10.2 File format
 
 **`SKILL.md` with optional YAML frontmatter**. From `skills.go:78-82`:
 
@@ -1431,7 +1490,7 @@ description: Take a long-running agent brief and propose 3 candidate audiences w
 
 The body has no validated schema; it's free-form markdown injected verbatim into the conversation when the model calls `use_skill`.
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 **Filesystem scan**, on each Generate call. From `skills.go:139-171`:
 
@@ -1461,7 +1520,7 @@ func scanSkills(paths []string) (map[string]skillInfo, error) {
 
 Layout: each skill is a directory containing a `SKILL.md`. The directory name is the skill name. **No programmatic SDK registration.** Configuration is via `&middleware.Skills{SkillPaths: []string{"./skills"}}` on the call site.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Tool call.** When the middleware activates, it (a) injects a system prompt listing available skill names + descriptions, and (b) exposes a `use_skill` tool the model calls to load a specific skill's body. From `skills.go:96-112`:
 
@@ -1498,11 +1557,11 @@ Here are the available skills:
 </skills>
 ```
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Lazy.** Only the *names + descriptions* are in the prompt; the *body* is fetched when the model invokes `use_skill(skillName)`. This is the same model Claude Code uses.
 
-### 8.6 Runtime scoping
+### 10.6 Runtime scoping (global / tenant / user)
 
 **Per-call**: you pass `SkillPaths` per `Generate(...)` call. Different requests can attach different middleware with different paths. From `skills.go:65-70`:
 
@@ -1521,9 +1580,9 @@ ai.WithUse(&middleware.Skills{SkillPaths: []string{
 }})
 ```
 
-**No publish-time scoping** (see Q9). All filtering is at runtime.
+**No publish-time scoping** (see Q11). All filtering is at runtime.
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 The skill body is text; it can reference other skills *by name* in prose ("if needed, ask me to use_skill('OtherSkill')"). The model decides whether to follow. There is **no `includes:` directive or bundled `references/`/`scripts/`** like Claude Code's skills can have.
 
@@ -1571,15 +1630,15 @@ ai.WithUse(&middleware.Skills{SkillPaths: []string{
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **No.** There is no separate "resource manager" layer that publishes / versions / governs skills, sub-agents, prompts, tools across teams. The only "resource registry" inside Genkit is the in-process `*registry.Registry` (`go/internal/registry`), which holds all actions (tools, models, prompts, retrievers, evaluators) for one running process. It's a runtime concept, not a publishing concept.
 
 There is also a per-call `Resource` abstraction (`go/ai/resource.go`) — a URI-templated lookup for retrievable content (`ResourceFunc(ctx, *ResourceInput) (*ResourceOutput, error)`) — but it's a content-loading utility, not a marketplace.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source | Support | How |
 |--------|---------|-----|
@@ -1594,31 +1653,31 @@ There is also a per-call `Resource` abstraction (`go/ai/resource.go`) — a URI-
 
 The Genkit philosophy: prompts and skills are *source code* you ship in your binary or repo, not artifacts fetched from a marketplace.
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 **Implicit through `SkillPaths []string`** for skills: middleware scans paths in order, later entries with the same skill name *overwrite* earlier ones (`map[string]skillInfo` mutation in `scanSkills`). For prompts there is no explicit priority — `WithPromptFS` and `WithPromptDir` are mutually exclusive (`go/genkit/genkit.go:80-99`).
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 **None.** Skills, prompts, tools are versioned by your source-control / deployment. There is no `@semver`, no content-hash, no immutable ref system.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 **No publish-time scoping.** Everything registered with `genkit.DefineTool`, `genkit.DefinePrompt`, etc. is global to that `*genkit.Genkit` instance. There is no way to mark a tool as "tenant X only" at registration time. Scope is enforced at the **call site** via `WithTools(...)`/`WithUse(...)`.
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 **None.** No draft/active/deprecated states, no review/approval gates, no promotion across environments.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 **None.** No RBAC, no audit log of who published what, no retirement workflow. (This is consistent with the "skills are source code" philosophy.)
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 The only programmatic API is the in-process registry, exposed via `genkit.ListFlows`, `genkit.ListTools`, `genkit.LookupModel`, `genkit.LookupPrompt`, etc. (`go/genkit/genkit.go:434-458, 532-545, 703-708, 874-880`). No `sync`, `search`, `pin`, `promote` operations.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 **Skills are read from disk on every Generate call** (`scanSkills` runs in `Skills.New(ctx)` which is invoked per `Generate`, `skills.go:90`). For low-latency systems this is fine for small skill counts (10s of files); for a marketplace of 1000 skills you'd add your own caching layer or read at startup only.
 
@@ -1665,9 +1724,9 @@ resp, _ := genkit.Generate(ctx, g,
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 **On `ModelResponse.Usage`** (`go/ai/gen.go:351`), with the detailed `GenerationUsage` struct (`gen.go:172-202`):
 
@@ -1692,7 +1751,7 @@ type GenerationUsage struct {
 
 This is the **per-model-call** usage. The tool loop accumulates this from each iteration; the final `resp.Usage` on the returned `ModelResponse` reflects the *last* model call only — to aggregate across the loop, you walk the trace spans or use the `addAutomaticTelemetry` middleware (`go/ai/generate.go:183`).
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 | Level | How it's exposed |
 |-------|------------------|
@@ -1703,27 +1762,27 @@ This is the **per-model-call** usage. The tool loop accumulates this from each i
 
 The `googlecloud` plugin (`plugins/googlecloud/`) exports OTel metrics with built-in attributes like `feature_name`, `flow_name`, `model`, `error`. There is no built-in `tenant_id` attribute — you add it via a custom OTel `SpanProcessor` or `WrapGenerate` middleware that calls `span.SetAttributes`.
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 **Not provided.** No `pricing.json`, no `cost_usd` field, no `getSpendReport(...)`. You either:
 - Build your own pricing table keyed by model name and multiply by `inputTokens/outputTokens`.
 - Use an external observability platform (LangSmith, Helicone) that adds USD pricing on top of OTel traces.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 **Not provided.** BYO via metadata-tagged tracing (add a `tenant_id` resource attribute on your OTel SDK, query in Cloud Trace/Datadog/Grafana).
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 **Yes — OTel-native.** From `go/core/tracing/tracing.go` and `plugins/googlecloud/`. Spans are named (e.g. `generate`, `tool`, plus your custom flow steps via `genkit.Run`); attributes include action name/type, latency, error. Tracing is on by default; the `googlecloud` plugin ships exporters for Google Cloud Trace, Metrics, and Logging.
 
 **LangSmith integration**: not provided as a first-party plugin (the JS side has some integrations; Go does not). For LangSmith you'd configure your own OTel exporter against LangSmith's OTel endpoint.
 
-### 10.6 Audit logging (who / when / what)
+### 12.6 Audit logging (who / when / what)
 
 **Not provided as a distinct primitive.** All you get is tracing. There is no "audit log" interface like Anthropic's that you can swap to a separate, tamper-evident sink (BYO via a `WrapTool` hook that logs to a write-once store).
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 ```go
 resp, _ := genkit.Generate(ctx, g, ai.WithPrompt("..."))
@@ -1777,9 +1836,9 @@ tenantUsageHook := ai.MiddlewareFunc(func(ctx context.Context) (*ai.Hooks, error
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 **Few, focused.** Most "built-ins" are provided by middleware plugins, not as standalone tool registrations.
 
@@ -1791,12 +1850,12 @@ tenantUsageHook := ai.MiddlewareFunc(func(ctx context.Context) (*ai.Hooks, error
 
 That's the complete "built-in tools" catalog. There are no built-in web-search, bash-exec, fetch, glob, grep, or monitor tools shipped first-party. The `mcp` plugin lets you pull in *external* MCP tools (Playwright, GitHub, etc.), and the model providers expose code-execution as a *provider feature* (e.g. `googlegenai/code_execution.go`), not as a Genkit tool you register.
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 - **Filesystem** (`plugins/middleware/filesystem.go`) is genuinely well-engineered: bounded reads (256 KB max chunk, 10 MB max file), `os.Root` sandboxing (symlink-safe, `..`-safe), `read_file` returns line numbers like Claude Code's Read, and an internal `fileStateCache` returns a stub when the file is unchanged since last read (`filesystem.go:51-53`). The edit tool checks mtime/size before overwriting.
 - **Skills** is thin — just lazy-fetches the body.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 The smallest possible tool definition (`go/genkit/genkit.go:590-592`):
 
@@ -1822,22 +1881,22 @@ weather := genkit.DefineTool(g, "getWeather", "...",
 
 JSON-schema dispatch: the LLM's tool-call JSON args are unmarshaled into `In`; if unmarshal fails, the tool returns the error to the LLM (via the next tool-loop iteration). For custom validation, you'd add it inside the tool body.
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 - **Input**: Go generic `In any`; schema inferred unless you override with `ai.WithInputSchema(map[string]any{...})` (`go/ai/tools.go:317-347`).
 - **Output**: Go generic `Out any`; schema inferred for multipart tools (`originalOutputSchema` is tracked separately, `tools.go:447-450`).
 - **Validation**: standard Go `json.Unmarshal` into `In` — if it fails, error propagates back to the LLM. There's no explicit reject-on-bad-args mechanism beyond the JSON decode error.
 - **Strict schemas**: `WithStrictSchema(true)` (`option.go:993`) tells supporting providers (e.g. OpenAI) to enforce strict tool schemas.
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 **Not directly.** Tool functions return `(Out, error)` after fully executing. There is no `yield`-style API for emitting partial results to the model mid-execution. (You could use `MultipartToolResponse` to return multiple parts at the end, but not during.) For long-running operations, use a `BackgroundModel` pattern, or have your tool return an `Operation` ID the model polls.
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 **Yes — first-class.** Plugin at `go/plugins/mcp/` (entire directory dedicated to MCP). The client is `GenkitMCPClient` (`mcp/client.go:82-107`):
 
@@ -1862,11 +1921,11 @@ host := mcp.NewMCPHost(g, mcp.MCPHostOptions{
 
 Implementation is built on `github.com/mark3labs/mcp-go` (`mcp/client.go:25-27`), the leading Go MCP client library.
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 **Yes — first-class.** `mcp.NewMCPServer(g, mcp.MCPServerOptions{Name: "my-server"})` exposes all Genkit-registered tools, prompts, and resources to MCP clients (`mcp/server.go:39-57`). One Go process can simultaneously be an MCP server (exposing its tools) and an MCP client (consuming others).
 
-### 12.3 Transports
+### 14.3 Transports
 
 - **Stdio** (`StdioConfig{Command, Env, Args}`) — spawns a subprocess.
 - **SSE** (`SSEConfig{BaseURL, Headers, HTTPClient}`).
@@ -1874,11 +1933,11 @@ Implementation is built on `github.com/mark3labs/mcp-go` (`mcp/client.go:25-27`)
 
 All three from `mcp/client.go:31-72`. No in-process transport.
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 **Not provided.** You cannot turn a local Go function into an MCP tool without spawning a subprocess. The MCP plugin is for cross-process / cross-language interop.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 - **Auth**: credentials pass via `Headers` map for SSE/StreamableHTTP, or as environment variables for stdio.
 - **Reconnection**: `client.connect` (`mcp/client.go:110-...`) supports re-establishing; the host (`mcp/host.go`) tracks `*GenkitMCPClient` per server name.
@@ -1887,9 +1946,9 @@ All three from `mcp/client.go:31-72`. No in-process transport.
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 | Provider | Plugin | Notes |
 |----------|--------|-------|
@@ -1902,7 +1961,7 @@ All three from `mcp/client.go:31-72`. No in-process transport.
 
 No LiteLLM/AnyLLM aggregator plugin; each provider has its own plugin (no proxy layer). Adding a provider = ~500 LOC of plugin code.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 **Per-call via `ai.WithModelName("name")` or `ai.WithModel(modelRef)`** (`go/ai/option.go:233-244`). No registry/gateway; you write the dispatch logic in your code:
 
@@ -1914,7 +1973,7 @@ if task == "deep-analysis" {
 resp, _ := genkit.Generate(ctx, g, ai.WithModelName(model), ai.WithPrompt(...))
 ```
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 **Yes — `Fallback` middleware** (`plugins/middleware/fallback.go:59-70`):
 
@@ -1934,47 +1993,47 @@ Triggers fallback on `UNAVAILABLE`, `DEADLINE_EXCEEDED`, `RESOURCE_EXHAUSTED`, `
 
 There's also a separate `Retry` middleware (`plugins/middleware/retry.go:71-87`) with exponential backoff + jitter. The pattern is `Retry { Fallback { model } }` — outer-to-inner composition.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 **Not provided.** Once a `Generate(...)` call starts, the model is fixed (Fallback switches *between* model API calls, not within one streamed response). For mid-conversation switching, you make a new `Generate` call with a different model.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 **Trivial**: since sub-agents are tools that internally call `Generate`, each can specify a different `WithModelName(...)`. Supervisor on `gemini-2.5-pro`, persona workers on `gemini-2.5-flash` — yes, fully supported.
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 **Not provided.** Genkit Go ships no React/Vue/Svelte components. The JS side has `genkit-react` (`packages/genkit-react/`) with a `useChat()` hook, but **there's no Go-side equivalent** and no recommendation for binding to a Go backend specifically.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
-**Not provided.** You parse the SSE stream into your own state. The wire format (Q6.4) gives you `toolRequest` and `toolResponse` parts with `ref` linkage — you write the React state machine yourself.
+**Not provided.** You parse the SSE stream into your own state. The wire format (Q8.4) gives you `toolRequest` and `toolResponse` parts with `ref` linkage — you write the React state machine yourself.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 **Not provided.** No first-party support.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
-The recommended pattern in the Go samples is: serve `genkit.Handler(flow)` from your `http.ServeMux`; let any frontend (React, htmx, vanilla JS) connect via `fetch + ReadableStream` or `EventSource` and parse the SSE frames described in Q6.4.
+The recommended pattern in the Go samples is: serve `genkit.Handler(flow)` from your `http.ServeMux`; let any frontend (React, htmx, vanilla JS) connect via `fetch + ReadableStream` or `EventSource` and parse the SSE frames described in Q8.4.
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 **Not provided as a memory primitive.** Genkit does not ship a "memory" abstraction (semantic memory, episodic memory, working memory) like Mastra's `Memory` or LangGraph's checkpointer-with-store.
 
 The closest pieces:
 - **Sessions** (`x/session`) for state, but not vector-recall.
-- **RAG via retrievers** (15.2) for semantic search at query time — but you'd encode the "memory" yourself as documents.
+- **RAG via retrievers** (17.2) for semantic search at query time — but you'd encode the "memory" yourself as documents.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 **Strong, first-party.** Retrievers are an action type (`ai.Retriever`, `go/ai/retriever.go`). Built-in retriever plugins:
 
@@ -2002,21 +2061,21 @@ resp, err := genkit.Generate(ctx, g,
 
 `Document` is a parts-based type (`go/ai/document.go`); providers translate it to grounding/context blocks in their request format.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 **Not provided automatically.** Retrievers accept a free-form `Options` field (`RetrieverRequest.Options`) that you'd use to encode tenant filters (e.g. `Pinecone.namespace`, `Postgres WHERE tenant_id = $1`). Each plugin's `Retrieve(ctx, req)` implements its own filter pass-through. There is no Mastra-style automatic namespacing.
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 **Not provided as a first-party primitive.** No PII redaction, prompt-injection detection, or hallucination detection ships in `go/`. You'd BYO via:
 - `WrapGenerate` hook to scrub PII from user messages or model output.
 - `WrapTool` hook to reject tools called with suspicious args.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 **Yes, two real primitives:**
 
@@ -2028,19 +2087,19 @@ resp, err := genkit.Generate(ctx, g,
 
 2. **`Filesystem` middleware** with `os.Root` sandbox: paths cannot escape via `..`, absolute paths, or symlinks (`plugins/middleware/filesystem.go:280` comment). Strict size caps (256 KB chunks, 10 MB files).
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 **Not provided.** No E2B, Daytona, Modal, or code-interpreter plugin. The `googlegenai/code_execution.go` provides Gemini's *built-in* code execution as a model feature, not a Genkit-level sandbox.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 **Default-allow** for tools (everything you register is callable). `ToolApproval` flips this to default-deny + explicit allowlist or approval. There's no global toggle; you opt-in per-call.
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 **Yes — built-in concept**, via the `Evaluator` and `Example` types (`go/ai/evaluator.go:38-94`):
 
@@ -2063,7 +2122,7 @@ type EvaluatorRequest struct {
 
 Datasets are managed via the Genkit CLI (`genkit-tools/cli/src/commands/eval-*`). Built-in evaluators (`plugins/evaluators/evaluators.go`): `EvaluatorDeepEqual`, `EvaluatorRegex`, `EvaluatorJsonata`. No first-party LLM-as-judge evaluator in Go (the JS side has them).
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 **BYO.** Define your own `Evaluator` whose `Evaluate` function calls `genkit.Generate` with a judge prompt and returns a `Score`. The `Score` type supports numeric, string, or categorical scoring (`go/ai/evaluator.go:120`).
 
@@ -2081,19 +2140,19 @@ judge := ai.DefineEvaluator(g.Registry, "myJudge",
 )
 ```
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 **Not shipped first-party**; the recommended pattern is `genkit eval:run` (JS CLI) in CI, reading a JSON dataset file, running an action, and asserting on scores. You wire the CI yourself.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 **Yes — Genkit Dev UI** (browser; runs the JS CLI talking to your Go process's reflection server). You can replay individual actions, inspect their input/output, and compare traces. Trace replay across a full session is not first-party.
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 **Genkit Dev UI** is the local sandbox. From the README and CLI (`genkit-tools/cli/src/commands/start.ts`):
 
@@ -2109,15 +2168,15 @@ The Dev UI provides:
 - Prompt playground (`.prompt` file iteration with live preview).
 - Dataset / eval runner.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 In Dev UI (above). Also queryable via the reflection API (`/api/traces`) — see `genkit-tools/reflectionApi.yaml`.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 **Not provided.** The Dev UI has no concept of tenant. You'd manually pass tenant headers in the action-runner form.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 - **`.prompt` files**: loaded at `genkit.Init` only; changes require a restart unless you implement a watcher and call `LoadPromptDir` again.
 - **Go code**: standard Go workflow (`air`, `wgo`, or manual restart). Genkit has no specific hot-reload integration.

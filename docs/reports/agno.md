@@ -1,16 +1,17 @@
-# Agno Python — Benchmark Study
+# Agno Python — Benchmark Analysis
 
 > **Repo**: https://github.com/agno-agi/agno
-> **Commit studied**: `bb7ddb05ba5163209dc426b2809a673d97755476`
+> **Commit analysed**: `bb7ddb05ba5163209dc426b2809a673d97755476`
 > **Branch**: `main`
 > **Framework path**: `frameworks/agno`
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
-Studied at version `agno==2.6.7` (`libs/agno/pyproject.toml:3`). All file paths in this document are relative to `frameworks/agno/` unless otherwise noted.
+Analysed at version `agno==2.6.7` (`libs/agno/pyproject.toml:3`). All file paths in this document are relative to `frameworks/agno/` unless otherwise noted.
 
 ## TL;DR
 
 - **Agno is an opinionated, batteries-included Python framework + runtime ("AgentOS").** The agent loop is a 4,900-line synchronous/async function pair (`_run`, `_run_stream`, `_arun`, `_arun_stream`) in `libs/agno/agno/agent/_run.py`. AgentOS is a FastAPI app produced by `AgentOS.get_app()` that mounts >50 endpoints with SSE streaming, JWT auth, RBAC scopes, scheduler, traces, evals, knowledge, memory and an MCP server endpoint. Everything runs in your Python process — no subprocess, no vendor cloud is required.
+- **Ecosystem**: **Python** (3.7+, with pydantic v2 + sqlalchemy v2 for the `os` server extra).
 - **Open source under Apache 2.0** (`libs/agno/LICENSE`), maintained by **Agno AGI** (the company at `https://agno.com`). There is a managed control plane UI at `https://os.agno.com` you point at your self-hosted runtime; you keep your data and your container. No mandatory SaaS, no key-handoff.
 - **Strong production posture out-of-box**: typed JWT scopes (`agent-os:my-os:agents:my-agent:read`), per-resource access checks (`require_resource_access`), JWT user_id scoping, AsyncBaseDb / BaseDb abstractions for Postgres/MySQL/SQLite/Redis/Mongo/Dynamo/Firestore/SurrealDB/Singlestore/GCS-JSON, cron-driven `ScheduleExecutor` + `SchedulePoller`, FastAPI background tasks for hooks, resumable SSE for background runs, OpenTelemetry tracing via `openinference-instrumentation-agno`.
 - **49 model providers** under `libs/agno/agno/models/` (Anthropic, OpenAI, Gemini, Bedrock, Azure, Cohere, Mistral, Ollama, vLLM, LiteLLM, Groq, etc.). First-class **typed `FallbackConfig`** with `on_error` / `on_rate_limit` / `on_context_overflow` lists (`libs/agno/agno/models/fallback.py:20-40`).
@@ -26,7 +27,63 @@ Studied at version `agno==2.6.7` (`libs/agno/pyproject.toml:3`). All file paths 
 
 ---
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
+
+### 0.1 What is this stack?
+
+A **library + runtime** (Agno) plus an optional **infrastructure CLI** (Agno Infra). The library defines `Agent`, `Team`, `Workflow`, `Skills`, tools, db adapters and the `AgentOS` FastAPI server. AgentOS is the production server you `uvicorn`-run; it hosts many agents/teams/workflows behind 50+ HTTP endpoints. From `README.md:18-21`: "Agno is an SDK for building agent platforms. Build agents using any agent framework. Run them as production services with tracing, scheduling, and RBAC. Manage using a single control plane."
+
+### 0.2 Ecosystem
+
+**Python** (3.7+, `libs/agno/pyproject.toml:6`). Single-language project; no .NET / Go / TS sibling. The server extra adds FastAPI / uvicorn / SQLAlchemy / PyJWT / OpenTelemetry on top of the same Python runtime.
+
+### 0.3 Project status & governance
+
+- **License**: Apache 2.0 (`libs/agno/LICENSE`, classifier `License :: OSI Approved :: Apache Software License` in `libs/agno/pyproject.toml:25`).
+- **Owner**: Agno AGI (commercial company, founder/maintainer Ashpreet Bedi listed as project author in `libs/agno/pyproject.toml:9-10`).
+- **Commercial backing**: yes — the team operates a managed UI at `https://os.agno.com` that points at your self-hosted runtime. The framework itself is fully open source.
+
+### 0.4 Project maturity / age
+
+- Current version: **2.6.7** (`libs/agno/pyproject.toml:3`), classifier `Development Status :: 5 - Production/Stable`.
+- The 2.x line is current; the codebase has a `default_schema_version = "2.0.0"` baseline (`libs/agno/agno/db/base.py:34`) and an active migrations manager (`libs/agno/agno/db/migrations/`).
+- Repo has 2 published Python packages: `agno` (the library) and `agno-infra` (infra CLI, `libs/agno_infra/`).
+
+### 0.5 Adoption & community signal
+
+Captured via the public README / repo on 2026-05-16 (commit `bb7ddb0`):
+- GitHub stars/forks: not captured in this study (no WebFetch was used). The repo is active — `git log --oneline -10` would confirm cadence, but the codebase carries hundreds of recent files and recent commits across many subsystems (skills, agent OS, tracing).
+- The repo ships ~200+ cookbook examples across 20+ topic folders (`cookbook/00_quickstart` → `cookbook/99_docs`).
+- CI is present: `.github/workflows/`, mypy enforcement (`mypy==1.18.2`), ruff format/check (`ruff==0.14.3`), pytest test suite (`libs/agno/tests/`).
+
+### 0.6 Ecosystem fit
+
+- **Primary language**: Python 3.7+ (`libs/agno/pyproject.toml:6`).
+- **Packages**: `agno` (core), `agno-infra` (CLI for AWS/Docker/local infra). PyPI; install via `pip install agno`.
+- **Dependencies**: pydantic, httpx[http2], typer, rich, gitpython, docstring-parser, pyyaml, packaging (`libs/agno/pyproject.toml:29-43`). Optional extras: `os` (fastapi, uvicorn, sqlalchemy, PyJWT, opentelemetry, openinference, croniter, pytz), `scheduler`, `opentelemetry`, `weave`, `openlit`, `whatsapp-crypto`.
+- **Used as**: library + self-hosted server.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- Official docs are at `https://docs.agno.com` (not fetched in this study). The README mentions `https://docs.agno.com/llms-full.txt` for AI-coding-agent indexing.
+- The repo itself ships extensive cookbooks under `cookbook/` (organized by topic, with `README.md` + `TEST_LOG.md` per cookbook). The `CLAUDE.md` at repo root instructs Claude Code to test cookbooks.
+- Non-engineers (Product/Data) can author **`SKILL.md` files** — markdown with YAML frontmatter — to extend agents without writing Python. Tool authoring still requires Python (`@tool` decorator).
+
+### 0.8 Documentation entry points
+
+- Official docs landing page: https://docs.agno.com
+- Quickstart: https://docs.agno.com/first-agent
+- API reference: https://docs.agno.com (auto-generated from code)
+- Hosting / deployment / production guide: https://docs.agno.com/runtime/deploy
+- Examples / cookbook: `cookbook/` in this repo, https://docs.agno.com/tutorials
+- Changelog: https://github.com/agno-agi/agno/releases
+- GitHub Releases: https://github.com/agno-agi/agno/releases
+- GitHub Issues: https://github.com/agno-agi/agno/issues
+- Discord / community: linked from https://agno.com (newsletter "The Agno Loop")
+
+---
+
+## 1. High Level Architecture
 
 ### Deployment diagram
 
@@ -65,37 +122,7 @@ flowchart TB
     Tools --> MCP
 ```
 
-### 0.1 What is this stack?
-
-A **library + runtime** (Agno) plus an optional **infrastructure CLI** (Agno Infra). The library defines `Agent`, `Team`, `Workflow`, `Skills`, tools, db adapters and the `AgentOS` FastAPI server. AgentOS is the production server you `uvicorn`-run; it hosts many agents/teams/workflows behind 50+ HTTP endpoints. From `README.md:18-21`: "Agno is an SDK for building agent platforms. Build agents using any agent framework. Run them as production services with tracing, scheduling, and RBAC. Manage using a single control plane."
-
-### 0.2 Project status & governance
-
-- **License**: Apache 2.0 (`libs/agno/LICENSE`, classifier `License :: OSI Approved :: Apache Software License` in `libs/agno/pyproject.toml:25`).
-- **Owner**: Agno AGI (commercial company, founder/maintainer Ashpreet Bedi listed as project author in `libs/agno/pyproject.toml:9-10`).
-- **Commercial backing**: yes — the team operates a managed UI at `https://os.agno.com` that points at your self-hosted runtime. The framework itself is fully open source.
-
-### 0.3 Project maturity / age
-
-- Current version: **2.6.7** (`libs/agno/pyproject.toml:3`), classifier `Development Status :: 5 - Production/Stable`.
-- The 2.x line is current; the codebase has a `default_schema_version = "2.0.0"` baseline (`libs/agno/agno/db/base.py:34`) and an active migrations manager (`libs/agno/agno/db/migrations/`).
-- Repo has 2 published Python packages: `agno` (the library) and `agno-infra` (infra CLI, `libs/agno_infra/`).
-
-### 0.4 Adoption & community signal
-
-Captured via the public README / repo on 2026-05-16 (commit `bb7ddb0`):
-- GitHub stars/forks: not captured in this study (no WebFetch was used). The repo is active — `git log --oneline -10` would confirm cadence, but the codebase carries hundreds of recent files and recent commits across many subsystems (skills, agent OS, tracing).
-- The repo ships ~200+ cookbook examples across 20+ topic folders (`cookbook/00_quickstart` → `cookbook/99_docs`).
-- CI is present: `.github/workflows/`, mypy enforcement (`mypy==1.18.2`), ruff format/check (`ruff==0.14.3`), pytest test suite (`libs/agno/tests/`).
-
-### 0.5 Ecosystem fit
-
-- **Primary language**: Python 3.7+ (`libs/agno/pyproject.toml:6`).
-- **Packages**: `agno` (core), `agno-infra` (CLI for AWS/Docker/local infra). PyPI; install via `pip install agno`.
-- **Dependencies**: pydantic, httpx[http2], typer, rich, gitpython, docstring-parser, pyyaml, packaging (`libs/agno/pyproject.toml:29-43`). Optional extras: `os` (fastapi, uvicorn, sqlalchemy, PyJWT, opentelemetry, openinference, croniter, pytz), `scheduler`, `opentelemetry`, `weave`, `openlit`, `whatsapp-crypto`.
-- **Used as**: library + self-hosted server.
-
-### 0.6 Where does the agent loop *actually* execute?
+### 1.1 Where does the agent loop *actually* execute?
 
 **In your Python process.** `Agent.run(...)` dispatches to `agno.agent._run.run_dispatch(...)` (`libs/agno/agno/agent/agent.py:1362`), which calls `_run(agent, ...)` (`libs/agno/agno/agent/_run.py:324-712`). The loop is a single Python function that:
 
@@ -114,60 +141,44 @@ Captured via the public README / repo on 2026-05-16 (commit `bb7ddb0`):
 
 There is no subprocess, no vendor cloud unless you opt in.
 
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - Python 3.7+ (the floor is high — note pydantic v2, sqlalchemy v2 are pulled in for `os` extra).
 - For the server: `agno[os]` adds fastapi[standard], uvicorn, sqlalchemy, PyJWT, opentelemetry-sdk, openinference-instrumentation-agno, croniter, pytz (`libs/agno/pyproject.toml:69`).
 - Optional database driver of your choice (psycopg2 / asyncpg for Postgres, aiosqlite for async SQLite, redis-py, motor, pymongo, etc.).
 - Optional MCP client (`mcp` package, dev-deps in `libs/agno/pyproject.toml:63`).
+- LLM provider API: at least one of the 49 model adapters (Anthropic, OpenAI, Gemini, Bedrock, Azure, …) — keys passed via env or per-Model construction.
+- Optional vendor: the hosted control-plane UI at `https://os.agno.com` is optional; it is just a remote viewer pointed at your self-hosted runtime.
 
-### 0.8 Recommended deployment topology
+### 1.3 Recommended deployment topology
 
-From `cookbook/00_quickstart/run.py:88` and `libs/agno/agno/os/app.py:1466-1533`: the canonical pattern is `agent_os.serve(app="run:app", reload=True)` which calls `uvicorn.run(...)`. The docs implicitly recommend **one process serves many concurrent sessions and many agents**. Auth, RBAC, scheduling and tracing are all handled inside this single process.
+From `cookbook/00_quickstart/run.py:88` and `libs/agno/agno/os/app.py:1466-1533`: the canonical pattern is `agent_os.serve(app="run:app", reload=True)` which calls `uvicorn.run(...)`. The docs implicitly recommend **one process serves many concurrent sessions and many agents** (one-process-many-tenants). Auth, RBAC, scheduling and tracing are all handled inside this single process. Horizontal scaling is by pointing multiple stateless uvicorn workers at the same `BaseDb`/`AsyncBaseDb`-backed DB (see Q4.3).
 
-### 0.9 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 - Cold start: Python interpreter import + FastAPI app + AgentOS init (`_initialize_sync_databases`, `_initialize_async_databases` via `db_lifespan`, `libs/agno/agno/os/app.py:99-108`). With Postgres-backed `BaseDb`, this includes SQLAlchemy engine creation and (optionally) table creation/migration via `MigrationManager`.
 - RAM baseline: pydantic v2 + 100+ tool modules + 49 model adapters. Not measured here; the `pyproject.toml` dependencies indicate a moderate footprint (httpx[http2], rich, pydantic, sqlalchemy).
 - Not provided — exact RAM/disk numbers BYO.
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 
 - **LLM-provider lock-in**: 🟢 minimal — 49 providers under `libs/agno/agno/models/`, abstract `Model` base in `agno.models.base`.
 - **Hosting-platform lock-in**: 🟢 none — it's just a Python process running uvicorn.
 - **Eval-platform lock-in**: 🟢 none — `BaseEval` and `Scorer`-style classes are in-repo; OTel tracing is provider-neutral.
 
-### 0.11 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 **Heavy.** `libs/agno/agno/` is ~50 subpackages: agent (10k+ LOC across 17 files), team (similar), workflow, tools (130+ files), models (49 providers), db (10 adapters), knowledge, memory, learning, eval, guardrails, hooks, skills, registry, scheduler, tracing, culture, compression, context, integrations, os (the FastAPI server, 7k LOC), reasoning, run, session, vectordb (multiple adapters). The `Agent` constructor has 80+ parameters (`libs/agno/agno/agent/agent.py:376-494`). This is firmly in the "platform" category, not "thin SDK".
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 
-No top-level `CHANGELOG.md` in the repo at this commit. Release history lives on GitHub Releases (not fetched here). The `Development Status :: 5 - Production/Stable` classifier and 2.6.7 version suggest a stable 2.x line.
-
-### 0.13 Documentation depth & cross-team accessibility
-
-- Official docs are at `https://docs.agno.com` (not fetched in this study). The README mentions `https://docs.agno.com/llms-full.txt` for AI-coding-agent indexing.
-- The repo itself ships extensive cookbooks under `cookbook/` (organized by topic, with `README.md` + `TEST_LOG.md` per cookbook). The `CLAUDE.md` at repo root instructs Claude Code to test cookbooks.
-- Non-engineers (Product/Data) can author **`SKILL.md` files** — markdown with YAML frontmatter — to extend agents without writing Python. Tool authoring still requires Python (`@tool` decorator).
-
-### 0.14 Documentation entry points
-
-- Official docs landing page: https://docs.agno.com
-- Quickstart: https://docs.agno.com/first-agent
-- API reference: https://docs.agno.com (auto-generated from code)
-- Hosting / deployment / production guide: https://docs.agno.com/runtime/deploy
-- Examples / cookbook: `cookbook/` in this repo, https://docs.agno.com/tutorials
-- Changelog: https://github.com/agno-agi/agno/releases
-- GitHub Releases: https://github.com/agno-agi/agno/releases
-- GitHub Issues: https://github.com/agno-agi/agno/issues
-- Discord / community: linked from https://agno.com (newsletter "The Agno Loop")
+No top-level `CHANGELOG.md` in the repo at this commit. Release history lives on GitHub Releases (not fetched here). The `Development Status :: 5 - Production/Stable` classifier and 2.6.7 version suggest a stable 2.x line. The `default_schema_version = "2.0.0"` in `libs/agno/agno/db/base.py:34` plus the active `libs/agno/agno/db/migrations/` package signal that schema breakage has been seen and is being managed.
 
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 Signature in `libs/agno/agno/agent/agent.py:1336-1361`:
 
@@ -204,7 +215,7 @@ Async sibling: `arun(...)` with the same signature, returning `Coroutine[..., Ru
 
 Dispatch goes through `agno.agent._run.run_dispatch` → `_run` (non-stream) or `_run_stream` (stream).
 
-### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 The "iteration" in Agno is encapsulated inside `call_model_with_fallback` → the underlying `Model.response(...)`, which itself runs the LLM-tool-LLM cycle internally for each provider. The harness sees one logical "turn" per `_run` invocation: prepare messages → call model with tool list → model emits assistant message (potentially with tool calls) → tool dispatch happens inside `Model.run_function_calls()` → model is re-invoked with tool results → repeat until the model emits a terminal assistant message or until `tool_call_limit` is exceeded. The harness then runs post-hooks and persists.
 
@@ -227,19 +238,19 @@ So the explicit per-loop steps in `_run` (`_run.py:382-712`) are:
 15. Create session summary
 16. Cleanup and store
 
-### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 Agno ships a **built-in tool-calling loop inside each `Model` adapter**. Tool dispatch is `_handle_pre_hook` → entrypoint → `_handle_post_hook` per `FunctionCall.execute()` (`libs/agno/agno/tools/function.py:1019-1080`). Reasoning mode adds an explicit ReAct-style thought-action-observation step (`agent.reasoning=True`, `reasoning_max_steps=10`, `libs/agno/agno/agent/agent.py:191-195`) which is implemented via `agno.reasoning.step` and the `handle_reasoning` helper (`_run.py:502`).
 
-### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 `determine_tools_for_model(agent, model=..., processed_tools=..., run_response=..., session=..., run_context=...)` (`_run.py:443-450`) resolves the final tool list. The model adapter (e.g. `agno.models.anthropic.claude`) then drives the tool-call cycle. When a tool call is parsed from the LLM response, `FunctionCall.execute()` builds entrypoint args (injecting `agent`, `team`, `run_context`, `fc`, media), runs the tool_hooks chain, and writes the result back into the message list as a `ToolExecution`.
 
-### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 Agno uses **"run"** rather than "turn". One `run()` call = one turn = one LLM invocation cycle that may include N tool calls. `RunOutput.run_id` (UUID, `_run.py:1255`) is the turn-level identifier. Sessions contain a list of `RunOutput`s on `AgentSession.runs` (`libs/agno/agno/session/agent.py:37`).
 
-### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 Two surfaces:
 
@@ -248,7 +259,11 @@ Two surfaces:
 
 Events are produced via helpers in `agno.utils.events` (`create_run_started_event`, `create_tool_call_completed_event`, `create_pre_hook_started_event`, etc.) and passed through `handle_event(...)` which honours `agent.events_to_skip` and `agent.store_events`.
 
-### 1.7 Message layers
+---
+
+## 3. Message & Event Taxonomy
+
+### 3.1 Message layers
 
 Three layers:
 
@@ -258,7 +273,7 @@ Three layers:
 
 There is no separate "wire vs UI" distinction the way Mastra has `MastraDBMessage` vs `ChunkType`; Agno conflates persistence and prompt-construction into one `Message` shape.
 
-### 1.8 Concrete message types
+### 3.2 Concrete message types
 
 | Type | File | Purpose |
 |------|------|---------|
@@ -269,11 +284,11 @@ There is no separate "wire vs UI" distinction the way Mastra has `MastraDBMessag
 | `RunContext` | `libs/agno/agno/run/base.py:16-40` | The "live" object — `run_id`, `session_id`, `user_id`, `dependencies`, `session_state`, `metadata`, `messages`, `tools`, `knowledge_filters`, `output_schema` |
 | `ToolExecution` | `libs/agno/agno/models/response.py` | Tool call record with id/name/args/result, `is_paused`, `requires_confirmation` |
 
-### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 Two separate taxonomies. `RunOutput.messages` is the persisted prompt history; `RunOutputEvent` is the live event stream. The stream is **not** automatically materialized into `messages` — the harness builds `RunOutput.messages` separately as it processes the model response.
 
-### 1.10 Event categories
+### 3.4 Event categories
 
 `agno.run.agent.RunEvent` (39 enum members, `run/agent.py:143-194`):
 
@@ -293,14 +308,14 @@ Two separate taxonomies. `RunOutput.messages` is the persisted prompt history; `
 
 `TeamRunEvent` mirrors this for `Team`, adding member-delegation events.
 
-### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 - `libs/agno/agno/run/agent.py` — `RunInput`, `RunEvent`, `RunOutputEvent` (union of 32 event dataclasses), `RunOutput`
 - `libs/agno/agno/run/base.py` — `RunContext`, `BaseRunOutputEvent`, `RunStatus`
 - `libs/agno/agno/run/team.py` — `TeamRunEvent` + `TeamRunOutput`
 - `libs/agno/agno/models/message.py` — `Message`
 
-### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Sample frames from the SSE wire format. The server-side helper is `format_sse_event(event)` (called in `agno.os.routers.agents.router:117`); each event is `event.to_json(indent=None)` with `event: <name>\ndata: <json>\n\n`.
 
@@ -336,9 +351,9 @@ data: {"event": "RunCompleted", "run_id": "...", "content": "Final answer", "met
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 Agno ships **`AgentOS`** (`libs/agno/agno/os/app.py:192`), a FastAPI host that wires up to N agents/teams/workflows behind shared routers. One process can host any number of agents and concurrent sessions:
 
@@ -355,17 +370,17 @@ app = agent_os.get_app()
 agent_os.serve(app="run:app", reload=True)
 ```
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 Each `run()`/`arun()` call creates its own `RunContext` (`_run.py:1323-1339`) and reads/writes its own `AgentSession` from the DB. The `Agent` object is **shared** across calls (you should not create agents in loops — see `CLAUDE.md`: "Never create agents in loops — reuse them for performance"). State that varies per call lives in `RunContext` (dependencies, session_state, metadata, knowledge_filters, output_schema, messages, tools).
 
 Concurrent invocations of the *same* `Agent` instance are safe in async; the `Agent` itself is mostly immutable post-construction. The session is read/written by id under the hood through `BaseDb.upsert_session` and `BaseDb.get_session` (`libs/agno/agno/db/base.py:159-200`).
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 Stateless workers can share a session pool by pointing at the same database (`db=PostgresDb(db_url=...)` or `db=AsyncPostgresDb(...)`). The session is keyed by `session_id` (UUID by default). There is no leader election. The scheduler uses **DB-backed leader election** via `agno_schedules` rows and `SchedulePoller` claiming locks (`libs/agno/agno/scheduler/poller.py`).
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 🟢 First-party.
 
@@ -374,7 +389,7 @@ Stateless workers can share a session pool by pointing at the same database (`db
 - **FastAPI BackgroundTasks**: hooks decorated with `@hook(run_in_background=True)` (`libs/agno/agno/hooks/decorator.py:79`) are scheduled as FastAPI background tasks; globally set via `_run_hooks_in_background` on the agent (set by AgentOS).
 - **Memory / learning / cultural-knowledge creation**: spawned in threads (sync) / asyncio tasks (async) inside `_run` via `_managers.start_memory_future` etc.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 There is no first-party in-process queue (no Celery integration). The scheduler is **DB-polling**. For long-running runs you have:
 - `background=True` for fire-and-forget with later `/resume`.
@@ -383,9 +398,9 @@ There is no first-party in-process queue (no Celery integration). The scheduler 
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 `AgentSession` dataclass (`libs/agno/agno/session/agent.py:15-44`):
 
@@ -408,7 +423,7 @@ class AgentSession:
 
 Sibling types: `TeamSession` (`session/team.py`) and `WorkflowSession` (`session/workflow.py`).
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 - `runs`: list of every `RunOutput` (with `messages`, `tools`, `metrics`, `content`, `events` if `store_events=True`, …).
 - `session_data`: catch-all dict (session_name, session_state, attached images/videos/audio).
@@ -418,11 +433,11 @@ Sibling types: `TeamSession` (`session/team.py`) and `WorkflowSession` (`session
 
 Storage is **per-run, not per-message**: each `RunOutput` is upserted into `AgentSession.runs` by `session.upsert_run(run)` (`session/agent.py:90-107`), and the whole session is upserted via `db.upsert_session(session)` at the end of `_run`.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 Single conversation per session (linear list of `RunOutput`s). No first-class branching/forking (LangGraph-style). You can fork by reading a session, copying the runs you want, and writing under a new session_id.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 Adapters under `libs/agno/agno/db/`:
 
@@ -444,7 +459,7 @@ Adapters under `libs/agno/agno/db/`:
 
 All inherit `BaseDb` or `AsyncBaseDb` (`db/base.py:30`). Tables auto-provisioned (`agno_sessions`, `agno_memories`, `agno_metrics`, `agno_traces`, `agno_spans`, `agno_evals`, `agno_knowledge`, `agno_schedules`, `agno_schedule_runs`, `agno_approvals`, `agno_components`, `agno_component_configs`, `agno_component_links`, `agno_learnings`, `agno_culture`, `agno_schema_versions`).
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 **Per turn (end of `_run`)**, not per-token. The path in `_run.py:614-617`:
 
@@ -459,36 +474,36 @@ cleanup_and_store(
 
 **Pause / paused tools**: when an agent run hits a `requires_confirmation` tool, `handle_agent_run_paused` (`_run.py:193-200`) sets `run_response.status = RunStatus.paused` and the same `cleanup_and_store` writes the paused state. The client can later `continue_run(...)` with the user verdict.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 🟡 **Limited.** There is no per-tool-call checkpointing during a normal (non-paused) run. The only durable interrupt point is `RunStatus.paused` for HITL approvals. If the process crashes mid-tool-call on a non-paused run, the run is lost — only previous successful runs in the session persist.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 UUID4 by default (`_run.py:1255` for `run_id`, `agent_id = id or str(uuid4())`). You can pass your own `session_id` to `agent.run(session_id="my-tenant:my-conv-42", ...)`. No tenant-prefix convention enforced.
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 🟢 Yes — implement `BaseDb` or `AsyncBaseDb` (`db/base.py:30`, `db/base.py:???` for async). Abstract methods include `get_session`, `upsert_session`, `get_sessions`, `delete_session`, `rename_session`, plus memory/eval/trace/knowledge/component/schedule/approval CRUD. About 50 abstract methods per adapter — heavy contract, but well-typed.
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 `MigrationManager` (`libs/agno/agno/db/migrations/manager.py`) tracks `default_schema_version = "2.0.0"` (`db/base.py:34`) and applies version-bumped migrations on startup when called. Auto-provisioning is opt-in: `AgentOS(auto_provision_dbs=True)`.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 - **Export**: `AgentSession.to_dict()` + `db.get_session(session_id)` returns a fully-serializable dict.
 - **Replay**: not a first-party concept. You can read a session's `runs` list and walk it manually. There's no `replay_session(...)` helper.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-Yes — see Q15. `UserMemory` is stored per `user_id` in the `agno_memories` table (`libs/agno/agno/db/schemas/memory.py:9-22`), independent of `session_id`. The `MemoryManager` extracts memories from each run and the agent recalls them via `add_memories_to_context=True`.
+Yes — see Q17. `UserMemory` is stored per `user_id` in the `agno_memories` table (`libs/agno/agno/db/schemas/memory.py:9-22`), independent of `session_id`. The `MemoryManager` extracts memories from each run and the agent recalls them via `add_memories_to_context=True`.
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context ⭐
+## 6. Multi-tenancy & Arbitrary Context ⭐
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 The fields beyond `messages` you can pass to `Agent.run(...)` (`agent.py:1336-1361`):
 
@@ -518,7 +533,7 @@ debug_mode: Optional[bool]
 
 The carrier for arbitrary call-time context is **`dependencies: Dict[str, Any]`** and **`metadata: Dict[str, Any]`**. Both end up on `RunContext` (`run/base.py:24-26`).
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 `RunContext` is built once (`_run.py:1323`) and threaded through the entire run. When a tool is executed, `FunctionCall._build_entrypoint_args` (`tools/function.py:890-939`) injects `run_context` if the entrypoint has a `run_context: RunContext` parameter:
 
@@ -539,7 +554,7 @@ def my_tool(run_context: RunContext, query: str) -> str:
 
 `session_state` is mutable through `run_context.session_state` (and the tool can write back; the harness picks up the mutation, see `tools/function.py:1075-1080`).
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 A tool can be defined three ways:
 
@@ -560,7 +575,7 @@ def topic_search(run_context: RunContext, query: str, top_k: int = 10) -> list[d
 
 Return type: anything JSON-serializable (str / dict / list / BaseModel). Exceptions raise `AgentRunException` which propagates as a tool error to the model.
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 🟢 **Supported via `tool_hooks` middleware.** `tool_hooks` is a list of callables wrapping every tool call as middleware. Signature: `hook(function_name: str, next_func: callable, args: dict) -> Any`. The hook can mutate `args` before calling `next_func(**args)`.
 
@@ -587,7 +602,7 @@ The hook has `run_context` injected automatically by `_build_hook_args` (`tools/
 
 There is **no per-tool typed "spec T" / `inputSchema` override** the way some stacks (Mastra, Vercel AI SDK) ship — you just write a hook.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 🟢 Supported via **callable tool factories**. `agent.tools` can be `Callable[..., List]` (`agent.py:166`). The factory receives `agent`, `run_context`, `session_state` by name (`utils/callables.py:79-89`) and returns the final tool list:
 
@@ -604,23 +619,23 @@ agent = Agent(..., tools=tools_for_run, cache_callables=False)
 
 The same callable-factory pattern works for `knowledge`, `members` (Team), and instructions.
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 🟡 **Metadata only.** `AgentSession` has `user_id`, `agent_id`, `team_id`, `workflow_id` as first-class fields, but **no `tenant_id` column**. You can stuff `tenant_id` into `session.metadata` or into `dependencies` per request. JWT scopes in AgentOS authentication recognize `agent-os:<os-id>:<resource-type>:<resource-id>:<scope>` (`libs/agno/agno/os/scopes.py`), so tenant separation at the *HTTP layer* is via `user_id` and resource-id scoping rather than a `tenant_id` field.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 The auth principal (JWT `sub`) is propagated to `user_id` on `RunContext` (`agno.os.routers.agents.router:587-593`). Tools that need to act under user permissions read `run_context.user_id`. For RemoteAgent calls, the JWT is forwarded via `auth_token` kwarg (`router.py:101-103`).
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 - **Skills**: per-Agent instance, no tenant scoping at the loader level. You can wrap `Skills` in a callable factory in `agent.tools` (Skills are also Functions internally).
 - **Sub-agents (Team members)**: `members` can be a callable factory (`team.team.py:432`) — per-request resolved.
 - **Tools**: callable factory as above.
 
-No "register tool as global / tenant / user" first-class scoping at registration time. Q9 (Resource Manager) covers what *is* present.
+No "register tool as global / tenant / user" first-class scoping at registration time. Q11 (Resource Manager) covers what *is* present.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 🔴 **Not provided — BYO.** The closest first-party knob is `tool_call_limit` per agent (`agent.py:169`) — a count cap, not a budget cap. `Metrics.cost` is computed in USD (`libs/agno/agno/metrics.py:48`), but it's reported after the fact; nothing enforces "stop when tenant X exceeds $5/month". You'd need a pre-hook + DB-backed tenant counter.
 
@@ -687,9 +702,9 @@ result = agent.run(
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 | Name | Fires when | Can do what |
 |------|-----------|-------------|
@@ -706,37 +721,37 @@ There is no separate `onSessionStart` lifecycle — `pre_hooks` fires once per `
 
 Files: `libs/agno/agno/agent/_hooks.py`, `libs/agno/agno/tools/function.py:834-1017`, `libs/agno/agno/hooks/decorator.py`, `libs/agno/agno/utils/hooks.py`, `libs/agno/agno/guardrails/`.
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 - `pre_hooks` and `post_hooks`: run **sequentially** in registration order (`_hooks.py:97-148`).
 - Guardrails (instances of `BaseGuardrail`) run first within each phase, so PII masking / prompt-injection checks block before non-blocking hooks fire.
 - Hooks decorated with `@hook(run_in_background=True)` skip the synchronous chain and are scheduled as FastAPI background tasks via `background_tasks.add_task(...)` when available.
 - `tool_hooks` form a **nested chain** built right-to-left via `functools.reduce` (`tools/function.py:1014-1017`). The leftmost hook wraps the next, which wraps the next, with the entrypoint at the innermost level. Each hook explicitly calls `next_func(**args)` to advance.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 - **Inject system messages at session start**: ✅ via `pre_hooks` that mutates `run_input` (or by mutating `run_context.session_state` / `dependencies` which then surface through `instructions` placeholders like `"Tenant: {tenant_id}"`). Also via `additional_input` on Agent construction.
 - **Expand user input** (slash commands, timestamp, attachments): ✅ via `pre_hook` reading & rewriting `run_input.input_content`.
 - **Mutate the messages list before each LLM call**: 🟡 indirect. Pre-hooks fire **before message building**, not per-LLM-call. `run_context.messages` is the live message list and `tool_hooks` can read it via `run_context.messages`, but per-LLM-call mutation is not a first-class hook. The way to inject prompt-cache breakpoints or redaction is to mutate `agent.instructions` or `additional_input` ahead of time, or to subclass the model adapter.
-- **Mutate tool input before dispatch**: ✅ via `tool_hooks` (Q4.4).
+- **Mutate tool input before dispatch**: ✅ via `tool_hooks` (Q6.4).
 - **Mutate tool result before it returns to the LLM**: ✅ via `tool_hooks` middleware (capture the return value of `next_func(**args)`, transform, return transformed). Also `compression_manager` can compress tool results when `compress_tool_results=True` (`agent.py:354-356`).
 - **Emit additional tool calls in response to a tool result**: 🔴 **Not directly.** There is no `additional_messages`-from-PostToolUse pattern. The closest is `default_tools` that the model can re-invoke, or having a `tool_hook` issue a follow-up call to another tool from inside the hook (not through the LLM).
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 🟡 **Partial.** `CompressionManager` (`libs/agno/agno/compression/manager.py`) compresses *tool results* when `compress_tool_results=True` (`agent.py:354-356`). Triggered as a step in the run loop with `CompressionStarted`/`CompressionCompleted` events. There is **no automatic message-history compaction / summarization** when context fills up — you set `num_history_messages`, `num_history_runs`, `max_tool_calls_from_history` (`agent.py:135-140`) for hard caps; alternatively `enable_session_summaries=True` produces a summary you can inject via `add_session_summary_to_context=True`.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 🔴 **Not built in.** The framework reports `cache_read_tokens` / `cache_write_tokens` in `Metrics` (`metrics.py:45-46`) and surfaces them in `ModelRequestCompletedEvent`, but does not automatically place Anthropic/OpenAI cache breakpoints. If you want a stable prefix, you arrange it yourself via `instructions` and `add_history_to_context`.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 - `compress_tool_results` + `CompressionManager` for in-place compression of tool outputs.
 - `store_tool_messages: bool` to drop tool messages from `RunOutput`.
 - `skills` mechanism is itself a "progressive disclosure" pattern: only skill metadata is in the system prompt; full body is fetched on demand via `get_skill_instructions` / `get_skill_reference` / `get_skill_script` tools (`libs/agno/agno/skills/agent_skills.py:148-183`).
 
-### 5.7 Architectural diagram
+### 7.7 Architectural diagram
 
 ```
 run() entry
@@ -813,9 +828,9 @@ agent.run(
 
 ---
 
-## 6. Agent API Exposition
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
 🟢 Yes — `AgentOS` produces a FastAPI app (`libs/agno/agno/os/app.py:682` is `get_app(self) -> FastAPI`). 50+ endpoints across many domains:
 
@@ -837,13 +852,13 @@ agent.run(
 | `/health` | Health check |
 | `/mcp/...` | MCP server endpoint (FastMCP-based, see `os/mcp.py`) |
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 - **SSE** (`text/event-stream`) is the default for `POST /agents/{agent_id}/runs?stream=true` (`agno.os.routers.agents.router:782-797`).
 - **WebSocket** is wired up via `get_websocket_router` (`libs/agno/agno/os/router.py:???`).
 - Resumable SSE for `background=true` runs.
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
 ```http
 POST /agents/{agent_id}/runs
@@ -860,7 +875,7 @@ files: <optional file uploads>
 
 Request shape from `agno.os.routers.agents.router:525-624`. Form-data because of multi-part file upload support (images, PDFs, audio, video). The path `agent_id` plus optional `version` query parameter selects which agent to run.
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
 SSE wire format (one frame per event):
 
@@ -880,13 +895,13 @@ data: {"event":"RunCompleted","run_id":"...","content":"...","metrics":{"input_t
 
 Formatter: `agno.os.utils.format_sse_event` (`router.py:53`) — emits `event: <name>\ndata: <json>\n\n` where `<json> = event.to_json(indent=None)`.
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 🟢 Yes — JWT middleware (`libs/agno/agno/os/middleware/jwt.py`) validates the bearer token, fills `request.state.user_id`, `request.state.scopes`, `request.state.accessible_resource_ids`. Per-route `Depends(require_resource_access("agents", "run", "agent_id"))` enforces RBAC. Also fallback to `os_security_key` env var for shared-secret mode (`auth.py:62-115`).
 
 JWT scopes follow `agent-os:<os-id>:<resource-type>:<resource-id>:<scope>` plus an admin wildcard. Internal scheduler service uses a separate token (`INTERNAL_SERVICE_SCOPES`, `auth.py:17-27`).
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 `POST /agents/{agent_id}/runs/{run_id}/resume` for background runs (`router.py:1374-1463`). Reconnects to an in-flight `asyncio.Task` and replays buffered SSE events for the client that just reconnected, then continues live.
 
@@ -894,15 +909,15 @@ JWT scopes follow `agent-os:<os-id>:<resource-type>:<resource-id>:<scope>` plus 
 
 `GET /agents/{agent_id}/sessions/{session_id}/runs` (`router.py:1463-1478`) lists runs in a session.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 `POST /agents/{agent_id}/runs/{run_id}/cancel?session_id=...` (`router.py:824-906`). Calls `agent.acancel_run(run_id=run_id)` which sets a cancellation flag observed by `raise_if_cancelled` checkpoints inside `_run` (`_run.py:499`, `:505`, `:524`, `:588`).
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 🟡 Depends on the model adapter. The `ToolCallStartedEvent` carries the *complete* tool call at the moment it is parsed. Partial-JSON tool-arg streaming is an OpenAI / Anthropic provider-side feature; Agno surfaces the final `tool_args` on `ToolCallStarted` for downstream UI.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 🟢 First-class.
 
@@ -914,7 +929,7 @@ The HTTP `continue` endpoint accepts a `tools` JSON form field containing the to
 
 There is also an **admin approvals** track (`/approvals/...`) with separate persistence in `agno_approvals` table — approve/reject by approval id, not just at tool granularity (`libs/agno/agno/db/schemas/approval.py`).
 
-### 6.10 Tool-call state reconstruction ⭐
+### 8.10 Tool-call state reconstruction ⭐
 
 🟢 Explicit `tool_call_id` linkage. Every tool execution carries a `tool_call_id` (UUID string, populated by the model adapter from the provider's id). The flow on the wire:
 
@@ -925,7 +940,7 @@ The `ToolExecution` dataclass (`libs/agno/agno/models/response.py`) is the carri
 
 Tool-result messages in `RunOutput.messages` carry `role="tool"` and `tool_call_id="call_abc"`. The client can therefore link `tool_use` and `tool_result` deterministically.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 🟢 `/health` router (`libs/agno/agno/os/routers/health.py`). FastAPI/uvicorn handles SIGTERM with a graceful drain via the `lifespan` context manager — `db_lifespan` calls `_close_databases()` on shutdown (`os/app.py:99-108`), `http_client_lifespan` closes httpx pools (`os/app.py:89-96`), `scheduler_lifespan` stops the poller (`os/app.py:111-142`).
 
@@ -966,13 +981,13 @@ curl -X POST "https://os.acme.local/agents/audience-builder/runs/r-7/continue" \
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 **First-class primitive — `Team`** (`libs/agno/agno/team/team.py:73`). A `Team` is itself an agent-like object with a list of `members: List[Union[Agent, Team]]`. The team leader gets auto-generated delegation tools (`delegate_task_to_member`, `delegate_task_to_members`, `forward_task_to_member` depending on `mode`). Sub-agents are invoked through these delegation tools — agents-as-tools, but the harness handles the plumbing.
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 Inline Python objects:
 
@@ -984,11 +999,11 @@ team = Team(name="Investment Team", members=[bull, bear], mode="coordinate", mod
 
 Optional `role: Optional[str]` on each member describes what it does (`agent.py:330`, `team.py:93`). `members` can also be a callable factory `Callable[..., List]` for per-request resolution.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 🔴 Not supported. Members must be pre-registered (or resolved by a callable factory that the host controls). The parent LLM cannot author a new sub-agent on the fly with a custom system prompt.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 `Team` modes (`libs/agno/agno/team/mode.py`):
 
@@ -1001,13 +1016,13 @@ Optional `role: Optional[str]` on each member describes what it does (`agent.py:
 
 Each member run produces a `RunOutput` (or `TeamRunOutput`) that gets re-injected as a tool result into the leader's loop. Member runs are linked to the parent via `parent_run_id`.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 🟡 **Sequential by default in sync.** `delegate_task_to_members` (`team/_default_tools.py:813-938`) iterates over members and runs each `member_agent.run(...)` one at a time.
 
 🟢 **Parallel in async**. `adelegate_task_to_members` (`team/_default_tools.py:941+`) does use `asyncio.gather` to fan-out. So if you want concurrent sub-agents you must `await team.arun(...)` and the underlying model must support async.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 Each member call passes a *copy* of `run_context.session_state` (`team/_default_tools.py:831`):
 
@@ -1017,7 +1032,7 @@ member_session_state_copy = copy(run_context.session_state)
 
 so member mutations to `session_state` don't bleed back unless the leader explicitly merges. Member knowledge filters fall back to the leader's `run_context.knowledge_filters` if the member has no knowledge of its own (`_default_tools.py:845-847`). All members share the same `session_id`.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 Yes — `TeamRunEvent` (sibling enum in `libs/agno/agno/run/team.py`) emits `MemberDelegationStarted`, `MemberDelegationCompleted`, and propagates member `RunStarted`/`ToolCallStarted`/`RunCompleted` upward with `parent_run_id` set on each frame.
 
@@ -1080,13 +1095,13 @@ for member_run in (result.member_runs or []):
 
 ---
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 🟢 First-class. `Skills` is a top-level Agent parameter (`agent.py:160-161`) and ships its own module `libs/agno/agno/skills/` with `Skill`, `Skills`, `SkillLoader`, `LocalSkills`, validator and errors.
 
-### 8.2 File format
+### 10.2 File format
 
 `SKILL.md` with YAML frontmatter (`libs/agno/agno/skills/loaders/local.py:127-158`). Frontmatter fields supported (`local.py:93-100`):
 
@@ -1112,7 +1127,7 @@ Validation: `validate_skill_directory` (`libs/agno/agno/skills/validator.py`) en
 - Required: `SKILL.md` exists, frontmatter parseable, `description` non-empty.
 - Optional: `scripts/` subfolder for executable scripts, `references/` subfolder for reference markdown.
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 `SkillLoader` ABC with two implementations:
 - `LocalSkills(path, validate=True)` (`skills/loaders/local.py:12-66`) — scans a single skill folder or a parent directory of skills.
@@ -1121,7 +1136,7 @@ Validation: `validate_skill_directory` (`libs/agno/agno/skills/validator.py`) en
 
 Only `LocalSkills` ships in v2.6.7 — no S3 / Git / OCI / vendor loader.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Hybrid**: skill *metadata* (name + description + scripts list + references list) is injected into the system prompt via `Skills.get_system_prompt_snippet()` (`agent_skills.py:88-146`). The agent sees an XML `<skills_system>` block listing available skills. Skill *body* is fetched on demand via auto-generated tools:
 
@@ -1133,7 +1148,7 @@ Only `LocalSkills` ships in v2.6.7 — no S3 / Git / OCI / vendor loader.
 
 `get_skill_script(execute=True)` actually **runs the script via `subprocess`** (`agent_skills.py:344-358`) — the tool will execute `python`/`bash`/etc. with the script as argv. There are path-traversal protections via `is_safe_path` (`skills/utils.py`).
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Lazy.** Body is not in the system prompt; only metadata is. The agent must explicitly call `get_skill_instructions(skill_name)` to load the body. From `agent_skills.py:117-125`:
 
@@ -1141,7 +1156,7 @@ Only `LocalSkills` ships in v2.6.7 — no S3 / Git / OCI / vendor loader.
 
 This is the Anthropic "Agent Skills" pattern.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 🟡 Per-Agent. The `Skills` object is constructed once at Agent construction. To vary the catalog per tenant at runtime, you have two options:
 
@@ -1150,9 +1165,9 @@ This is the Anthropic "Agent Skills" pattern.
 
 There is no built-in `Skills(filter=lambda run_context: ...)` runtime hook.
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
-🟡 Limited. A `SKILL.md` body can *describe* a workflow that the LLM follows, which may include "now call this script" or "now read this reference". It does **not** programmatically include other skills; there is no `imports: [other-skill]` directive in the frontmatter. Scripts and references bundled in the folder are first-class (see Q8.4).
+🟡 Limited. A `SKILL.md` body can *describe* a workflow that the LLM follows, which may include "now call this script" or "now read this reference". It does **not** programmatically include other skills; there is no `imports: [other-skill]` directive in the frontmatter. Scripts and references bundled in the folder are first-class (see Q10.4).
 
 ### ⭐ Light usage example
 
@@ -1216,9 +1231,9 @@ agent.print_response("Build an audience for our back-to-school deals launch.")
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 🟡 **Partial.** Agno has a `Registry` class (`libs/agno/agno/registry/registry.py:22-110`) but it's an **in-process catalog of non-serializable Python objects**, not a multi-tenant publishing/scoping platform. From the docstring: *"Registry is used to manage non serializable objects like tools, models, databases, vector databases, agents, and teams."*
 
@@ -1240,9 +1255,9 @@ class Registry:
 
 `Registry.get_agent(id)`, `get_team(id)`, `get_db(id)`, `get_function(name)` are lookup helpers.
 
-There **is** a separate **Components** subsystem (`libs/agno/agno/os/routers/components/`) which versions configs (drafts, current, history) at the DB level — see Q9.6. But it is for *component configs* (e.g. a versioned set of instructions for an agent), not for skills or external resources.
+There **is** a separate **Components** subsystem (`libs/agno/agno/os/routers/components/`) which versions configs (drafts, current, history) at the DB level — see Q11.6. But it is for *component configs* (e.g. a versioned set of instructions for an agent), not for skills or external resources.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source | Supported |
 |--------|-----------|
@@ -1255,36 +1270,36 @@ There **is** a separate **Components** subsystem (`libs/agno/agno/os/routers/com
 | Vendor cloud / managed registry | 🔴 None |
 | HTTP fetch | 🔴 Not provided — BYO |
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 🔴 Multi-source composition with priority/override is not modelled at the Skills layer. `Skills(loaders=[a, b, c])` will load all three; on name collision the later loader wins with a warning (`agent_skills.py:42-44`). No "S3 source overrides Git source for tenant X" pattern.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 - **Components** (`os/routers/components/components.py`): drafts + current + version history per component. A component has `agno_components` (the definition) + `agno_component_configs` (versioned configs).
 - **Skills**: only via the `metadata.version` field in the SKILL.md frontmatter — purely descriptive; the framework does not pin or rollback by version.
 - **Schedules**: have version history of runs in `agno_schedule_runs`.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 🔴 Skills are not scoped at registry layer. Components have JWT-based access control via `Depends(require_resource_access(...))` on the router but no per-tenant "publish for tenant X" workflow visible in the current Components router.
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 🟡 Only for **Components** (a *component* is e.g. a versioned agent config). The router exposes `POST /components` to create, `PATCH /components/{id}` to update, `POST /components/{id}/configs` to add a new config version, `POST /components/{id}/configs/{version}/set-current` to promote — a draft → current model. There is no separate staging environment baked in.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 - Component configs have versions and a "current" pointer. Old versions are not retired automatically but can be deleted via the `DELETE /components/{id}/configs/{version}` endpoint.
 - RBAC: scope-based via JWT (`require_resource_access`). No "approval workflow" / RBAC role like "publisher" / "reviewer" is built in.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 - `Registry` itself has only `get_*` helpers; mutation is done by constructing the Registry with the desired lists. No `register_tool(tool)` runtime API.
 - The `/registry` HTTP router (`os/routers/registry/registry.py`) lists registered resources for the AgentOS instance — read-only.
 - `/components` router is mutation-capable.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 - Skills are loaded **once at Agent construction** by `Skills._load_skills()` (`agent_skills.py:32-50`). To pick up filesystem changes, call `skills.reload()` (`agent_skills.py:52-59`).
 - Callable factories for tools/knowledge can opt into per-key caching via `cache_callables=True` + a `callable_tools_cache_key` function (`agent.py:371-374`).
@@ -1339,9 +1354,9 @@ print([s.name for s in agent.skills.get_all_skills()])
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 - **Per assistant message**: `Message.metrics: MessageMetrics` (token + cost on each LLM-produced message).
 - **Per run**: `RunOutput.metrics: RunMetrics` (`run/agent.py:636`).
@@ -1349,7 +1364,7 @@ print([s.name for s in agent.skills.get_all_skills()])
 - **Per model**: `RunMetrics.details: Dict[ModelType, Dict[str, ModelMetrics]]` — accumulated by (provider, model_id) within a run.
 - **Streamed as events**: `ModelRequestCompletedEvent.input_tokens / output_tokens / total_tokens / cache_read_tokens / cache_write_tokens / reasoning_tokens / time_to_first_token` (`run/agent.py:467-479`).
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 | Level | Object | Where |
 |-------|--------|-------|
@@ -1359,15 +1374,15 @@ print([s.name for s in agent.skills.get_all_skills()])
 | Per tenant | 🔴 Not first-party | BYO: aggregate by user_id / session.metadata["tenant_id"] |
 | Per (provider, model) | `ModelMetrics` | On `RunMetrics.details` |
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 🟢 Yes. `BaseMetrics.cost: Optional[float]` in USD (`libs/agno/agno/metrics.py:48`). The cost is computed by the model adapter using `agno.models.defaults.py` (pricing tables per model) and accumulated via `ModelMetrics.accumulate(other)` (`metrics.py:68-93`). `RunMetrics.cost` and `SessionMetrics.cost` follow.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 🟡 BYO. `RunOutput.metrics.cost` is available; you tag the session with `tenant_id` in metadata and aggregate via your own DB query against `agno_sessions` / `agno_metrics`.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 🟢 OpenTelemetry via `openinference-instrumentation-agno` (`libs/agno/agno/tracing/setup.py:13-80`). `setup_tracing(db=db)` wires:
 1. `TracerProvider`
@@ -1376,7 +1391,7 @@ print([s.name for s in agent.skills.get_all_skills()])
 
 Additionally, you can configure standard OTLP exporters (Datadog, Honeycomb, Jaeger) by adding your own `SpanProcessor` to the same `TracerProvider`. The `weave` and `openlit` extras (`pyproject.toml:79-81`) wire alternative backends.
 
-### 10.6 Audit logging (who / when / what)
+### 12.6 Audit logging (who / when / what)
 
 🟡 Indirect. There is no first-class "audit log" stream distinct from tracing. The combination of:
 - JWT auth filling `request.state.user_id`,
@@ -1387,7 +1402,7 @@ Additionally, you can configure standard OTLP exporters (Datadog, Honeycomb, Jae
 
 gives an audit-friendly footprint, but the framework doesn't ship a dedicated "audit hook event stream" abstraction.
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 `RunMetrics` dataclass at `libs/agno/agno/metrics.py:279`:
 
@@ -1445,9 +1460,9 @@ agent.run("Hi", metadata={"tenant_id": "acme"})
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 **Over 130 tool modules** under `libs/agno/agno/tools/`. A non-exhaustive catalog:
 
@@ -1466,7 +1481,7 @@ agent.run("Hi", metadata={"tenant_id": "acme"})
 | Eval / safety | guardrails, pii, prompt_injection |
 | MCP | `agno/tools/mcp/mcp.py` — stdio / sse / streamable-http transports |
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 Variable. Most are thin wrappers around the underlying SDK (e.g. `YFinanceTools(all=True)` wraps `yfinance`). Some encode patterns:
 
@@ -1474,7 +1489,7 @@ Variable. Most are thin wrappers around the underlying SDK (e.g. `YFinanceTools(
 - **Code execution tools** (`e2b`, `daytona`, `docker`) sandbox executions.
 - **Knowledge search tools** know about filters/citations.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 The minimal `@tool` definition (`libs/agno/agno/tools/decorator.py:87`):
 
@@ -1489,35 +1504,35 @@ def get_weather(city: str) -> str:
 
 The decorator inspects the function signature + type hints + docstring (via `docstring-parser`) and builds a `Function` Pydantic model with a JSON Schema in `Function.parameters`. The decorator also accepts `name`, `description`, `strict`, `instructions`, `add_instructions`, `show_result`, `stop_after_tool_call`, `requires_confirmation`, `requires_user_input`, `user_input_fields`, `external_execution`, `external_execution_silent`, `pre_hook`, `post_hook`, `tool_hooks`, `cache_results`, `cache_dir`, `cache_ttl` (`tools/decorator.py:60-79`).
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 🟢 Pydantic-driven. Type hints map to JSON Schema via Pydantic. On invalid args, the model adapter raises `AgentRunException` which is captured into a `ToolCallErrorEvent` and the result is fed back to the LLM as an error message (so the LLM can retry).
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 🟡 Generator-tool support exists. A tool can be a generator function returning chunks; `FunctionCall.execute` detects `isgenerator(result)` and stores the generator (`tools/function.py:1057-1064`). The model adapter must consume it. There's no first-class "tool yields progress events to the LLM mid-execution" pattern — chunks are aggregated for the LLM.
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 🟢 First-class. `agno.tools.mcp.MCPTools(...)` (`libs/agno/agno/tools/mcp/mcp.py:29`) is a `Toolkit` that connects to an external MCP server and exposes its tools to the agent.
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 🟢 The AgentOS exposes an MCP server via FastMCP at `/mcp`. `agno.os.mcp.get_mcp_server(os, ...)` (`libs/agno/agno/os/mcp.py:64`) attaches dozens of MCP tools (`run_agent`, `run_team`, `run_workflow`, knowledge search, session list, memory CRUD, …). Wire transport is **Streamable HTTP** (`os/mcp.py:882`).
 
-### 12.3 Transports
+### 14.3 Transports
 
 `MCPTools(transport="stdio" | "sse" | "streamable-http", ...)` (`tools/mcp/mcp.py:46`). Default is `streamable-http` when `url` is provided, `stdio` otherwise. SSE is marked deprecated in favor of streamable-http.
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 🟡 Indirect — you don't define a Python function and surface it as an MCP tool with no subprocess. The way to add an in-process tool is via `@tool` and pass it directly to the agent. To expose your tools *as an MCP server*, you use `AgentOS`' `/mcp` endpoint which fronts your registered agents/teams/tools.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 - `MCPTools(headers={"Authorization": "Bearer ..."})` for HTTP transports.
 - `header_provider: Callable[..., dict]` for dynamic headers (e.g. per-request JWT).
@@ -1525,13 +1540,13 @@ The decorator inspects the function signature + type hints + docstring (via `doc
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 🟢 49 native providers under `libs/agno/agno/models/`: Anthropic, OpenAI (Chat + Responses), Gemini (Google), Bedrock, Vertex (Google), Azure, Cohere, Mistral, Ollama, Groq, Fireworks, DeepSeek, DeepInfra, Cerebras, Hugging Face, LiteLLM, llama_cpp, LM Studio, NVIDIA, Perplexity, Together, xAI, OpenRouter, Sambanova, Portkey, Requesty, Cometapi, AIMLAPI, IBM, InternLM, LangDB, Meta, Moonshot, Nebius, Neosantara, Nexus, Ollama, OpenRouter, Perplexity, vLLM (via OpenAI-compatible), etc.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 🟡 You assign the model **per agent**, not per task. Patterns:
 - Different sub-agents with different models: `Agent(model=Sonnet, ...)` for the leader, `Agent(model=Haiku, ...)` for cheap workers, composed in a `Team`.
@@ -1542,7 +1557,7 @@ The decorator inspects the function signature + type hints + docstring (via `doc
 
 So you do get *some* per-task model swap via reasoning/parser/output overrides, just not a generic per-call swap.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 🟢 First-class. `FallbackConfig` (`libs/agno/agno/models/fallback.py:20-40`):
 
@@ -1557,31 +1572,31 @@ FallbackConfig(
 
 Three error categories, separate fallback lists, optional callback for instrumentation. `Agent(fallback_config=FallbackConfig(...))` or shortcut `Agent(fallback_models=[...])` (`agent.py:74-76`).
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 🔴 No first-class mid-stream switch. The fallback fires when the primary `Model.response(...)` raises a classified error; the entire request is retried against the fallback. Within a single successful LLM call, you cannot switch.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 🟢 Each `Team.members[i]` is itself an `Agent` with its own model. Supervisor Claude / worker Haiku is straightforward.
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 🔴 No first-party React/Vue/Svelte chat hook. The AgentOS exposes SSE; you implement your own client. Agno operates a hosted control-plane UI at https://os.agno.com that you can point at your local AgentOS, but the source for that UI is not in the repo.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 🔴 None in-repo. `ToolCallStartedEvent.tool` has `tool_name` and `tool_args` — your UI parses these.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 🔴 Not provided — BYO.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
 Connect to `POST /agents/{agent_id}/runs?stream=true` (form-encoded), parse SSE frames, build your own React state machine. The cookbook `cookbook/00_quickstart/run.py` shows AgentOS exposing the API; the user is expected to consume from the os.agno.com hosted dashboard or roll their own.
 
@@ -1589,27 +1604,27 @@ The package ships **interface adapters** for chat platforms (`libs/agno/agno/os/
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 🟢 `MemoryManager` (`libs/agno/agno/memory/`). `Agent(enable_agentic_memory=True)` lets the agent write/recall facts via tool calls. `Agent(update_memory_on_run=True)` causes the manager to auto-extract user facts from each run. Stored as `UserMemory` rows (`db/schemas/memory.py:9-44`) keyed by `user_id`, with `topics: List[str]`, `feedback`, `created_at`. Recalled via `add_memories_to_context=True`.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 🟢 First-class. `Knowledge` class (`libs/agno/agno/knowledge/knowledge.py`) with vector DB integrations (Chroma, Qdrant, Pinecone, Weaviate, Milvus, MongoDB Atlas, Lance, PgVector, Singlestore, Cassandra, ClickHouse). Embedders include OpenAI, Gemini, Cohere, Ollama, HuggingFace, Bedrock, Voyage, Mistral, JinaAI, AWS Titan. Readers: text, markdown, pdf, docx, csv, json, sitemap, website, S3, GCS, …. Filters (`knowledge_filters`, `enable_agentic_knowledge_filters`) let the agent choose filters at runtime.
 
 `Agent(knowledge=..., search_knowledge=True, add_search_knowledge_instructions=True)` adds an automatic `search_knowledge` tool. The agent can also write back via `update_knowledge=True`.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 🟡 `UserMemory.user_id` is the scoping key. To get per-*tenant* scoping you set `user_id` to a tenant-prefixed value (`user_id="acme:alice"`) or filter at query time using `metadata`.
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 🟢 First-class. `BaseGuardrail` (`libs/agno/agno/guardrails/base.py:8`) with `check(...)` / `acheck(...)` raising `InputCheckError` / `OutputCheckError`. Three built-in guardrails:
 
@@ -1619,7 +1634,7 @@ The package ships **interface adapters** for chat platforms (`libs/agno/agno/os/
 
 Passed as `pre_hooks=[PromptInjectionGuardrail()]` or `post_hooks=[PIIDetectionGuardrail()]`.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 - `@tool(requires_confirmation=True)` → HITL gate per tool.
 - `tool_hooks` can deny tools server-side.
@@ -1627,55 +1642,55 @@ Passed as `pre_hooks=[PromptInjectionGuardrail()]` or `post_hooks=[PIIDetectionG
 - Path-traversal protections in skill loaders (`is_safe_path` in `skills/utils.py`).
 - RBAC via JWT scopes at the HTTP layer.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 🟢 `E2B`, `Daytona`, `Docker` tools all run code in remote/isolated sandboxes (`tools/e2b.py`, `tools/daytona.py`, `tools/docker.py`).
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 **Default-allow** at tool registration (you ship the catalog), then deny via `tool_hooks` / guardrails / RBAC. JWT auth is **deny by default** when `os_security_key` or JWT is configured.
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 🟢 `AccuracyEval` (`libs/agno/agno/eval/accuracy.py`), `PerformanceEval`, `ReliabilityEval`, `AgentAsJudge` (`eval/agent_as_judge.py`). `BaseEval` is also a hook target, so it can run as `pre_hooks` / `post_hooks`.
 
 The eval system stores results in `agno_evals` table via `db.create_eval_run` / `db.update_eval_run` / `db.get_eval_runs`. Result types: `AccuracyEvaluation`, `PerformanceEvaluation`, etc.
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 🟢 `AccuracyEval` uses an LLM (default the agent's model) to score outputs 1–10 against `expected_output` with reasoning (`eval/accuracy.py:24-58`).
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 🟡 No first-party "pre-merge gate" CLI. You run evals via `eval.run()` / `eval.arun()` and assert on the returned score. Pytest integration is implicit: write a test that runs an eval and asserts `result.score >= 8`.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 🟡 Traces are persisted in `agno_traces`/`agno_spans` and viewable in https://os.agno.com. No CLI for stepping through traces locally.
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 🟢 The AgentOS *is* the local sandbox: `python run.py` starts a uvicorn server on port 7777 and you point the os.agno.com hosted UI at it. There is also the `ag` / `agno` CLI from `agno-infra` (`libs/agno_infra/`) for infra scaffolding (Docker, AWS, local templates).
 
 `Agent.print_response("...")` and `Agent.cli_app()` (`agent/_cli.py`) give a rich terminal-based REPL for quick experimentation without a server.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 Browse traces in the hosted UI, or query the `agno_traces` table directly.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 🔴 Not first-class. You'd run multiple AgentOS instances or pass different `user_id` / `dependencies` from the client.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 🟢 `agent_os.serve(reload=True)` enables uvicorn auto-reload on `.py` and `.yaml` changes (`os/app.py:1518-1521`).
 

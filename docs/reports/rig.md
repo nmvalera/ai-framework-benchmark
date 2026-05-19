@@ -1,14 +1,15 @@
-# Rig Rust — Benchmark Study
+# Rig Rust — Benchmark Analysis
 
 > **Repo**: https://github.com/0xPlaygrounds/rig
-> **Commit studied**: f77a5819ec2a71e98583480a68a341f816a75c8a
+> **Commit analysed**: f77a5819ec2a71e98583480a68a341f816a75c8a
 > **Branch**: main
 > **Framework path**: frameworks/rig
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
 - ⭐ **What is this stack architecturally?** Rig is a Rust **library** (in-process crate), not a service or runtime. The agent loop lives in the caller's Tokio runtime as plain async functions. There is no bundled server, no sidecar process, no vendor cloud — `rig-core` and friends are Cargo crates you pull in.
+- **Ecosystem** — **Rust** (workspace edition 2024).
 - **License/governance**: MIT license. Maintained by [0xPlaygrounds](https://github.com/0xPlaygrounds) ("Playgrounds") with community contributions; no enterprise tier, no managed cloud — Discord-only community support (https://discord.gg/playgrounds, README:17).
 - **Maturity**: pre-1.0 (current `rig` v0.37.0 — released 2026-05-13, CHANGELOG.md:9). README explicitly warns "Here be dragons! ... future updates will contain breaking changes" (README:31-34).
 - **Adoption**: package downloads listed on the README badges; used by St Jude, Coral Protocol, Neon, Dria, Nethermind, Listen, Ironclaw, ilert (README:67-78). Numerous companion crates (`rig-mongodb`, `rig-lancedb`, `rig-postgres`, `rig-qdrant`, `rig-sqlite`, `rig-surrealdb`, `rig-bedrock`, etc., 19 crates in workspace).
@@ -27,7 +28,65 @@
   - **Observability**: First-class `tracing` integration with full GenAI semconv fields, OTel-compatible via `tracing-opentelemetry` (examples/agent_with_tools_otel.rs).
 - **Production-readiness verdict**: As a **completion-and-tooling library** inside a service you write — solid, fast, well-traced. As a **multi-tenant skill-piloted agent platform** — significant glue required. You're shipping the HTTP layer, session store, tenant scoping, skill loader, and resource manager yourself.
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
+
+### 0.1 What is this stack?
+
+A **library**: Cargo crates that ship Rust traits and structs you embed in your own binary. No standalone server, no runtime, no CLI agent. The README (line 73) describes it as "a Rust library for building scalable, modular, and ergonomic LLM-powered applications".
+
+### 0.2 Ecosystem
+
+**Rust** (workspace edition 2024 — `Cargo.toml:47`). No secondary language; everything ships as Cargo crates under the `rig` umbrella.
+
+### 0.3 Project status & governance
+
+- **License**: MIT (`Cargo.toml:6`, LICENSE).
+- **Owner**: [0xPlaygrounds](https://github.com/0xPlaygrounds) ("Playgrounds"). Discord-only community (https://discord.gg/playgrounds).
+- **No commercial backing or paid support visible** — no enterprise tier, no managed cloud, no SLA.
+
+### 0.4 Project maturity / age
+
+- Pre-1.0 (`rig` v0.37.0 — released 2026-05-13, CHANGELOG.md:9).
+- README explicitly warns: "Here be dragons! As we plan to ship a torrent of features in the following months, future updates **will** contain **breaking changes**." (README:31-34).
+- Recent breaking change in 0.37 ("[breaking] make Chat append messages to caller history" — CHANGELOG.md:21).
+
+### 0.5 Adoption & community signal
+
+- README crates.io badges (line 12-14) display version and download counts.
+- Adopters listed: St Jude, Coral Protocol, VT Code, Con, Dria, Nethermind, Neon (`app.build` v2), Listen, Cairnify, Ryzome, deepwiki-rs, Cortex Memory, Ironclaw, ilert (README:67-78). Captured 2026-05-19.
+
+### 0.6 Ecosystem fit
+
+- Language: **Rust** (workspace edition 2024 — `Cargo.toml:47`).
+- Root facade crate: `rig` (`Cargo.toml:2`). Core crate: `rig-core`. 19 companion crates including:
+  - Vector stores: `rig-mongodb`, `rig-lancedb`, `rig-neo4j`, `rig-qdrant`, `rig-sqlite`, `rig-surrealdb`, `rig-milvus`, `rig-scylladb`, `rig-postgres`, `rig-s3vectors`, `rig-helixdb`, `rig-vectorize`.
+  - Providers: `rig-bedrock`, `rig-vertexai`, `rig-gemini-grpc`, `rig-fastembed`.
+  - Memory: `rig-memory` (sliding-window / token-budget policies).
+- Used as a **library** — embed in your binary. No CLI, no playground.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- Official docs: https://docs.rig.rs + https://docs.rs/rig/latest/rig/ (Rustdoc).
+- Rustdoc and prose are aimed at Rust engineers; non-engineers can read README and examples but cannot author content (no skills, no markdown configs, no playground).
+
+### 0.8 Documentation entry points ⭐
+
+- Docs landing page: https://docs.rig.rs
+- Quickstart / getting-started: https://docs.rig.rs/docs/getting-started
+- API reference: https://docs.rs/rig/latest/rig/
+- Hosting / deployment / production guide: not provided (library-only — host runs in your binary)
+- Examples / demos repo: https://github.com/0xPlaygrounds/rig/tree/main/examples
+- Changelog / release notes: https://github.com/0xPlaygrounds/rig/blob/main/CHANGELOG.md
+- GitHub Releases: https://github.com/0xPlaygrounds/rig/releases
+- GitHub issues tracker: https://github.com/0xPlaygrounds/rig/issues
+- Discord / community forum: https://discord.gg/playgrounds
+- Website: https://rig.rs
+- Blog/guides: https://docs.rig.rs/guides
+- crates.io: https://crates.io/crates/rig and https://crates.io/crates/rig-core
+
+---
+
+## 1. High Level Architecture
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -67,97 +126,48 @@
    └────────────┘  └─────────┘
 ```
 
-### 0.1 What is this stack?
-
-A **library**: Cargo crates that ship Rust traits and structs you embed in your own binary. No standalone server, no runtime, no CLI agent. The README (line 73) describes it as "a Rust library for building scalable, modular, and ergonomic LLM-powered applications".
-
-### 0.2 Project status & governance
-
-- **License**: MIT (`Cargo.toml:6`, LICENSE).
-- **Owner**: [0xPlaygrounds](https://github.com/0xPlaygrounds) ("Playgrounds"). Discord-only community (https://discord.gg/playgrounds).
-- **No commercial backing or paid support visible** — no enterprise tier, no managed cloud, no SLA.
-
-### 0.3 Project maturity / age
-
-- Pre-1.0 (`rig` v0.37.0 — released 2026-05-13, CHANGELOG.md:9).
-- README explicitly warns: "Here be dragons! As we plan to ship a torrent of features in the following months, future updates **will** contain **breaking changes**." (README:31-34).
-- Recent breaking change in 0.37 ("[breaking] make Chat append messages to caller history" — CHANGELOG.md:21).
-
-### 0.4 Adoption & community signal
-
-- README crates.io badges (line 12-14) display version and download counts.
-- Adopters listed: St Jude, Coral Protocol, VT Code, Con, Dria, Nethermind, Neon (`app.build` v2), Listen, Cairnify, Ryzome, deepwiki-rs, Cortex Memory, Ironclaw, ilert (README:67-78). Captured 2026-05-16.
-
-### 0.5 Ecosystem fit
-
-- Language: **Rust** (workspace edition 2024 — `Cargo.toml:47`).
-- Root facade crate: `rig` (`Cargo.toml:2`). Core crate: `rig-core`. 19 companion crates including:
-  - Vector stores: `rig-mongodb`, `rig-lancedb`, `rig-neo4j`, `rig-qdrant`, `rig-sqlite`, `rig-surrealdb`, `rig-milvus`, `rig-scylladb`, `rig-postgres`, `rig-s3vectors`, `rig-helixdb`, `rig-vectorize`.
-  - Providers: `rig-bedrock`, `rig-vertexai`, `rig-gemini-grpc`, `rig-fastembed`.
-  - Memory: `rig-memory` (sliding-window / token-budget policies).
-- Used as a **library** — embed in your binary. No CLI, no playground.
-
-### 0.6 Where does the agent loop *actually* execute?
+### 1.1 Where does the agent loop *actually* execute?
 
 In your own async runtime, in your own process. The loop is plain Rust async — see `crates/rig-core/src/agent/prompt_request/mod.rs:396-709` for the non-streaming loop and `crates/rig-core/src/agent/prompt_request/streaming.rs:465+` for the streaming loop. No subprocess, no IPC, no vendor cloud.
 
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - Rust 1.x with edition 2024 (workspace.package.edition = "2024", `Cargo.toml:47`).
 - Tokio runtime is the de-facto async runtime (examples use `#[tokio::main]`).
 - HTTP client: configurable, defaults to `reqwest` (`rig-core/src/http_client/`). Provider crates use the HTTP client trait.
 - WASM-compatible (`crates/rig-core/src/wasm_compat.rs`). `Cargo.toml:30` declares features like `WasmCompatSend`.
+- **No bundled subprocesses or CLIs**. No required infrastructure beyond an LLM provider account; persistence and vector storage are BYO (you depend on whatever DB you wire via the companion crates).
+- Required vendor service: at least one LLM provider HTTP API (OpenAI, Anthropic, Gemini, etc.) reachable from your host.
 
-### 0.8 Recommended deployment topology
+### 1.3 Recommended deployment topology
 
-Not opinionated. Rig is a library; the docs offer no production deployment guidance. You ship a Rust binary (typically axum + tokio) and embed Rig inside it. Container-per-tenant vs. one-process-many-tenants is your call.
+Not opinionated. Rig is a library; the docs offer no production deployment guidance. You ship a Rust binary (typically axum + tokio) and embed Rig inside it. Container-per-tenant vs. one-process-many-tenants is your call. Because state is held in `Arc`s inside the `Agent`, "one process serving many tenants" is the natural default.
 
-### 0.9 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 - Rust binary startup: typically <500 ms once compiled (no JIT, no Python interpreter).
 - No vendor binary downloaded; no Node sidecar.
 - Memory baseline: small — the `Agent` struct is a few `Arc`s plus a `tokio::sync::RwLock`-wrapped `ToolServerState` (`crates/rig-core/src/tool/server.rs:12-19`).
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 
 - **LLM-provider lock-in**: low — 26 native providers (Anthropic, Azure, ChatGPT, Cohere, DeepSeek, Galadriel, Gemini, Groq, Hugging Face, Hyperbolic, Llamafile, MiniMax, Mira, Mistral, Moonshot, Ollama, OpenAI, OpenRouter, Perplexity, Together, Voyage AI, xAI, Xiaomi MiMo, Z.ai), plus Bedrock and VertexAI as companion crates.
 - **Hosting-platform lock-in**: none.
 - **Eval-platform lock-in**: none (in-tree `evals.rs`).
 
-### 0.11 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 Medium-thick library: ships `Agent`, `AgentBuilder`, `Extractor`, `Pipeline`, multi-turn loop, streaming loop, 26 provider integrations, 10+ vector-store integrations, MCP client (`rmcp`), CLI chatbot helper (`crates/rig-core/src/integrations/cli_chatbot.rs`), telemetry helpers. No HTTP server, no dev UI, no plugin marketplace.
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 
-`CHANGELOG.md:9-30` shows v0.37.0 (2026-05-13) adding conversation memory + `rig-memory` companion crate (#1702), Bedrock Converse structured output (#1667), OpenRouter STT/TTS (#1757), Copilot model listing (#1700), and one breaking change to `Chat::chat` history semantics (#1733). Active maintenance — multiple PRs and dependabot bumps per release cycle.
-
-### 0.13 Documentation depth & cross-team contributor accessibility
-
-- Official docs: https://docs.rig.rs + https://docs.rs/rig/latest/rig/ (Rustdoc).
-- Rustdoc and prose are aimed at Rust engineers; non-engineers can read README and examples but cannot author content (no skills, no markdown configs, no playground).
-
-### 0.14 Documentation entry points
-
-- Docs: https://docs.rig.rs
-- Crate API reference: https://docs.rs/rig/latest/rig/
-- crates.io: https://crates.io/crates/rig and https://crates.io/crates/rig-core
-- GitHub: https://github.com/0xPlaygrounds/rig
-- Examples directory: https://github.com/0xPlaygrounds/rig/tree/main/examples
-- Changelog: https://github.com/0xPlaygrounds/rig/blob/main/CHANGELOG.md
-- GitHub Releases: https://github.com/0xPlaygrounds/rig/releases
-- Issues tracker: https://github.com/0xPlaygrounds/rig/issues
-- Discord: https://discord.gg/playgrounds
-- Website: https://rig.rs
-- Blog/guides: https://docs.rig.rs/guides
+`CHANGELOG.md:9-30` shows v0.37.0 (2026-05-13) adding conversation memory + `rig-memory` companion crate (#1702), Bedrock Converse structured output (#1667), OpenRouter STT/TTS (#1757), Copilot model listing (#1700), and one breaking change to `Chat::chat` history semantics (#1733). Active maintenance — multiple PRs and dependabot bumps per release cycle. GitHub Releases page: https://github.com/0xPlaygrounds/rig/releases.
 
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### Run loop
-
-#### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 Two parallel loops in `crates/rig-core/src/agent/prompt_request/`:
 
@@ -181,7 +191,7 @@ where `StreamingResult<R> = Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem
 
 `PromptRequest` is the typestate builder; awaiting it via `IntoFuture` (`mod.rs:237-261`) dispatches to `send()`.
 
-#### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 Single iteration of the non-streaming loop (`agent/prompt_request/mod.rs:396-709`):
 
@@ -205,28 +215,30 @@ Single iteration of the non-streaming loop (`agent/prompt_request/mod.rs:396-709
 
 After the final turn, `memory.append(&id, new_messages.clone()).await` is called if a memory backend + conversation_id are set (`mod.rs:546-553`).
 
-#### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 Rig ships a **multi-turn tool-call loop** that is effectively ReAct (think→act→observe by way of the LLM driving tool calls). There's no explicit "thought" channel separate from text, but a `ThinkTool` is provided as built-in (`crates/rig-core/src/tools/think.rs:31-63`) that lets the LLM record reasoning steps.
 
-#### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 Tools are registered in a `ToolSet` (`crates/rig-core/src/tool/mod.rs:288-426`) and exposed by a `ToolServer`/`ToolServerHandle` (`crates/rig-core/src/tool/server.rs:25-263`). The loop calls `tool_server_handle.call_tool(name, &args)` (`agent/prompt_request/mod.rs:645-652`) which performs lookup under a brief read lock and dispatches via the `ToolDyn` trait. Output is bound to `UserContent::ToolResult` and pushed back into history.
 
-#### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 A turn = "one LLM call + zero-to-many tool dispatches that follow". The loop increments `current_max_turns` once per iteration (`mod.rs:410`). Multi-turn terminates either when the LLM returns no tool calls or `max_turns + 1` is exceeded (`mod.rs:406-408`).
 
-#### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 - **Non-streaming**: no event stream — you get back `PromptResponse` after the entire loop finishes.
 - **Streaming**: `futures::Stream<Item = Result<MultiTurnStreamItem<R>, StreamingError>>` (`streaming.rs:28`). `MultiTurnStreamItem` yields one of `StreamAssistantItem(StreamedAssistantContent<R>)`, `StreamUserItem(StreamedUserContent)`, or `FinalResponse(FinalResponse)` (`streaming.rs:38-45`).
-- **Hooks**: `PromptHook` trait (`agent/prompt_request/hooks.rs:12-90`) — fires at 7 known points (see §5.1).
+- **Hooks**: `PromptHook` trait (`agent/prompt_request/hooks.rs:12-90`) — fires at 7 known points (see §7.1).
 - **Tracing**: spans emit GenAI semconv fields via `tracing` (`agent/prompt_request/mod.rs:352-368`).
 
-### Message & event taxonomy
+---
 
-#### 1.7 Message layers
+## 3. Message & Event Taxonomy
+
+### 3.1 Message layers
 
 Two layers:
 
@@ -235,7 +247,18 @@ Two layers:
 
 For streaming, a third level exists: `StreamedAssistantContent`, `StreamedUserContent`, `MultiTurnStreamItem<R>` (`streaming.rs:38-45`).
 
-#### 1.8 Concrete message types
+```text
+caller code        canonical Rig      provider-native
+─────────────  ─►  Message  ─────►   OpenAI/Anthropic/...  ─►  HTTP wire
+                   (rig::completion)  (providers/<n>/types)
+
+                   ◄─── streaming ────
+                   MultiTurnStreamItem<R>
+                   StreamedAssistantContent<R>
+                   StreamedUserContent
+```
+
+### 3.2 Concrete message types
 
 | Type | File:Line | Purpose |
 |------|-----------|---------|
@@ -262,24 +285,24 @@ For streaming, a third level exists: `StreamedAssistantContent`, `StreamedUserCo
 | `RawStreamingChoice<R>` | `streaming.rs:81-120` | Lower-level provider streaming chunk (Message / ToolCall / ToolCallDelta / Reasoning / FinalResponse / MessageId). |
 | `RawStreamingToolCall` | `streaming.rs:123-139` | Streaming tool call accumulator with id, internal_call_id, call_id, name, arguments. |
 
-#### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 In Rig they are **distinct layers**:
 
 - **Non-streaming**: messages only — you get back a `Vec<Message>` and a final `String`. No event stream.
 - **Streaming**: a single `Stream<MultiTurnStreamItem<R>>` interleaves assistant items, user items (tool results), and the terminal `FinalResponse`. Hook callbacks (`PromptHook`) are an orthogonal event channel that fires regardless of streaming mode.
 
-#### 1.10 Event categories
+### 3.4 Event categories
 
 - **Stream-event** (streaming only): `StreamedAssistantContent::{Text, ToolCall, ToolCallDelta, Reasoning, ReasoningDelta, Final}` and `StreamedUserContent::ToolResult`.
 - **Turn-event**: `FinalResponse` (streaming) signals end-of-loop with `response: String`, `aggregated_usage: Usage`, optional `history` (`streaming.rs:49-105`).
 - **Message-event**: pushed into `new_messages: Vec<Message>` (`agent/prompt_request/mod.rs:389, 510-514, 708`).
 - **Tool-event**: tracing span `info_span!("execute_tool", gen_ai.tool.* …)` (`mod.rs:573-588`), plus `on_tool_call` / `on_tool_result` hook callbacks.
 - **Session-lifecycle event**: minimal — `info_span!("invoke_agent", ...)` fires at the top of `send()` (`mod.rs:353-368`). No discrete "session_start" / "session_end" events in code.
-- **Hook event**: 7 `PromptHook` callbacks (see §5.1).
+- **Hook event**: 7 `PromptHook` callbacks (see §7.1).
 - **Sub-agent event**: agents-as-tools — sub-agent invocations look like normal tool events. There's no separate "sub_agent_started" event.
 
-#### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 - `crates/rig-core/src/completion/message.rs` — `Message`, `UserContent`, `AssistantContent`, `Reasoning`, etc.
 - `crates/rig-core/src/completion/request.rs` — `CompletionRequest`, `CompletionResponse`, `Usage`, `ToolDefinition`, `CompletionModel` trait.
@@ -288,7 +311,7 @@ In Rig they are **distinct layers**:
 - `crates/rig-core/src/streaming.rs` — `RawStreamingChoice`, `RawStreamingToolCall`, `StreamedAssistantContent`, `StreamedUserContent`.
 - `crates/rig-core/src/agent/prompt_request/hooks.rs` — `PromptHook`, `HookAction`, `ToolCallHookAction`.
 
-#### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Sample frames (Rust enum variants) one can match while iterating the streaming result:
 
@@ -324,13 +347,13 @@ Ok(MultiTurnStreamItem::FinalResponse(FinalResponse {
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **Not provided — BYO.** Rig is library-only; there is no built-in runtime hosting many sessions in one process. An `Agent` is `Clone` and cheap, so you typically `Arc<Agent>` it and serve N concurrent requests by spawning Tokio tasks in your axum handler. There's no scheduler, no worker pool, no lifecycle manager.
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 State on an `Agent` is largely immutable (model, preamble, static_context, hooks). The mutable surface is:
 
@@ -339,23 +362,23 @@ State on an `Agent` is largely immutable (model, preamble, static_context, hooks
 
 Per-call `PromptRequest` clones agent data into local fields (`agent/prompt_request/mod.rs:101-123`), so two concurrent prompts don't see each other's `new_messages`.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 **Not provided** by Rig itself. Multi-pod scaling is the responsibility of the caller's deployment (e.g. axum behind a load balancer); shared state goes through whatever `ConversationMemory` backend you ship.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 **Not provided — BYO.** No cron, no webhook trigger, no background agent. The Tokio runtime can `spawn` your own tasks but Rig offers no scheduling abstraction.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 **Not provided.** The harness assumes short-lived "call `agent.prompt(...)` and `await`" usage. No queue, no worker pool. Long-running runs can stream via `agent.stream_prompt(...)` to keep the client connected.
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 There is no `Session` type. The closest analog is a `(conversation_id, Vec<Message>)` pair managed by `ConversationMemory`:
 
@@ -373,21 +396,21 @@ pub trait ConversationMemory: WasmCompatSend + WasmCompatSync {
 
 There's no `tenant_id`, `user_id`, `cwd`, `parent_session_id`, `metadata`, etc. — only the `conversation_id` and the messages.
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 Only `Vec<Message>` per `conversation_id`. Token usage, scratchpad files, attachments are not persisted by the memory contract — you'd subclass.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 Linear conversation per `conversation_id`. No fork/branch model.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 - **In-tree**: `InMemoryConversationMemory` (`crates/rig-core/src/memory.rs` — `Arc<Mutex<HashMap<String, Vec<Message>>>>` implementation, `memory.rs:38-41`). Tests/single-process only.
 - **Companion crate**: `rig-memory` (`crates/rig-memory/`) ships *policies* (sliding window, token budget) that wrap an existing backend — not new backends.
 - **All other persistent stores (Postgres, SQLite, Mongo, Redis, S3)**: BYO — implement `ConversationMemory` yourself. Note: `rig-postgres`, `rig-sqlite`, `rig-mongodb`, etc. are **vector-store** crates, not memory-store crates.
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 Conversation memory is **appended at end-of-turn after a successful response** in both non-streaming (`agent/prompt_request/mod.rs:546-554`) and streaming (`streaming.rs:780-788`) loops:
 
@@ -400,37 +423,37 @@ if let Some((memory, id)) = memory_handle.as_ref()
 }
 ```
 
-If the loop errors mid-tool-call, `append` is **not** called (`agent/prompt_request/mod.rs:1196-1207` — `memory_unchanged_on_provider_error` test verifies this).
+If the loop errors mid-tool-call, `append` is **not** called (`agent/prompt_request/mod.rs:1196-1207` — `memory_unchanged_on_provider_error` test verifies this). The append is `.await`ed inline so it is effectively synchronous from the loop's perspective.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 **Not provided.** Persistence fires only at the end of a successful turn. If the process crashes mid-tool-call, the partial trajectory is lost — `ConversationMemory::append` for that turn never runs.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
-Free-form `&str` — caller-defined. Examples use strings like `"thread-1"`, `"user-123"`, `"default-thread"` (`memory.rs:99`, `agent/prompt_request/mod.rs:1117-1127`).
+Free-form `&str` — caller-defined. Examples use strings like `"thread-1"`, `"user-123"`, `"default-thread"` (`memory.rs:99`, `agent/prompt_request/mod.rs:1117-1127`). Nothing in core encodes tenant prefixes or hashing — that is the caller's convention.
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 Yes — implement `ConversationMemory` for your own backend. The trait sits behind `Arc<dyn ConversationMemory>` on `Agent::memory` (`agent/completion.rs:207`).
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 **Not provided — BYO.** Messages serialize as serde JSON, but Rig does not ship version markers or migrations.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 **Not provided as a first-class feature.** `PromptResponse.messages: Option<Vec<Message>>` (`mod.rs:278`) gives the new messages added during the turn. Replay = construct a `PromptRequest::with_history(...)` (`mod.rs:177-184`). Deterministic replay against a recorded provider response is not built-in; tests use a `MockCompletionModel` (`test_utils`) but there's no record/replay against real providers.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-**Not provided in core.** `rig-memory` companion crate ships history-shaping policies. Long-term semantic memory (across conversations) = pair `ConversationMemory` with a vector store via `dynamic_context` (`agent/builder.rs:163-171`). See §15.
+**Not provided in core.** `rig-memory` companion crate ships history-shaping policies. Long-term semantic memory (across conversations) = pair `ConversationMemory` with a vector store via `dynamic_context` (`agent/builder.rs:163-171`). See §17.
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context ⭐
+## 6. Multi-tenancy & Arbitrary Context ⭐
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 `PromptRequest<S, M, P>` (`agent/prompt_request/mod.rs:46-93`). User-controllable fields beyond `prompt: Message`:
 
@@ -462,10 +485,10 @@ Builder-style mutators: `.max_turns(20)`, `.with_history(history)`, `.conversati
 
 **No `tenant_id`, `user_id`, or other arbitrary context field**. You can only pass that data by:
 - Including it in the prompt or system preamble (LLM-visible).
-- Embedding it in per-tool closures at build time (LLM-invisible — see §4.4).
+- Embedding it in per-tool closures at build time (LLM-invisible — see §6.4).
 - Encoding it in `conversation_id` (e.g. `"tenant=acme;user=u-123;thread=42"`).
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 Rig's `Tool` trait is **stateless from the harness's perspective**:
 
@@ -485,7 +508,7 @@ pub trait Tool: Sized + WasmCompatSend + WasmCompatSync {
 
 There is **no context object passed to `call`**. The recommended pattern is: make your tool struct *own* the per-tenant state (DB connection scoped to the tenant, tenant id field, etc.), instantiate one tool per request, and `.tool(...)` it onto a per-request agent.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 Tool dispatch happens at `agent/prompt_request/mod.rs:645-652`:
 
@@ -501,7 +524,7 @@ let output = match tool_server_handle.call_tool(tool_name, &args).await {
 
 `call_tool` (`tool/server.rs:143-163`) looks up the tool by name under a read lock and dispatches via the `ToolDyn::call` trait. **No tenant-aware context is provided** to the tool — the tool sees only the JSON args produced by the LLM.
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 **Not provided in the way Claude Agent SDK or Mastra do it.** The closest mechanism is the `on_tool_call` hook:
 
@@ -532,7 +555,7 @@ fn on_tool_call(
 
 If you specifically need *to let the LLM pass other fields but force `tenant_id`*, you have to write your tool to ignore the LLM-provided field and read from `self`. The harness does not enforce this for you.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 Tools visible to the LLM are determined at request time by `tool_server_handle.get_tool_defs(...)` (`tool/server.rs:167-263`). Static tools are always visible (their names are stored in `static_tool_names: Vec<String>`); dynamic tools are RAG-selected via vector stores using the prompt as query (`tool/server.rs:177-216`).
 
@@ -543,19 +566,19 @@ For **per-request filtering** you have two options:
 
 There is **no `activeTools` / `allowedTools` / `prepareStep` mechanism** like Claude Agent SDK provides.
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 **Not a first-class field.** Tenants are encoded in `conversation_id` and in tool closures.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 **Not built-in.** No `principal`, no `auth_token`, no per-call identity. Tools execute with whatever permissions you wired into their `call` body.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 **Not provided.** No global/tenant/user scopes at registration; everything is "registered on this agent" or "registered on this `ToolServerHandle`".
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 **Not provided.** Only `max_turns` (turn cap) and `max_tokens` (per-completion cap). No USD budget, no per-tenant rate limit.
 
@@ -620,9 +643,9 @@ fn build_agent_for(client: &openai::Client, tenant_id: &str)
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 `PromptHook<M>` (`crates/rig-core/src/agent/prompt_request/hooks.rs:12-90`):
 
@@ -638,11 +661,11 @@ fn build_agent_for(client: &openai::Client, tenant_id: &str)
 
 Default impl for `()` (`hooks.rs:92`) makes all hooks no-op, so you can opt out cheaply.
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 Hooks are awaited **sequentially** per event. The non-streaming loop calls them inline (`agent/prompt_request/mod.rs:424, 491, 607, 653`). Tool dispatch is parallel (`buffer_unordered(self.concurrency)` at `mod.rs:695`), but each tool's `on_tool_call` and `on_tool_result` hooks run in that tool's task, so hooks for parallel tools may interleave.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 | Capability | Supported? | How |
 |-----------|------------|-----|
@@ -653,19 +676,19 @@ Hooks are awaited **sequentially** per event. The non-streaming loop calls them 
 | Mutate / decorate tool result before it returns to LLM | **No** — `on_tool_result(args, result)` is read-only. **Workaround**: do it inside the tool's own `call`. |
 | Emit additional tool calls in response to a tool result | **No** — no equivalent to Claude Agent SDK's `additional_messages` from PostToolUse. The loop only consumes assistant-generated tool calls. |
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 **Not provided in core.** `rig-memory` (`crates/rig-memory/`) ships sliding-window and token-budget policies that filter history during memory `load`. The example `examples/agent_with_memory_policies.rs` (referenced in `rig-memory/Cargo.toml:23`) demonstrates this. Also: `InMemoryConversationMemory::with_filter(...)` lets you pass a closure that shapes history each time it loads (`memory.rs:178-186`).
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 **Not provided as a first-class feature.** The `Usage` struct includes `cached_input_tokens` and `cache_creation_input_tokens` (`completion/request.rs:402-405`), so you can observe cache hit rate per turn, but there's no automatic cache-breakpoint placement. You'd configure provider-side caching (e.g. Anthropic `cache_control`) via the provider's `additional_params`.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 **Not provided.** No filesystem-stash strategy, no auto-summarization of large tool outputs. Use a `rig-memory` policy or implement on-the-fly truncation in your tool's `call` body.
 
-### 5.7 Architectural diagram of where hooks fire
+### 7.7 Architectural diagram of where hooks fire
 
 ```text
 agent.prompt(...)
@@ -769,41 +792,41 @@ let response = agent.prompt("…")
 
 ---
 
-## 6. Agent API Exposition (HTTP/network surface)
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
 **No.** Rig is library-only. You ship your own server (axum, actix-web, warp, …) and call `agent.prompt(...)` or `agent.stream_prompt(...)` from a handler.
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 **Not provided.** Rig provides `Stream<MultiTurnStreamItem<R>>` in process; converting that to SSE / WebSocket / NDJSON is your responsibility. Examples don't ship an SSE adapter.
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
 **Not provided — BYO.**
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
 **Not provided — BYO.** `MultiTurnStreamItem` (`agent/prompt_request/streaming.rs:38-45`) is `Serialize + Deserialize` (via `#[derive(Serialize, Deserialize)]` and `#[serde(tag = "type", rename_all = "camelCase")]`), so you can serialize it to JSON for SSE frames yourself, but Rig doesn't do this for you.
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 **Not provided.** No JWT validation, no tenant scoping at network boundary. Your axum middleware owns this.
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 **Not provided.** With `ConversationMemory`, you can resume by calling `agent.prompt("…").conversation("user-123")` again — but the network surface around this is your concern.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 **Not provided.** In-process, you can cancel by dropping the `Stream`; an `AbortHandle`/`Abortable` is available via the streaming module (`crates/rig-core/src/streaming.rs:23` imports `AbortHandle, Abortable`). No HTTP cancel endpoint is shipped.
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 **In-process: yes** — `StreamedAssistantContent::ToolCallDelta { id, internal_call_id, content }` (`streaming.rs:663+`) where `content: ToolCallDeltaContent` is `Name(String)` or `Delta(String)` (`streaming.rs:71-77`). **Over the wire: BYO** — you serialize it.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 **Not provided.** The only "pause" primitive is `PauseControl` (`crates/rig-core/src/streaming.rs:33-67`):
 ```rust
@@ -815,22 +838,22 @@ impl PauseControl { pub fn pause(&self); pub fn resume(&self); pub fn is_paused(
 ```
 This pauses polling of a stream; it doesn't expose a "tool approval verdict" channel. For HITL you implement it yourself by using `on_tool_call → Skip { reason }` to reject and asking the user to re-submit.
 
-### 6.10 Tool-call state reconstruction
+### 8.10 Tool-call state reconstruction
 
 In-process, each `ToolCall` carries:
 - `id: String` — provider-supplied tool call id
 - `call_id: Option<String>` — additional provider-specific call id (Anthropic-style)
 - `internal_call_id: String` — Rig-generated `nanoid` (`streaming.rs:128`)
 
-The `ToolResult` reuses the `id` and `call_id` for correlation (`tool_result_to_user_message` — `streaming.rs:158-172`). The streaming `StreamedUserContent::ToolResult { tool_result, internal_call_id }` (`streaming.rs:654-656`) gives clients an unambiguous join key.
+The `ToolResult` reuses the `id` and `call_id` for correlation (`tool_result_to_user_message` — `streaming.rs:158-172`). The streaming `StreamedUserContent::ToolResult { tool_result, internal_call_id }` (`streaming.rs:654-656`) gives clients an unambiguous join key. Over the wire is BYO — Rig serializes these via serde but ships no HTTP framing.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 **Not provided.** Implement in your axum app.
 
 ### ⭐ Light usage example
 
-**Steps 1–4: Not provided — BYO.** Rig ships no HTTP surface. Below is the closest realistic axum sketch a user would write — it is **not** built into Rig.
+**Steps 1–4: Not provided — BYO HTTP layer.** Rig ships no HTTP surface. Below is the closest realistic axum sketch a user would write — it is **not** built into Rig.
 
 ```rust
 // (1) BYO axum route. Example sketch (not part of Rig):
@@ -849,7 +872,7 @@ async fn run_agent(headers: HeaderMap, body: Json<RunReq>) -> impl IntoResponse 
     Sse::new(sse)
 }
 
-// (3) cancel: drop the connection (BYO).  
+// (3) cancel: drop the connection (BYO).
 //     curl -N --max-time 5 http://localhost:8080/run
 
 // (4) HITL verdict: separate endpoint that your tool reads from a channel.
@@ -858,9 +881,9 @@ async fn run_agent(headers: HeaderMap, body: Json<RunReq>) -> impl IntoResponse 
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 **Agents-as-tools only.** `Agent<M>` implements `Tool` (`crates/rig-core/src/agent/tool.rs:16-50`):
 
@@ -890,27 +913,27 @@ impl<M: CompletionModel + 'static> Tool for Agent<M> {
 
 So `parent_agent.tool(child_agent)` registers `child_agent` under its name and the parent LLM invokes it via a normal tool call. The LLM sees only the sub-agent's name, description, and system prompt.
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 **Programmatic Rust only.** Sub-agents are built via `AgentBuilder` like any other agent — no markdown frontmatter, no YAML configs.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 **No.** Sub-agents are statically registered Rust structs. The parent LLM cannot dynamically generate a sub-agent's preamble or toolset.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 The parent receives the sub-agent's final `String` (the `Tool::Output`) as a regular tool result, bound to the parent's `tool_call_id`. **No streaming events bubble up** — the parent only sees the sub-agent's terminal text.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 The parent loop uses `buffer_unordered(self.concurrency)` (`agent/prompt_request/mod.rs:695`) — so if the parent LLM produces multiple tool calls in a single turn, they run in parallel up to the configured concurrency. Each tool call internally runs its own loop (if the called "tool" is itself an Agent). Default `concurrency = 1` (sequential).
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 The sub-agent starts with its own `Vec<Message>` (just `args.prompt`) — the parent's history is **not** passed through. This is enforced at `agent/tool.rs:43-45`: `self.prompt(args.prompt).await` builds a fresh `PromptRequest` from `&Agent<M>`.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 **Not provided.** No "sub_agent_started" / "sub_agent_completed" event. The parent loop sees only the eventual tool result. You can attach tracing spans inside the sub-agent's own `prompt()` call to follow it via OTel.
 
@@ -970,37 +993,37 @@ println!("{result}");
 
 ---
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 **Not provided — BYO.** There is no `SKILL.md` concept in Rig. No filesystem scanner, no `loadSkills(...)`, no `WorkspaceSkills`. The word "skill" does not appear in the documented API as a runtime primitive.
 
 The closest analog: the `description` field on `ToolDefinition` (`completion/request.rs:192-199`) and the `preamble` field on `Agent`. You'd put your skill instructions there and treat the LLM's tool-call decisions as "skill invocation".
 
-### 8.2 File format
+### 10.2 File format
 
 **Not provided.**
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 **Not provided.** You could roll your own:
 - Use `rig::loaders` (`crates/rig-core/src/loaders/`) — has `file.rs`, `pdf.rs`, `epub/` — to read markdown files.
 - Use `AgentBuilder::dynamic_context(sample, vector_store_index)` to RAG-select snippets at prompt time.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Not provided.**
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Not provided.**
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 **Not provided.**
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 **Not provided.**
 
@@ -1040,13 +1063,13 @@ let result = agent.prompt("Generate an audience from this brief: ...").await?;
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **Not provided — BYO.** No registry, no source abstraction, no publishing workflow. The only "registry" is the `ToolSet` (`crates/rig-core/src/tool/mod.rs:288-426`) — a `HashMap<String, ToolType>` in process memory.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source | Supported? | How |
 |--------|-----------|-----|
@@ -1058,31 +1081,31 @@ let result = agent.prompt("Generate an audience from this brief: ...").await?;
 | Vendor cloud / managed registry | **No** |  |
 | HTTP fetch | **Not as resources.** `http_client` is for provider calls. |  |
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 Not applicable — no source abstraction.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 **Not provided.**
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 **Not provided.**
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 **Not provided.**
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 **Not provided.**
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 **Not provided.** Closest: at-runtime tool mutation on a shared `ToolServerHandle` (`tool/server.rs:117-138`): `add_tool`, `append_toolset`, `remove_tool`.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 **Not provided.**
 
@@ -1117,9 +1140,9 @@ Step 3 (list active skills for `tenantId=acme`): Not provided. You'd call `handl
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 - On `CompletionResponse<T>` (`completion/request.rs:352-363`): `pub usage: Usage`.
 - On `PromptResponse` (`agent/prompt_request/mod.rs:275-279`): `pub usage: Usage`.
@@ -1127,7 +1150,7 @@ Step 3 (list active skills for `tenantId=acme`): Not provided. You'd call `handl
 - On tracing spans: every chat span records `gen_ai.usage.input_tokens`, `output_tokens`, `cache_read.input_tokens`, `cache_creation.input_tokens`, `reasoning_tokens` (`mod.rs:534-544`, `streaming.rs:774-778`).
 - `Usage` struct (`completion/request.rs:394-409`): `input_tokens`, `output_tokens`, `total_tokens`, `cached_input_tokens`, `cache_creation_input_tokens`, `reasoning_tokens`.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 - **Per-call**: `CompletionResponse.usage`.
 - **Per-turn**: same — each turn = one LLM call.
@@ -1135,15 +1158,15 @@ Step 3 (list active skills for `tenantId=acme`): Not provided. You'd call `handl
 - **Per-conversation**: **not aggregated by Rig**; you'd sum `PromptResponse.usage` across all `agent.prompt(...)` calls sharing the same `conversation_id`.
 - **Per-tenant**: **BYO** — there is no tenant-aware aggregator.
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 **Not provided.** Rig surfaces tokens; you compute USD using your own cost table.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 **Not provided.** Build it on top of the tracing or `Usage` data.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 **First-class** via the `tracing` crate. The non-streaming and streaming loops both emit spans with GenAI semantic-convention fields:
 
@@ -1182,11 +1205,11 @@ The `crates/rig-core/src/telemetry/mod.rs` module provides `ProviderRequestExt`,
 
 OTel export is via standard `tracing-opentelemetry`. `examples/agent_with_tools_otel.rs:114-141` shows the full setup (`opentelemetry_otlp::SpanExporter`, `opentelemetry_sdk::trace::SdkTracerProvider`, `tracing_opentelemetry::layer()`).
 
-### 10.6 Audit logging (who / when / what)
+### 12.6 Audit logging (who / when / what)
 
 **Not provided as a distinct facility.** Tracing spans contain message-level data (`gen_ai.input.messages`, `gen_ai.output.messages` — `mod.rs:451-452`). Use them as your audit log by routing to your exporter of choice.
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 ```rust
 // crates/rig-core/src/completion/request.rs:394-409
@@ -1243,9 +1266,9 @@ metrics::histogram!("agent.cost_usd", cost_usd,           "tenant" => "acme");
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 Very sparse:
 
@@ -1255,11 +1278,11 @@ Very sparse:
 
 That's **it for in-tree tools**. There are no first-party `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `Monitor`, `WebFetch`, `WebSearch` tools. The framework is "you bring the tools".
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 N/A — only one tool ships, and it's a pass-through.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 ```rust
 // crates/rig-core/src/tool/mod.rs:112-143
@@ -1315,48 +1338,48 @@ impl Tool for Adder {
 
 A `#[tool_macro]` proc-macro is exposed when the `derive` feature is enabled (`rig-core/src/lib.rs:189-191`: `pub use rig_derive::{Embed, rig_tool as tool_macro};`).
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 Yes — `Args: Deserialize` and `Output: Serialize` are enforced statically. The `ToolDyn::call` dispatcher (`crates/rig-core/src/tool/mod.rs:201-211`) deserializes the LLM-supplied JSON and returns `ToolError::JsonError` on failure, which the loop renders to a string and surfaces back to the LLM as the tool result (`agent/prompt_request/mod.rs:645-652`).
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 **Not provided.** A tool's `call` returns one `Output`; there is no incremental yield mechanism for a tool to emit progress while running.
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 **First-class via the `rmcp` feature**. `crates/rig-core/src/tool/rmcp.rs:1-100` defines `McpTool` (adapter for an `rmcp::model::Tool` + `rmcp::service::ServerSink`) and `McpClientHandler` (reacts to `tools/list_changed` notifications by re-fetching and re-registering tools on a `ToolServerHandle`). The `AgentBuilder` exposes `.rmcp_tool(tool, client)` and `.rmcp_tools(tools, client)` (`agent/builder.rs:367-449`) when the `rmcp` feature is enabled.
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 The `tool` module has a `server.rs` (`crates/rig-core/src/tool/server.rs`) — but that's Rig's **internal** tool server (`ToolServer`/`ToolServerHandle`), not an MCP server exposure. Exposing Rig tools to external MCP clients is not first-class in this commit (no `rmcp_serve` example surfaces).
 
-### 12.3 Transports
+### 14.3 Transports
 
 Inherits `rmcp` crate's transports: stdio, SSE, HTTP — depending on how you construct the `rmcp::service::ServerSink` (`examples/rmcp.rs`).
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 You can register a regular Rig `Tool` directly — no need for MCP machinery if both ends are Rust.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 Inherits from `rmcp`. The `McpClientHandler` reacts to `tools/list_changed` notifications and updates the `ToolServer` accordingly (`tool/rmcp.rs:5-7`). Auth is opaque — credentials are wired via the `rmcp` transport setup.
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 26 in-tree providers (`crates/rig-core/src/providers/`):
 `anthropic`, `azure`, `chatgpt`, `cohere`, `copilot`, `deepseek`, `galadriel`, `gemini`, `groq`, `huggingface`, `hyperbolic`, `llamafile`, `minimax`, `mira`, `mistral`, `moonshot`, `ollama`, `openai`, `openrouter`, `perplexity`, `together`, `voyageai`, `xai`, `xiaomimimo`, `zai`, plus `internal` shared utilities (`providers/mod.rs`). Two more as companion crates: `rig-bedrock`, `rig-vertexai`, `rig-gemini-grpc`, `rig-fastembed`.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 **Not provided as a routing primitive.** You build a different `Agent` per model:
 ```rust
@@ -1367,43 +1390,43 @@ let expensive = client.agent(openai::GPT_5_2).build();
 
 `OpenRouter` provider gives you a *single endpoint* but per-call model selection at the API layer.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 **Not provided.** No retry-on-fallback-model mechanism. You'd write your own wrapper.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 **No.** Each agent is bound to one model at build time.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 Implicitly yes: each sub-agent is a separate `Agent<M>` and can be on a different model than the parent (since the parent wraps the sub-agent via `agent/tool.rs:16-50`). So you can have a Sonnet supervisor calling Haiku workers naturally — there's no "override" API, you just construct the sub-agent with the model you want.
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 **Not provided.** Rig is a Rust backend library; there's no React/Vue/Svelte hook in any crate.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 **Not provided.**
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 **Not provided.**
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
 Serialize `MultiTurnStreamItem` frames to SSE/WebSocket and write your own renderer. The repo ships a CLI chatbot (`crates/rig-core/src/integrations/cli_chatbot.rs:1-100`) and a Discord bot integration (`examples/discord_bot.rs`, `crates/rig-core/src/integrations/discord_bot.rs` feature-gated `discord-bot`).
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 `ConversationMemory` is in-conversation only (linear history under a single id). For *cross-conversation* recall you combine:
 
@@ -1412,7 +1435,7 @@ Serialize `MultiTurnStreamItem` frames to SSE/WebSocket and write your own rende
 
 The companion crates `rig-mongodb`, `rig-lancedb`, `rig-qdrant`, `rig-sqlite`, `rig-surrealdb`, `rig-milvus`, `rig-scylladb`, `rig-postgres`, `rig-s3vectors`, `rig-helixdb`, `rig-vectorize`, `rig-neo4j` provide `VectorStoreIndexDyn` implementations.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 First-class: `crates/rig-core/src/vector_store/` ships:
 - `VectorStoreIndex` and `VectorStoreIndexDyn` traits.
@@ -1421,19 +1444,19 @@ First-class: `crates/rig-core/src/vector_store/` ships:
 
 `agent.dynamic_context(num_samples, vector_store_index)` is the documented RAG path. The agent automatically searches the vector store with the user's prompt (or the latest RAG-text message) and inlines top-N documents as context (`agent/completion.rs:76-130`).
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 **Not first-class.** You scope vector-store collections per tenant yourself (e.g. namespace by `tenant_id` in your Postgres/Qdrant schema).
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 **Not provided.** No built-in PII redaction, prompt-injection detection, or hallucination check.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 The `on_tool_call` hook can `Skip { reason }` or `Terminate` (`agent/prompt_request/hooks.rs:39-47`). That's the entire permission model:
 
@@ -1448,19 +1471,19 @@ async fn on_tool_call(&self, tool_name: &str, ...) -> ToolCallHookAction {
 
 No per-tool ACL, no `canUseTool` returning structured permission verdicts. No default-deny mode.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 **Not provided.** No E2B, Daytona, or Modal integration.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 Default is **allow-all-registered** — every tool you `.tool(...)` is callable. Filtering is opt-in via hook logic.
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 The `evals` module (`crates/rig-core/src/evals.rs`, feature-gated by `experimental`) ships:
 - `EvalOutcome<Output>` enum: `Pass(Output)` / `Fail(Output)` / `Invalid(String)` (`evals.rs:27-36`).
@@ -1469,35 +1492,35 @@ The `evals` module (`crates/rig-core/src/evals.rs`, feature-gated by `experiment
 
 It's a *primitive*, not a dataset+harness — there's no first-party golden-dataset format.
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 Yes via the `evals` module + `Extractor` (`crates/rig-core/src/extractor.rs:31-80`) — you implement `Eval` for a struct that wraps an `Extractor<M, YourRubric>` and returns Pass/Fail.
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 **Not provided** as a turnkey CI gate. You'd write a `cargo test` that calls `eval_batch(...)` and asserts.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 **Not provided** as a separate viewer. Tracing logs/spans go to whatever sink you've configured (OTel collector → Langfuse, Honeycomb, etc.).
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 `crates/rig-core/src/integrations/cli_chatbot.rs:1-100` ships a CLI helper that wraps an `Agent` in a stdin/stdout chat loop. No TUI, no web dev UI, no playground.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 Tracing logs go via `tracing-subscriber::fmt()` (used by `examples/multi_turn_agent.rs:13-15`). For trace inspection you ship them to OTel.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 **Not provided.**
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 **Not provided.** Recompile the Rust binary.
 

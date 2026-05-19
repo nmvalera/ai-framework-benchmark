@@ -1,19 +1,20 @@
-# Eino (Go) — Benchmark Study
+# Eino (Go) — Benchmark Analysis
 
 > **Repo**: https://github.com/cloudwego/eino (core), https://github.com/cloudwego/eino-ext (extensions)
-> **Commit studied (eino)**: `5e1305506c4fa89ef5d786035a947258e29a7593` (Apr 29 2026 — "fix(adk): preserve full ToolsNodeConfig fields on runtime tool updates")
-> **Commit studied (eino-ext)**: `176d453b133a7b4c8c337450aba744d1e0ab38b7` (May 14 2026 — "feat(agentkit/local): add MultiModalRead for images and PDFs")
+> **Commit analysed (eino)**: `5e1305506c4fa89ef5d786035a947258e29a7593` (Apr 29 2026 — "fix(adk): preserve full ToolsNodeConfig fields on runtime tool updates")
+> **Commit analysed (eino-ext)**: `176d453b133a7b4c8c337450aba744d1e0ab38b7` (May 14 2026 — "feat(agentkit/local): add MultiModalRead for images and PDFs")
 > **Branch**: `main` (both)
 > **Framework paths**: `frameworks/eino/` (core), `frameworks/eino-ext/` (extensions)
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
 - **What is this stack architecturally**: Eino is a Go-native **library** (no daemon, no CLI, no HTTP server) split into two layers stacked in the same binary: (1) a low-level **graph / chain orchestration engine** (`compose/`) that compiles `Graph[I, O]` / `Chain[I, O]` into a `Runnable[I, O]` with Pregel-style super-steps and DAG modes, and (2) a higher-level **ADK** (`adk/`) sitting on top of the graph engine that ships `ChatModelAgent` (built-in ReAct loop), `WorkflowAgent` (Sequential/Parallel/Loop), `Runner`, `AsyncIterator[AgentEvent]`, plus prebuilt patterns (`deep`, `planexecute`, `supervisor`). The ADK is the "Claude-Code-shaped" layer; the graph engine is the LangGraph-shaped layer. Both live in your Go process.
+- **Ecosystem**: **Go** (single-language; Go 1.25 required per `go.mod:3`).
 - **Where the agent loop actually executes**: in-process, in your Go binary. There is **no subprocess, no vendor daemon, no hosted service**. `ChatModelAgent.Run` (`adk/chatmodel.go:948`) returns an `*AsyncIterator[*AgentEvent]`; the loop runs in a goroutine that drives a compiled `compose.Graph` internally (`adk/react.go:302`). `Runner.Query` and `Runner.Run` (`adk/runner.go:75,102`) are the public surface.
 - **Strongest architectural choice for our use case**: **Interrupt + Resume + CheckPointStore with gob serialization is first-class and granular**. `ResumableAgent` (`adk/interface.go:267`), `Runner.ResumeWithParams` (`adk/runner.go:138`), and per-call address segments (`AppendAddressSegment`) let you suspend mid-tool-call, persist the full ADK state tree (including parallel sub-agent lanes) and resume **any specific component** by its address. The `CompositeInterrupt` model (`adk/interrupt.go:120`) cleanly propagates interrupts across nested workflow agents and agent-tools. This is the closest thing in the Go ecosystem to LangGraph's `Pregel.put_writes` durability and *better* than Claude Agent SDK / Mastra at fan-out resume.
 - **Weakest / biggest gap**: **No CheckPointStore implementation ships with eino or eino-ext**. The interface is two methods (`Get`, `Set` on `[]byte`); the framework hands you the gob blob and you persist it. Combined with: no HTTP server, no built-in tenant model, no auth, no Resource Manager, no eval framework, no Chat UI, no per-tenant cost/budget — Eino gives you the runtime, you assemble the platform. This matches Ray's current Eino usage where Ray's `pkg/conversation/` owns persistence; for a greenfield Predict service it means 6–10× more host-side scaffolding than Mastra TS or LangGraph Platform.
-- **Most surprising finding (bad — and the decision-relevant blocker for cross-team contribution)**: **English documentation is materially thinner than Chinese**. The [official docs landing](https://www.cloudwego.io/docs/eino/) has English pages for every concept, but many middleware-specific guides, examples, and v0.8+ changelogs are richer or only complete in `README.zh_CN.md` / Chinese-only docs sub-pages. Code comments in newer middlewares (`reduction/`, `summarization/`, `plantask/`) ship parallel `_chinese.go` prompt strings and a `LanguageChinese` global (`adk/config.go:28`) — the prompts and tool descriptions themselves are bilingual at runtime. **For Predict, this is a hard blocker for Product / non-engineer authors** writing SKILL.md or tool descriptions without an engineer's help, and a soft blocker for any docs-driven onboarding flow. The matrix flag holds.
+- **Most surprising finding (bad — and the decision-relevant blocker for cross-team contribution)**: **English documentation is materially thinner than Chinese**. The [official docs landing](https://www.cloudwego.io/docs/eino/) has English pages for every concept, but many middleware-specific guides, examples, and v0.8+ changelogs are richer or only complete in `README.zh_CN.md` / Chinese-only docs sub-pages. Code comments in newer middlewares (`reduction/`, `summarization/`, `plantask/`) ship parallel `_chinese.go` prompt strings and a `LanguageChinese` global (`adk/config.go:28`) — the prompts and tool descriptions themselves are bilingual at runtime.
 - **Most surprising finding (good)**: **`adk/middlewares/skill/` is a real, working SKILL.md loader with fork / fork-with-context sub-agent modes**, parses YAML frontmatter (`name`, `description`, `context`, `agent`, `model`), supports custom skill-tool name (default `"skill"`), inline mode (system-prompt injection) vs. agent fork mode (spawn a sub-agent with this skill's content as instructions), and a pluggable `Backend` interface so you can load skills from filesystem (`NewBackendFromFilesystem`) or anything else. Co-located `dynamictool/toolsearch` middleware implements the regex-`tool_search` meta-tool that Claude Code exposes. These two middlewares **alone** put Eino architecturally ahead of every other Go SDK we benchmarked for skill / large-toolset workflows.
 - **Recent activity (since the previous study)**: eino-ext landed a new **`adk/backend/local/`** local-filesystem backend (commit `176d453`, May 14 2026) that ships **`MultiModalRead` for images and PDFs** (renders PDF pages via `go-fitz` at configurable DPI, with bounded size and per-request page caps). This is the Go-ecosystem closest analog of Claude Code's multi-modal `Read` tool. Core eino's latest fix (`5e13055`, Apr 29 2026) preserves `ToolsNodeConfig` fields when middlewares rewrite tools at runtime — small but relevant for the dynamic-tools / `toolsearch` pattern.
 - **Per-stack one-liners**:
@@ -29,7 +30,111 @@
 
 ---
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
+
+### 0.1 What is this stack?
+
+A **Go library + ecosystem of adapters**. Two Go modules:
+- `github.com/cloudwego/eino` — graph runtime, schema, ADK, callbacks interface, in-tree middlewares
+- `github.com/cloudwego/eino-ext` — provider adapters (chat models, tools, retrievers, indexers), tracing exporters (Langfuse, LangSmith, APMPlus), each as its own Go module (so you import only what you need)
+
+No daemon, no CLI subcommand exposes "run agent server". Everything is `import` + call.
+
+### 0.2 Ecosystem
+
+**Go** (primary, single-language). Go 1.25 minimum per `eino/go.mod:3`. No Python / TypeScript / Rust bindings. The framework, its runtime, the extension modules, and all examples are pure Go.
+
+### 0.3 Project status & governance
+
+- **License**: Apache 2.0 (both `eino` and `eino-ext`).
+- **Owner / maintainers**: [CloudWeGo](https://www.cloudwego.io/), an open-source initiative inside ByteDance / Volcengine. Maintainers are ByteDance engineers (commit history confirms). CloudWeGo also owns Kitex (RPC), Hertz (HTTP), and Volo (Rust RPC).
+- **Commercial backing**: ByteDance, with Volcengine (their cloud arm) offering paid Ark LLM endpoints and APMPlus tracing.
+- **Support model**: community support via GitHub issues + a Lark (Feishu) group. No paid SaaS or enterprise support around eino itself, although Volcengine sells the underlying infra. No managed cloud equivalent of "Eino Cloud" / "Mastra Cloud".
+
+### 0.4 Project maturity / age
+
+- **Initial public release**: late 2024 (the oldest tag visible on the public repo is `v0.1.0` from around that time). The framework is roughly 18 months old.
+- **Current major version**: `v0.8.x` for core eino; eino-ext sub-modules version independently (`adk-go-ext v0.x`).
+- **Stability signals**: Go module versioning is at `v0.8` — still pre-`v1`, so APIs are not formally frozen. The ADK layer (`adk/`) is newest (introduced in v0.7) and the middlewares (`adk/middlewares/`) are tagged as evolving. Lower layers (`compose/`, `schema/`, `callbacks/`) are more stable. The release notes index distinguishes `v0.5`, `v0.6`, `v0.7`, `v0.8` migration pages.
+- **APIs marked experimental/beta**: yes — for example `EnhancedInvokableTool` / multimodal tool I/O is labeled new in v0.8. Older `flow/agent/react` (`flow/agent/react/react.go:284`) is kept for back-compat alongside `adk.NewChatModelAgent` (the recommended path).
+
+### 0.5 Adoption & community signal
+
+Captured on **2026-05-19**:
+- `cloudwego/eino`: **~14k stars**, ~1.4k forks, ~70 contributors, very active (daily commits on `main`).
+- `cloudwego/eino-ext`: **~2k stars**, ~400 forks, ~50 contributors, daily commits.
+- **Release cadence**: roughly one major adk release every ~2 months. Patch releases land more frequently in eino-ext for new provider adapters.
+- **Issue / PR volume**: eino core has ~200 closed issues, ~30 open. eino-ext has ~150 closed, ~20 open. Maintainers respond — but a notable fraction of issue conversations are in Chinese.
+- **Community channels**: Lark (Feishu) group is the primary forum. A Discord exists but is materially less active.
+
+### 0.6 Ecosystem fit
+
+- **Package**: `github.com/cloudwego/eino` (core) and `github.com/cloudwego/eino-ext/...` (per-adapter sub-modules). Go modules on `pkg.go.dev`.
+- **Registry links**:
+  - <https://pkg.go.dev/github.com/cloudwego/eino>
+  - <https://pkg.go.dev/github.com/cloudwego/eino-ext>
+- **Examples / templates**: <https://github.com/cloudwego/eino-examples>
+- **Use shape**: used predominantly as a **library** — `go get` + `import`. There's no hosted platform, no CLI you `eino dev`, and no app framework (Next.js-style) wrapping it. The IDE plugin is an IntelliJ helper, not a runtime.
+- **Download signal**: hard to verify precisely for Go modules; `pkg.go.dev`'s "import count" widget showed `eino` referenced by several hundred public Go modules at capture time.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+**Official docs language(s)**: English + Simplified Chinese. The English landing page exists for every section, but:
+
+- The Chinese pages frequently include longer code examples, more middleware-specific guidance, and faster-updated v0.8 ADK content (release notes for v0.7 and v0.8 are in `eino/llms.txt` as links to `cloudwego.io/docs/eino/release_notes_and_migration/*`; the English versions are short).
+- Source-code-level docs are bilingual: many middlewares ship parallel `*_chinese.go` prompt files (e.g. `adk/middlewares/skill/prompt.go` has `systemPromptChinese`; `summarization/prompt.go`; `plantask/`). Tool descriptions are bilingual via `internal.SelectPrompt` (`adk/middlewares/filesystem/prompt.go:36-58`):
+
+```go
+// adk/middlewares/filesystem/prompt.go:44-58
+ListFilesToolDesc = `Lists all files in the filesystem, filtering by directory.
+
+Usage:
+- The path parameter must be an absolute path, not a relative path
+...`
+
+ListFilesToolDescChinese = `列出文件系统中的所有文件，按目录过滤。
+
+使用方法：
+- path 参数必须是绝对路径，不能是相对路径
+...`
+```
+
+- READMEs ship in both languages (`README.md` + `README.zh_CN.md` in both repos and in every eino-ext sub-module).
+- Runtime language is selectable via `adk.SetLanguage(adk.LanguageChinese)` (`adk/config.go:33`), driving which version of internal prompts ships to the LLM.
+
+**Can a non-engineer (Product / Data) author content without engineering hand-holding?**
+
+- **No, not easily**. SKILL.md authoring (via `adk/middlewares/skill/`) is technically achievable by a non-engineer (markdown + YAML frontmatter), but the Chinese-richer docs gap means: when a Product author wants to understand "what does `context: fork_with_context` mean", the depth-first explanation only exists in the Chinese ADK middleware docs. The English page exists but is shorter.
+- Tool authoring requires writing Go (`tool.BaseTool` + `InvokableTool`), which is engineering work regardless of language.
+
+For Predict, engineers can read both languages or use machine translation, so day-to-day development is unblocked. **Cross-team contribution from Product / Data is materially harder than Mastra TS (English-only, deep docs) or Claude Agent SDK (English-only).**
+
+### 0.8 Documentation entry points
+
+- **Official docs landing**: <https://www.cloudwego.io/docs/eino/>
+- **Quickstart — Simple LLM Application**: <https://www.cloudwego.io/docs/eino/quick_start/simple_llm_application/>
+- **Quickstart — Agent with Tools**: <https://www.cloudwego.io/docs/eino/quick_start/agent_llm_with_tools/>
+- **API reference (godoc)**: <https://pkg.go.dev/github.com/cloudwego/eino> and <https://pkg.go.dev/github.com/cloudwego/eino-ext>
+- **Hosting / deployment / production guide**: **Not provided** — there is no production deployment page; Eino is library-only.
+- **Examples / demos repo**: <https://github.com/cloudwego/eino-examples>
+- **Changelog / release notes**: <https://www.cloudwego.io/docs/eino/release_notes_and_migration/> (v0.1 through v0.8)
+- **GitHub Releases**: <https://github.com/cloudwego/eino/releases> and <https://github.com/cloudwego/eino-ext/releases>
+- **GitHub issues — core**: <https://github.com/cloudwego/eino/issues> (note: many issue threads are in Chinese)
+- **GitHub issues — ext**: <https://github.com/cloudwego/eino-ext/issues>
+- **Discord / community forum**: <https://discord.gg/jceZSE7DsW> (low activity; main community is on Lark/Feishu)
+
+Additional high-signal pages:
+- **Overview**: <https://www.cloudwego.io/docs/eino/overview/>
+- **Graph or Agent — when to use which**: <https://www.cloudwego.io/docs/eino/overview/graph_or_agent/> ⭐ critical first read for new adopters
+- **ADK overview**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/>
+- **HITL (interrupt/resume)**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/agent_hitl/>
+- **ChatModelAgent middleware index**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/eino_adk_chatmodelagentmiddleware/>
+- **Checkpoint & interrupt/resume (compose layer)**: <https://www.cloudwego.io/docs/eino/core_modules/chain_and_graph_orchestration/checkpoint_interrupt/>
+- **Callback system**: <https://www.cloudwego.io/docs/eino/core_modules/chain_and_graph_orchestration/callback_manual/>
+
+---
+
+## 1. High Level Architecture
 
 ### Deployment diagram
 
@@ -87,15 +192,7 @@
                                                └──────────────────┘
 ```
 
-### 0.1 What is this stack?
-
-A **Go library + ecosystem of adapters**. Two Go modules:
-- `github.com/cloudwego/eino` — graph runtime, schema, ADK, callbacks interface, in-tree middlewares
-- `github.com/cloudwego/eino-ext` — provider adapters (chat models, tools, retrievers, indexers), tracing exporters (Langfuse, LangSmith, APMPlus), each as its own Go module (so you import only what you need)
-
-No daemon, no CLI subcommand exposes "run agent server". Everything is `import` + call.
-
-### 0.2 Where does the agent loop actually execute?
+### 1.1 Where does the agent loop actually execute?
 
 **In your Go process, in a goroutine spawned by `ChatModelAgent.Run`** (`adk/chatmodel.go:948-995`):
 
@@ -121,31 +218,29 @@ The `runFunc` it delegates to is built by `buildReactRunFunc` (`adk/chatmodel.go
 
 For workflow agents, the loop is a literal `for i := range a.subAgents` over goroutine-spawned `agent.Run()` calls coordinated by `sync.WaitGroup` (`adk/workflow.go:471-516`).
 
-### 0.3 Runtime dependencies
+### 1.2 Runtime dependencies
 
-- **Go 1.25** (from `eino/go.mod:3`)
-- Direct dependencies (`go.mod`):
-  - `github.com/bytedance/sonic` — fast JSON (used heavily for tool-arg parsing)
-  - `github.com/eino-contrib/jsonschema` — JSON Schema generation from Go structs
-  - `github.com/getkin/kin-openapi` — OpenAPI schema helpers
-  - `github.com/google/uuid`
-  - `github.com/nikolalohinski/gonja` — Jinja2 templates for `prompt`
-  - `github.com/slongfield/pyfmt` — Python f-string formatting
-  - `github.com/stretchr/testify`
-- **No bundled binaries**, no native libs, no required external process
-- **Optional add-ons** (each is its own Go module under `eino-ext`):
-  - LLM providers: OpenAI, Anthropic Claude, Gemini, Ark (ByteDance Volcengine), Qwen, DeepSeek, Ollama, OpenRouter, Qianfan
-  - Vector stores: Qdrant, Milvus (v1 / v2), Redis, OpenSearch (v2 / v3), Elasticsearch (v7 / v8 / v9), Volc VikingDB, Dify
-  - Tools: MCP (`mark3labs/mcp-go` or official `modelcontextprotocol/go-sdk`), DuckDuckGo, Wikipedia, Google Search, Bing Search, SearxNG, BrowserUse, CommandLine, HTTPRequest, SequentialThinking
-  - Tracing: Langfuse, LangSmith, APMPlus (OTel), CozeLoop
+**External runtimes / binaries / services** (high level — language packages excluded):
 
-### 0.4 Recommended deployment topology
+- **Go 1.25** (`eino/go.mod:3`) language runtime — the only mandatory runtime dependency.
+- **No bundled binaries**, no native libs, no required external process at the framework level.
+- **No required infrastructure services** — Postgres / Redis / vector DBs are only needed if your application wires them in via eino-ext adapters.
+- **No required vendor services** — you bring your LLM provider; Anthropic / OpenAI / Vertex / Ark / Ollama (local) are all interchangeable behind `model.BaseChatModel`.
+- **Optional external services** (each opt-in via an eino-ext sub-module):
+  - LLM providers: OpenAI, Anthropic Claude, Gemini, Ark (ByteDance Volcengine), Qwen, DeepSeek, Ollama, OpenRouter, Qianfan.
+  - Vector stores (RAG): Qdrant, Milvus (v1 / v2), Redis, OpenSearch (v2 / v3), Elasticsearch (v7 / v8 / v9), Volc VikingDB, Dify.
+  - MCP servers: any over stdio / SSE / HTTP (via `mark3labs/mcp-go` or official `modelcontextprotocol/go-sdk`).
+  - Tracing backends: Langfuse, LangSmith, APMPlus (OTel), CozeLoop.
+
+Net deployment story is **light** — one Go binary, no daemons to manage.
+
+### 1.3 Recommended deployment topology
 
 There is no vendor-recommended topology document — this is a library, not a platform. The CloudWeGo docs implicitly assume "one-process-many-tenants" with horizontal Pod scaling and BYO ingress; the multi-tenancy guidance in the official docs is minimal.
 
-Inside Dailymotion's Ray service (this repo's `pkg/eino/`, `src/ray/targeting/`), Eino runs **embedded in a single Go process per pod**, behind `gorilla/mux`, with persistence in our own Postgres via `pkg/conversation/`. Multiple Ray pods serve the same conversation pool with shared Postgres state. This works; it's the de-facto recommended pattern.
+In practice (and confirmed inside Dailymotion's Ray service, which already runs Eino in production), Eino runs **embedded in a single Go process per pod**, behind your own HTTP router (e.g. `gorilla/mux` or `hertz`), with persistence in your own Postgres. Multiple pods serve the same conversation pool with shared DB state.
 
-### 0.5 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 - **Startup latency**: negligible (it's a Go binary; `Runner` construction is just struct allocation — `adk/runner.go:63-69`). No model warm-up, no checkpoint hydration, no plugin loading.
 - **RAM baseline**: depends entirely on your binary, but the Eino runtime itself is small (the `eino` package is ~12k LOC of Go code excluding tests). Per-session memory is dominated by `runSession.Events` (`adk/runctx.go:30-37`) which accumulates `agentEventWrapper` for every event during a run.
@@ -153,7 +248,7 @@ Inside Dailymotion's Ray service (this repo's `pkg/eino/`, `src/ray/targeting/`)
 
 Compared with Claude Agent SDK Python (issue #333: 20–30 s startup), Eino has a **massive cold-start advantage** for serverless / horizontally-scaled deployments.
 
-### 0.6 Vendor lock-in
+### 1.5 Vendor lock-in
 
 | Axis | Score | Notes |
 |---|---|---|
@@ -165,7 +260,7 @@ Compared with Claude Agent SDK Python (issue #333: 20–30 s startup), Eino has 
 
 Cloud-vendor lock-in: zero. Conceptually the closest equivalent of a vendor in Eino is **CloudWeGo / ByteDance** — they own the project and their internal use case (Volcengine Ark, APMPlus) drives the roadmap, so non-Chinese language coverage trails Chinese.
 
-### 0.7 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 **Medium-heavy library; lean platform**:
 - 12k+ LOC across `compose/`, `adk/`, `schema/`, `callbacks/`, `components/`
@@ -174,72 +269,25 @@ Cloud-vendor lock-in: zero. Conceptually the closest equivalent of a vendor in E
 
 Compared to LangGraph (which ships the OSS runtime in `libs/langgraph` and a separate closed-source `langgraph_api` for the platform), Eino is closer to "OSS runtime, no platform at all." Compared to Mastra TS (heavy framework with built-in storage, dev UI, plugin system), Eino is the opposite philosophy: rich runtime primitives, you assemble the application.
 
-### 0.8 Documentation depth & cross-team contributor accessibility
+### 1.7 Release-history signal
 
-**Official docs language(s)**: English + Simplified Chinese. The English landing page exists for every section, but:
+Eino does **not** ship an in-repo `CHANGELOG.md`. Releases are documented externally via the CloudWeGo docs site:
+- <https://www.cloudwego.io/docs/eino/release_notes_and_migration/> (v0.5, v0.6, v0.7, v0.8 migration pages).
+- GitHub Releases at <https://github.com/cloudwego/eino/releases>.
 
-- The Chinese pages frequently include longer code examples, more middleware-specific guidance, and faster-updated v0.8 ADK content (release notes for v0.7 and v0.8 are in `eino/llms.txt` as links to `cloudwego.io/docs/eino/release_notes_and_migration/*`; the English versions are short).
-- Source-code-level docs are bilingual: many middlewares ship parallel `*_chinese.go` prompt files (e.g. `adk/middlewares/skill/prompt.go` has `systemPromptChinese`; `summarization/prompt.go`; `plantask/`). Tool descriptions are bilingual via `internal.SelectPrompt` (`adk/middlewares/filesystem/prompt.go:36-58`):
+Recent themes visible in the last ~3 months of `git log`:
+- **ADK middleware churn**: new `skill`, `dynamictool/toolsearch`, `summarization`, `reduction`, `plantask`, `patchtoolcalls` middlewares all landed in v0.7–v0.8. These are the platform-relevant additions for context engineering.
+- **`ToolsNodeConfig` refactor** (commit `5e13055`, Apr 29 2026) preserves all `ToolsNodeConfig` fields when middlewares rewrite tools at runtime — closes a subtle bug exposed by `toolsearch`.
+- **Multimodal tool I/O** (`EnhancedInvokableTool` / `EnhancedStreamableTool`) introduced in v0.8 with the new `schema.ToolArgument` / `schema.ToolResult` types.
+- **eino-ext** added `adk/backend/local/` (commit `176d453`, May 14 2026) with `MultiModalRead` for images and PDFs — first Go-ecosystem analog of Claude Code's multi-modal `Read`.
 
-```go
-// adk/middlewares/filesystem/prompt.go:44-58
-ListFilesToolDesc = `Lists all files in the filesystem, filtering by directory.
-
-Usage:
-- The path parameter must be an absolute path, not a relative path
-...`
-
-ListFilesToolDescChinese = `列出文件系统中的所有文件，按目录过滤。
-
-使用方法：
-- path 参数必须是绝对路径，不能是相对路径
-...`
-```
-
-- READMEs ship in both languages (`README.md` + `README.zh_CN.md` in both repos and in every eino-ext sub-module).
-- Runtime language is selectable via `adk.SetLanguage(adk.LanguageChinese)` (`adk/config.go:33`), driving which version of internal prompts ships to the LLM.
-
-**Can a non-engineer (Product / Data) author content without engineering hand-holding?**
-
-- **No, not easily**. SKILL.md authoring (via `adk/middlewares/skill/`) is technically achievable by a non-engineer (markdown + YAML frontmatter), but **the Chinese-richer docs gap means**: when a Product author wants to understand "what does `context: fork_with_context` mean", the depth-first explanation only exists in the Chinese ADK middleware docs. The English page exists but is shorter. This is the matrix-flagged hard blocker.
-- Tool authoring requires writing Go (`tool.BaseTool` + `InvokableTool`), which is engineering work regardless of language.
-
-**For Predict**: Engineers can read both languages or use machine translation, so day-to-day development is unblocked. **Cross-team contribution from Product / Data is materially harder than Mastra TS (English-only, deep docs) or Claude Agent SDK (English-only).**
-
-### 0.9 Documentation entry points
-
-Required URLs (English first, Chinese in parens where richer):
-
-- **Official docs landing**: <https://www.cloudwego.io/docs/eino/> · ZH: same URL serves both languages via the `cloudwego.io` language switcher (top-right `EN / 中文`)
-- **Overview**: <https://www.cloudwego.io/docs/eino/overview/>
-- **Graph or Agent — when to use which**: <https://www.cloudwego.io/docs/eino/overview/graph_or_agent/> ⭐ critical first read for new adopters
-- **Quickstart — Simple LLM Application**: <https://www.cloudwego.io/docs/eino/quick_start/simple_llm_application/>
-- **Quickstart — Agent with Tools**: <https://www.cloudwego.io/docs/eino/quick_start/agent_llm_with_tools/>
-- **Eino Cookbook (recipes)**: <https://www.cloudwego.io/docs/eino/eino-cookbook/>
-- **ADK overview**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/>
-- **ADK Agent quickstart**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/agent_quickstart/>
-- **ADK Agent interface**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/agent_interface/>
-- **ChatModelAgent**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/agent_implementation/chat_model/>
-- **DeepAgents**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/agent_implementation/deepagents/>
-- **HITL (interrupt/resume)**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/agent_hitl/>
-- **ChatModelAgent middleware index**: <https://www.cloudwego.io/docs/eino/core_modules/eino_adk/eino_adk_chatmodelagentmiddleware/> (skill, filesystem, summarization, plan-task, tool-search, tool-reduction, patch-toolcalls)
-- **Checkpoint & interrupt/resume (compose layer)**: <https://www.cloudwego.io/docs/eino/core_modules/chain_and_graph_orchestration/checkpoint_interrupt/>
-- **Callback system**: <https://www.cloudwego.io/docs/eino/core_modules/chain_and_graph_orchestration/callback_manual/>
-- **API reference (godoc)**: <https://pkg.go.dev/github.com/cloudwego/eino> and <https://pkg.go.dev/github.com/cloudwego/eino-ext> — auto-generated, **English-only by definition** (Go doc comments)
-- **Hosting / deployment / production guide**: **Not provided** — there is no production deployment page; Eino is library-only
-- **Examples / demos repo**: <https://github.com/cloudwego/eino-examples>
-- **Changelog**: <https://www.cloudwego.io/docs/eino/release_notes_and_migration/> (v0.1 through v0.8)
-- **GitHub issues — core**: <https://github.com/cloudwego/eino/issues> (note: many issue threads are in Chinese)
-- **GitHub issues — ext**: <https://github.com/cloudwego/eino-ext/issues>
-- **Community**: CloudWeGo Discord / Lark (Feishu) — the main community runs on Lark, which is itself a Chinese-language platform. There is a Discord at <https://discord.gg/jceZSE7DsW> but activity is lower than Lark.
-
-**Documentation language imbalance flag**: every section has English coverage; depth-of-coverage and example richness skew toward Chinese, especially for v0.7+ features. Non-Chinese readers should expect to read source code (the Go source is heavily commented in English) for the latest middleware patterns.
+Eino is in an **active pre-v1 phase**: APIs still shift between v0.7 and v0.8. Migration pages in the docs read like real breaking-change notes (renamed types, moved packages). Production users should pin minor versions and read the migration pages carefully before bumping.
 
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 Three layered entrypoints, top-to-bottom:
 
@@ -294,7 +342,7 @@ Three layered entrypoints, top-to-bottom:
 
 The "agent harness" for our purposes is `Runner` + `ChatModelAgent`; the Runnable layer is what you'd hand-build with `compose.NewGraph` if you wanted full control.
 
-### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 `ChatModelAgent` compiles a `compose.Graph[*reactInput, Message]` with three nodes: `Init`, `ChatModel`, `ToolNode`. The loop trip is:
 
@@ -318,7 +366,7 @@ See `adk/react.go:302-437` (`newReact`). Each trip:
 
 Tool dispatch + result handling is one `compose.ToolsNode` step per super-step; per-call middleware order is precisely documented at `adk/chatmodel.go:283-291`.
 
-### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 **Built-in.** `ChatModelAgent` ships ReAct as the default loop. You configure it via `ChatModelAgentConfig` (`adk/chatmodel.go:195-311`) — no graph-building required.
 
@@ -326,7 +374,7 @@ Legacy ReAct also exists at `flow/agent/react/react.go:284` (`react.NewAgent`) f
 
 If you don't want ReAct, you bypass `ChatModelAgent` entirely and build your own `compose.Graph[I, O]` or implement the `Agent` interface yourself.
 
-### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 Handled by `compose.ToolsNode` (`compose/tool_node.go:63-72`):
 
@@ -348,13 +396,13 @@ The node receives an `*schema.Message` (assistant message with `ToolCalls`), dis
 
 `UnknownToolsHandler` (`compose/tool_node.go:159-169`) is a graceful-degradation hook for LLM hallucinations of non-existent tool names.
 
-### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 **No first-class "Turn" type.** A turn boundary is implicit — defined by the loop branch from `ChatModel` to either `ToolNode` or `END`. If a tool is `returnDirectly`, the turn ends after that tool's result; otherwise the loop continues until the model emits no tool calls.
 
 The closest thing to a turn-event is the `AgentEvent` (`adk/interface.go:223-239`), which is the smallest unit emitted from the iterator.
 
-### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 **`*AsyncIterator[*AgentEvent]` backed by an unbounded Go channel**:
 
@@ -393,9 +441,13 @@ for {
 }
 ```
 
-Network-side streaming is **not provided** — see Q6.
+Network-side streaming (SSE / WS frame format on the wire) is **not provided** — see Q8.
 
-### 1.7 Message layers
+---
+
+## 3. Message & Event Taxonomy
+
+### 3.1 Message layers
 
 Eino has **three distinct vocabularies**:
 
@@ -417,7 +469,7 @@ ChatModelAgent wraps last assistant message into a MessageVariant + AgentEvent
 generator.Send(event)  →  AsyncIterator.Next()  →  YOUR CODE
 ```
 
-### 1.8 Concrete message types
+### 3.2 Concrete message types
 
 | Type | File | One-line purpose |
 |---|---|---|
@@ -452,7 +504,7 @@ generator.Send(event)  →  AsyncIterator.Next()  →  YOUR CODE
 | `adk.ChatModelAgentContext` | `adk/handler.go:66` | Mutable runtime config (Instruction / Tools / ReturnDirectly) in `BeforeAgent` |
 | `adk.WorkflowInterruptInfo` | `adk/workflow.go:161` | Workflow-level interrupt payload (sequential index, loop count, parallel-branch dict) |
 
-### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 **Two separate taxonomies, surfaced through one iterator.** The single `*AsyncIterator[*AgentEvent]` is the user-facing channel; each `AgentEvent` may carry:
 - a *message-event* via `event.Output.MessageOutput` (a wrapped `*schema.Message`)
@@ -461,7 +513,7 @@ generator.Send(event)  →  AsyncIterator.Next()  →  YOUR CODE
 
 Hook / callback events are a **separate** subsystem (`callbacks.Handler`) and *not* multiplexed onto the agent event stream.
 
-### 1.10 Event categories
+### 3.4 Event categories
 
 | Category | Surfaces via | Notes |
 |---|---|---|
@@ -474,7 +526,7 @@ Hook / callback events are a **separate** subsystem (`callbacks.Handler`) and *n
 | Sub-agent events | Same `AgentEvent` stream when `ToolsConfig.EmitInternalEvents: true` (`adk/chatmodel.go:111-122`) | RunPath disambiguates parent vs. child events |
 | Interrupt events | `AgentEvent.Action.Interrupted != nil` | Saved to CheckPointStore before being sent to the consumer (`adk/runner.go:233-245`) |
 
-### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 - Messages: `schema/message.go` (~2000 lines, source of truth)
 - Tool info / arguments / results: `schema/tool.go` (~200 lines)
@@ -483,7 +535,7 @@ Hook / callback events are a **separate** subsystem (`callbacks.Handler`) and *n
 - Interrupt types: `adk/interrupt.go`
 - Hook interface: `callbacks/interface.go`, `internal/callbacks/`
 
-### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Sample frames the consumer receives (Go-side, not JSON — there is no wire format):
 
@@ -556,9 +608,9 @@ There is no `start` frame analogue to LangGraph's `metadata` frame — the first
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **No first-party multi-session runtime ships.** Eino is library-only. "Runtime" in Eino vocabulary means the in-process `compose.Runnable` execution; multi-session hosting is your job.
 
@@ -569,7 +621,7 @@ The pattern Dailymotion uses in Ray:
 
 Eino itself does not enforce or even know about "session" as a runtime concept — `runSession` (`adk/runctx.go:30-37`) is a *run-scoped* struct (one per `Runner.Run` call), not a persisted multi-call session.
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 Isolation is enforced **by context, not by registry**:
 - `ctxWithNewRunCtx` (`adk/runctx.go:387-401`) seeds a fresh `runContext` with its own `runSession` on every `Runner.Run` call.
@@ -579,25 +631,25 @@ Isolation is enforced **by context, not by registry**:
 
 Risk: any *shared* state outside `runSession.Values` (e.g. a closure capturing a tenant-scoped map at agent construction time) is **not** isolated by the framework. If a tool implementation reaches into a singleton, you'll leak across sessions.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 Stateless. Pods scale horizontally trivially (it's a Go binary). For shared state across pods, **your `CheckPointStore` implementation is the seam**:
 - If you point all pods at the same Postgres `CheckPointStore`, then any pod can resume any session.
 - Leader election, locking, partition assignment — **not provided**. You'd need to layer optimistic concurrency / advisory locks on top of your store.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 **Not provided — BYO.** Eino has no cron, no webhook trigger system, no scheduled-job framework. Use Go's stdlib (`time.AfterFunc`, `time.Ticker`) or a job library (Asynq, Temporal, Cloud Tasks) in your host.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 **Not provided — BYO.** The framework assumes short-lived calls into `Runner.Run` from your HTTP handler. Long-running background work is your responsibility (typical pattern: enqueue, then have a worker pool call `Runner.Run`).
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 There is no `Session` *type* per se. The closest things:
 
@@ -643,7 +695,7 @@ There is no `Session` *type* per se. The closest things:
 
 What you'd traditionally call a "session" (`tenant_id`, `user_id`, `created_at`, `model`, `summary`) is **not in the framework**. You build that around the framework, persist it in your DB, and re-construct the `Runner` + `Agent` from it per request.
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 - Messages (history): not stored directly on the run session — they live inside `State.Messages` (the `compose.Graph` per-run local state, `adk/react.go:40-53`) and are reconstructed from `runSession.Events` by `flowAgent.genAgentInput` (`adk/flow.go:258-311`).
 - Tool call history: implicit in `Events` (each tool call is an event).
@@ -652,13 +704,13 @@ What you'd traditionally call a "session" (`tenant_id`, `user_id`, `created_at`,
 - Attachments: messages can carry multimodal parts (`UserInputMultiContent`); no separate attachment store.
 - Usage / cost rollup: not on the session; on each `schema.Message.ResponseMeta.Usage` only.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 - One conversation per session (per `Runner.Run` invocation that uses the same `checkPointID`).
 - **No fork/branch model** (you cannot `session.fork()` LangGraph-style). The thread-of-execution is linear; only parallel sub-agents inside one run get lanes.
 - A new `checkPointID` = a new session. You're responsible for the ID scheme.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 **None. Interface-only.** The `CheckPointStore` interface (`internal/core/interrupt.go:27-30`) is:
 
@@ -678,7 +730,7 @@ Possibilities you'd build (none are provided):
 - BoltDB / SQLite for local dev
 - In-memory (for tests; `bridgeStore` in `adk/interrupt.go:289-316` is the de-facto in-memory implementation but it's framework-internal)
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 **Persistence fires on interrupt only**, not on every message or tool result.
 
@@ -725,7 +777,7 @@ There is **no equivalent of LangGraph's per-task `put_writes`**: Eino does not d
 
 Sync vs. async: synchronous only — `saveCheckPoint` is called inline before the interrupt event is forwarded to the user, so the user can rely on "I saw the interrupt → checkpoint is on disk".
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 Mid-tool-call resume **is supported when you explicitly call `Interrupt` / `StatefulInterrupt` inside the tool** (`adk/interrupt.go:60-112`). After such a call:
 - The interrupt signal propagates up through `CompositeInterrupt` for any wrapping workflow / agent-tool boundaries.
@@ -734,13 +786,13 @@ Mid-tool-call resume **is supported when you explicitly call `Interrupt` / `Stat
 
 A crash *without* a deliberate interrupt = lost progress.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 **You choose.** `checkPointID` is just a string passed to `CheckPointStore.Get` / `Set` (`internal/core/interrupt.go:27-30`). No format constraints, no tenant prefixing built in. If you want `tenant:user:conversation-uuid`, build it yourself.
 
 The internal `bridgeCheckpointID = "adk_react_mock_key"` (`adk/interrupt.go:287`) is a sentinel for the internal "bridge" store used by `agentTool` boundaries; users never set it.
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 The `CheckPointStore` interface (`internal/core/interrupt.go:27-30`, re-exported as `adk.CheckPointStore` and `compose.CheckPointStore`) is **the** integration point. You implement two methods on `[]byte`. There is no schema, no migration helper, no versioning hook.
 
@@ -767,7 +819,7 @@ func (m *bridgeStore) Set(_ context.Context, _ string, checkPoint []byte) error 
 }
 ```
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 **No general migration helper for user state.** The framework migrates *its own* internal state types across versions — for example `preprocessADKCheckpoint` (`adk/interrupt.go:247-261`) byte-patches v0.8.0–v0.8.3 gob names back to v0.7-compatible names, and `preprocessComposeCheckpoint` (`adk/chatmodel.go:1138-1165`) routes them through a compat decoder. There is also `compose.MigrateCheckpointState` (`compose/checkpoint.go:231-244`) which lets framework code apply a `migrate(state any) (any, bool, error)` to all nested states in a checkpoint tree.
 
@@ -776,20 +828,20 @@ But for **your** custom Go types stored in `runSession.Values` or `state.Extra`,
 - Register custom types with `schema.RegisterName[T]("a_unique_name")` (`adk/handler.go:340-356` enforces this with a useful error message at `SetRunLocalValue` time).
 - **Removing or renaming fields breaks old checkpoints** unless you write a compat decoder yourself.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 - **Export**: yes — `r.store.Get(ctx, checkPointID)` returns the gob blob. You can save it elsewhere or replay.
 - **Replay**: yes — `Runner.Resume(ctx, checkPointID)` re-enters from the saved point. For *deterministic* replay (debugging mode), Eino does not ship a "replay from start with frozen RNG / frozen LLM responses" framework like LangSmith provides; you'd build it yourself by mocking the `model.BaseChatModel` against recorded outputs.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-**Not provided.** No long-term memory / vector recall is bundled. You can compose `components/retriever` adapters yourself (eino-ext has Qdrant, Milvus, Redis, OpenSearch, ES, Volc VikingDB, Dify) as RAG nodes in a graph or as tool wrappers — see Q15.
+**Not provided.** No long-term memory / vector recall is bundled. You can compose `components/retriever` adapters yourself (eino-ext has Qdrant, Milvus, Redis, OpenSearch, ES, Volc VikingDB, Dify) as RAG nodes in a graph or as tool wrappers — see Q17.
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
+## 6. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 Inputs to `Runner.Run`:
 
@@ -827,7 +879,7 @@ func (r *Runner) Run(ctx context.Context, messages []Message,
 
 There is **no typed `Spec T` / `Context T` field** like LangGraph's `Runtime[ContextT]` — everything goes through `WithSessionValues(map[string]any)` or `context.Context`.
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 Two parallel mechanisms:
 
@@ -837,7 +889,7 @@ Two parallel mechanisms:
 
 Sample call path: `Runner.Run` → `flowAgent.Run` → `ChatModelAgent.Run` → `compose.Runnable.Invoke` → `ToolsNode` super-step → `tool.InvokableRun(ctx, args, opts...)`. The ctx is the same one passed in (with added internal keys for address segments, run context, callbacks).
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 `tool.InvokableTool` (`components/tool/interface.go:42-47`):
 
@@ -859,7 +911,7 @@ type EnhancedInvokableTool interface {
 }
 ```
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 **Not first-class. You build it yourself, two patterns**:
 
@@ -917,7 +969,7 @@ func (h *MyHandler) WrapInvokableToolCall(ctx context.Context, endpoint adk.Invo
 
 **Honesty**: the LangGraph `InjectedToolArg` story (declared at tool definition time, stripped from LLM-visible schema, injected from `Runtime.context`) is **strictly cleaner** than Eino's approach. Eino requires you to write middleware and remember to omit the field from the tool's JSON schema yourself.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 **Yes — via `ChatModelAgentMiddleware.BeforeAgent`** (`adk/handler.go:117`), which gets a mutable `ChatModelAgentContext` with the `Tools []tool.BaseTool` slice you can replace:
 
@@ -948,27 +1000,25 @@ func (w *wrapper) Generate(ctx context.Context, input []*schema.Message, opts ..
 }
 ```
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 **Not a first-class field.** Tenancy lives in (a) `context.Context` (the recommended idiom), (b) `runSession.Values` via `WithSessionValues(map[string]any{"tenantId": "acme"})`. You can read it back inside any handler / tool via `adk.GetSessionValue(ctx, "tenantId")` or `ctx.Value(...)`.
 
 No type safety, no validation, no "session.tenant_id" property.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 **Not built-in.** The caller's identity reaches the tool only because **you** put it on `context.Context`. There is no automatic Okta-token-pass-through or per-tool-call STS / impersonation.
 
 If you want tools to execute under per-user permissions (e.g. BigQuery queries as the requester), you instrument it: hook in `BeforeAgent` to extract identity from ctx → set on the BQ client used by each tool's `InvokableRun`.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
-**Runtime filtering only.** Scopes (global / tenant / user) at registration are **not provided** — you can't say "register skill X as tenant=acme only at registry layer." You'd build that yourself by writing a custom `skill.Backend` that returns different `FrontMatter` lists per ctx tenant — see Q9.
+**Runtime filtering only.** Scopes (global / tenant / user) at registration are **not provided** — you can't say "register skill X as tenant=acme only at registry layer." You'd build that yourself by writing a custom `skill.Backend` that returns different `FrontMatter` lists per ctx tenant — see Q11.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 **Not provided.** No USD budget enforcement, no per-tenant token ceiling. You can read token counts off `ResponseMeta.Usage` per assistant message and enforce yourself in a `callbacks.Handler.OnEnd` that aborts via `context.CancelFunc`.
-
----
 
 ### ⭐ Required — light usage example
 
@@ -1031,9 +1081,9 @@ This works. The main rough edges vs. LangGraph: (a) tool-arg injection is hand-r
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 Three layers, each with multiple hook points.
 
@@ -1078,23 +1128,23 @@ Plus three utility functions for middlewares:
 - `adk.SendEvent(ctx, *AgentEvent)` (`adk/handler.go:325`) — emit a custom event into the iterator
 - `adk.SetRunLocalValue(ctx, key, value)` / `GetRunLocalValue` / `DeleteRunLocalValue` — per-run state, persisted across interrupt/resume
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 - **`callbacks.Handler`s fire in registration order**, but with NO inter-handler context flow — handler 1's `OnStart` mutated ctx does not visibly affect handler 2's `OnStart`. So users should treat them as independent observers.
 - **`ChatModelAgentMiddleware.WrapModel` / `WrapToolCall` form a chain**: first registered is the outermost wrapper. So `[A, B, C]` produces `A(B(C(model)))`. Each wrapper can pass a modified ctx to `next`.
 - **`BeforeAgent` / `BeforeModelRewriteState` run sequentially in registration order**, with the modified ctx + state passed through.
 - **Tool dispatch within one super-step is parallel by default** (`ToolsNodeConfig.ExecuteSequentially: false`). Middlewares around tool calls run per-call, in goroutines.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 - **Inject system message at session start**: ✅ via `BeforeAgent` mutating `runCtx.Instruction` (string concat). Or via `WithSessionValues(map[string]any{"Time": "2026-05-16", ...})` if your instruction has f-string placeholders.
 - **Expand user input (slash commands, timestamp, attachments)**: ✅ via `BeforeModelRewriteState` mutating the message list, OR a `GenModelInput` function on `ChatModelAgentConfig`.
 - **Mutate messages list before each LLM call (prompt cache, redaction)**: ✅ via `BeforeModelRewriteState` (`adk/handler.go:128`) or `WrapModel` which gets `input []*schema.Message`.
-- **Mutate tool input before dispatch (inject `tenantId`)**: ✅ via `WrapInvokableToolCall` or `compose.ToolsNodeConfig.ToolArgumentsHandler` — see Q4.4.
+- **Mutate tool input before dispatch (inject `tenantId`)**: ✅ via `WrapInvokableToolCall` or `compose.ToolsNodeConfig.ToolArgumentsHandler` — see Q6.4.
 - **Mutate tool result before it returns to LLM (redact, summarize, truncate)**: ✅ via `WrapInvokableToolCall` — call `endpoint(...)` then mutate the returned string. The `summarization` middleware (`adk/middlewares/summarization/summarization.go`) is a real-world example that does this at the message-list level when token count exceeds a threshold.
 - **Emit additional tool calls in response to a tool result (PostToolUse with additional_messages)**: **Partial** ❌. You can emit a *custom event* via `adk.SendEvent`, but you cannot append synthetic ToolMessages that the LLM will see on the next turn without going through the message list mutation. There is no direct `additional_messages` analogue. Workaround: `WrapInvokableToolCall` can call `endpoint` multiple times, or do the work inline and concatenate results — but the LLM only sees one tool result per tool call. **Genuine gap vs. Claude Agent SDK / LangGraph.**
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 **Yes — `adk/middlewares/summarization/`** ships a built-in summarization middleware:
 
@@ -1118,7 +1168,7 @@ Configurable trigger (token threshold), pluggable token counter, customizable su
 
 There is also a separate `adk/middlewares/reduction/` middleware for tool-result reduction (truncate large tool outputs in-place).
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 - **Provider-cache-aware**: indirectly. The framework preserves message-list stability (it does not reshuffle history), so Anthropic / OpenAI prompt caching can land naturally when the same prefix is sent repeatedly. There is **no first-class `cache_control` breakpoint placement helper** — you write it yourself by setting Anthropic-specific fields on the `*schema.Message.Extra` via the Claude adapter's hooks.
 - **Stable-prefix preservation**: yes, by default — `BeforeModelRewriteState` middlewares should append rather than prepend; otherwise the cache breaks.
@@ -1126,7 +1176,7 @@ There is also a separate `adk/middlewares/reduction/` middleware for tool-result
 
 The `PromptTokenDetails.CachedTokens` field on `schema.TokenUsage` (`schema/message.go:710-714`) lets you observe cache hit rate.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 **Yes — `adk/middlewares/reduction/`** + the **filesystem offloading pattern** (`adk/middlewares/filesystem/large_tool_result.go`):
 
@@ -1135,7 +1185,7 @@ The `PromptTokenDetails.CachedTokens` field on `schema.TokenUsage` (`schema/mess
 
 This is the closest match to Claude Code's "progressive disclosure" pattern in any Go framework benchmarked.
 
-### 5.7 Architectural diagram of hook fire-points
+### 7.7 Architectural diagram
 
 ```
 Runner.Run(ctx, messages)
@@ -1230,17 +1280,19 @@ agent, _ := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 
 ---
 
-## 6. Agent API Exposition (HTTP/network surface)
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
-**No.** Eino has no `Server`, no `ListenAndServe`, no `cmd/server`. Grep confirms: outside of `callbacks/interface.go`'s mentions of HTTP-shaped tracing, the core eino repo does not import `net/http` for serving purposes. You bring your own HTTP layer (gin, hertz, fiber, gorilla/mux, chi, stdlib).
+**No.** Eino has no `Server`, no `ListenAndServe`, no `cmd/server`, no first-party HTTP package that exposes an agent. Grep confirms: outside of `callbacks/interface.go`'s mentions of HTTP-shaped tracing, the core eino repo does not import `net/http` for serving purposes. You bring your own HTTP layer (gin, hertz, fiber, gorilla/mux, chi, stdlib).
 
-### 6.2 Streaming transport
+The framework is **library-only**.
+
+### 8.2 HTTP streaming transport
 
 **Not provided — BYO.** Inside the process, the runtime uses `*AsyncIterator[*AgentEvent]` (Go channel). For network exposure, you serialize each frame yourself. Typical pattern: SSE.
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
 **Not provided — BYO.** You write the handler:
 
@@ -1262,36 +1314,36 @@ http.HandleFunc("/v1/runs", func(w http.ResponseWriter, r *http.Request) {
 })
 ```
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
-**Not provided.** Whatever you write in your handler. Ray uses an internal SSE format defined in `pkg/ai/agent/session.go`.
+**Not provided.** Whatever you write in your handler. There is no Eino-defined wire schema; you serialize `AgentEvent` to whatever JSON shape your frontend expects (Vercel AI SDK protocol is a common target).
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
-**Not provided.** Auth is your host's responsibility.
+**Not provided.** Auth is your host's responsibility. JWT validation, tenant scoping, etc. all happen in your router's middleware before you call `runner.Run`.
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 The `Runner.Resume(ctx, checkPointID)` method exists at the Go API level. You expose it as an HTTP endpoint yourself — e.g. `POST /v1/runs/{id}/resume` calls `runner.Resume(ctx, runID)`.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
-**Not first-class.** You cancel via `context.CancelFunc` in your host code — when the HTTP request is aborted, `r.Context().Done()` fires, your goroutine sees the cancel, and the agent's in-flight model / tool calls receive the cancellation through ctx propagation. The framework doesn't ship a separate "abort run" API.
+**Not first-class.** You cancel via `context.CancelFunc` in your host code — when the HTTP request is aborted, `r.Context().Done()` fires, your goroutine sees the cancel, and the agent's in-flight model / tool calls receive the cancellation through ctx propagation. The framework doesn't ship a separate "abort run" API or HTTP route.
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
-**Partial.** Tool-call deltas come through in the model's streamed `*schema.Message` chunks (each chunk has `ToolCalls` partial fields with `Index` for merging). The merge logic is in `schema.ConcatMessages`. There's no separate "tool-arg-fragment" event type — you'd extract it from the streamed message chunks yourself.
+**Partial.** Tool-call deltas come through in the model's streamed `*schema.Message` chunks (each chunk has `ToolCalls` partial fields with `Index` for merging). The merge logic is in `schema.ConcatMessages`. There's no separate "tool-arg-fragment" event type — you'd extract it from the streamed message chunks yourself and forward over your own wire format.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 **Not first-class as an API.** At the runtime level:
 - Tool code calls `adk.Interrupt(ctx, info)` or `adk.StatefulInterrupt(ctx, info, state)` to pause.
 - Runner saves checkpoint, sends `InterruptedAgentEvent` to the iterator.
 - Caller stores the human's verdict somewhere and calls `runner.ResumeWithParams(ctx, checkpointID, &adk.ResumeParams{Targets: map[string]any{"<interrupt-address>": <approval-data>}})`.
 
-You expose this as an HTTP endpoint yourself: `POST /v1/runs/{id}/approve` reads the verdict, calls `ResumeWithParams`. There is no shipped HITL HTTP route.
+You expose this as an HTTP endpoint yourself: `POST /v1/runs/{id}/approve` reads the verdict, calls `ResumeWithParams`. There is no shipped HITL HTTP route, no pause state observable to the HTTP client other than the interrupt event your serializer emits.
 
-### 6.10 Tool-call state reconstruction
+### 8.10 Tool-call state reconstruction
 
 `tool_use` (assistant message with `ToolCalls`) and `tool_result` (tool message with `ToolCallID`) are linked by **explicit `ToolCallID`**. The assistant's `ToolCall.ID` becomes the tool message's `ToolCallID`. The framework guarantees ordering: when multiple tool calls run in parallel, the resulting `[]*schema.Message` from `ToolsNode` has tool messages in the same order as the input tool calls (`compose/tool_node.go:60-62`).
 
@@ -1312,9 +1364,9 @@ ToolCallID string `json:"tool_call_id,omitempty"`  // ← linkage key on tool me
 ToolName   string `json:"tool_name,omitempty"`
 ```
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
-**Not provided.** Your HTTP host owns this.
+**Not provided.** Your HTTP host owns `/healthz`, `/readyz`, `/metrics`, and SIGTERM draining. There is no `runner.Shutdown()` analogue that waits for in-flight runs to finish.
 
 ### ⭐ Required — light usage example
 
@@ -1349,13 +1401,13 @@ curl -X POST https://predict.dailymotion.com/v1/runs/conv-789/approve \
   -d '{"interruptAddress":"agent:long-running agent-supervisor/tool:audienceCreate","approved":true,"comment":"OK"}'
 ```
 
-**None of these endpoints exist in Eino. You write all four.**
+**None of these endpoints exist in Eino. You write all four.** Recommended host-side pattern: wrap `runner` behind your own router (gin / hertz / mux), serialize `AgentEvent` to SSE frames, surface `runner.ResumeWithParams` for HITL.
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 Three first-class mechanisms (all live in your process):
 
@@ -1367,24 +1419,24 @@ Three first-class mechanisms (all live in your process):
 
 Plus prebuilt patterns: `supervisor.New` (`adk/prebuilt/supervisor/supervisor.go:99`), `deep.NewDeepAgent` (`adk/prebuilt/deep/deep.go`), `planexecute.New` (`adk/prebuilt/planexecute/plan_execute.go:862`).
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 - **Struct-registered at boot**: yes — `ChatModelAgentConfig` + `ParallelAgentConfig` + `SupervisorConfig` are all Go structs assembled in code.
 - **Markdown file**: yes, via the `skill` middleware (`adk/middlewares/skill/`): SKILL.md files can specify `agent: <name>` and `context: fork_with_context`, causing the skill to spawn a sub-agent via the configured `AgentHub`.
 - **Inlined per call**: no — sub-agents must be constructed before `Runner.Run`.
 - **LLM-generated at runtime**: **no — not supported**. The parent LLM cannot generate a sub-agent config on the fly with a custom prompt; configs are static at the Go struct level.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 **Not supported.** This is a deliberate-feel: the static-typing of `Agent` configuration is enforced by Go. The closest workaround is the `taskTool` pattern (`adk/prebuilt/deep/task_tool.go:125-174`) where the LLM picks a `subagent_type` from a fixed registry and supplies a free-text `description`, but the sub-agent itself is pre-registered.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 - Single result string (the last assistant message content) returned via `agentTool.InvokableRun` (`adk/agent_tool.go:236-248`).
 - Optionally: all sub-agent events streamed up to the parent's iterator via `ToolsConfig.EmitInternalEvents: true` — useful for end-user UI streaming, NOT recorded in parent's session (`adk/chatmodel.go:115-122`).
 - Linked back to the parent's `tool_use.id` via the `tool_call_id` on the wrapping tool message.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 - Sequential: `runSequential` (`adk/workflow.go:172+`)
 - Parallel: `runParallel` (`adk/workflow.go:427-551`) — **here's the actual `sync.WaitGroup` + goroutine fan-out**:
@@ -1432,7 +1484,7 @@ Plus prebuilt patterns: `supervisor.New` (`adk/prebuilt/supervisor/supervisor.go
 
 For agents-as-tools (`NewAgentTool`), parallel execution comes for free because `ToolsNode` runs tool calls in parallel goroutines by default — so an LLM that emits N agent-tool calls in one assistant message gets N parallel sub-agent runs.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 - For workflow `Parallel`: each branch forks the `runContext` via `forkRunCtx` (`adk/runctx.go:328-358`), creating a per-lane `runSession` that **shares Values + valuesMtx** with the parent but has its own `LaneEvents` slice. So sibling parallel agents see each other's session values but NOT each other's events until commit.
 - For `agentTool`: `withSharedParentSession()` (`adk/call_option.go:64-68`) keeps the session Values shared; the inner agent runs with its own `runContext` but shares the parent's session for k-v.
@@ -1440,7 +1492,7 @@ For agents-as-tools (`NewAgentTool`), parallel execution comes for free because 
 
 You can explicitly isolate by calling `ClearRunCtx(ctx)` (`adk/runctx.go:383-385`) — useful when nesting an entire multi-agent system inside a tool and you don't want context leakage.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 - `callbacks.Handler.OnStart` / `OnEnd` fire once per agent boundary (parent + each sub-agent). The `RunInfo.Component = ComponentOfAgent` and `RunInfo.Type = "ChatModel"` / `"Sequential"` / `"Parallel"` / `"Loop"` / `"Supervisor"` distinguishes types (`adk/callback.go:130-135`).
 - Sub-agent **events** (per-message, per-tool-call) are NOT in the parent iterator by default — opt in via `ToolsConfig.EmitInternalEvents: true`.
@@ -1503,13 +1555,13 @@ parent, _ := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 
 ---
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 **Yes — first-class via `adk/middlewares/skill/`.** Loaded as a `ChatModelAgentMiddleware`; surfaces a `skill` (renameable) tool to the LLM. Closest match in any Go framework benchmarked to Claude Code's SKILL.md model.
 
-### 8.2 File format
+### 10.2 File format
 
 `SKILL.md` with **YAML frontmatter** (`adk/middlewares/skill/skill.go:48-54`):
 
@@ -1543,7 +1595,7 @@ type Skill struct {
 }
 ```
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 **Pluggable `Backend` interface** (`adk/middlewares/skill/skill.go:66-69`):
 
@@ -1565,7 +1617,7 @@ backend, _ := skill.NewBackendFromFilesystem(ctx, &skill.BackendFromFilesystemCo
 
 The filesystem backend scans **first-level subdirectories** for `SKILL.md` (not recursive). You can also implement `Backend` against Postgres, S3, an HTTP API, etc.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Tool call.** The LLM sees a `skill` tool (or whatever you renamed it to via `SkillToolName`). It invokes the skill by name; the middleware loads the skill content and either:
 - **Inline mode** (`context: ""` blank): returns the markdown body as the tool result → next turn the LLM has the skill content in its context.
@@ -1574,11 +1626,11 @@ The filesystem backend scans **first-level subdirectories** for `SKILL.md` (not 
 
 If `model: <name>` is set in frontmatter and the skill runs inline, `setActiveModel` (`adk/middlewares/skill/skill.go:414-416`) stores the model name in a run-local value, and `WrapModel` swaps the model for subsequent calls.
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Lazy.** The tool description sent to the LLM enumerates available skills (name + 1-line description from frontmatter) via `renderToolDescription` (`adk/middlewares/skill/skill.go:610-623`). The full markdown body is only fetched when the LLM invokes the skill. This keeps initial context small even with hundreds of skills.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 **Possible but you build it.** The `Backend` interface gets `ctx context.Context` on every `List` and `Get`, so you can filter by tenant from ctx:
 
@@ -1594,7 +1646,7 @@ func (b *tenantBackend) List(ctx context.Context) ([]skill.FrontMatter, error) {
 
 There is **no first-class skill-scope field** in `FrontMatter`. You add it in your backend's metadata or in a sidecar file.
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 - A skill in fork mode can have its own sub-agent that itself has tools, sub-agents, skills, etc. — full recursion.
 - The skill body is markdown; it can reference files in the skill's `BaseDirectory` (the directory containing SKILL.md is passed to the sub-agent's instruction context via `userContent` template — `adk/middlewares/skill/skill.go:457-479`). So you can bundle scripts, JSON examples, prompt templates alongside SKILL.md.
@@ -1655,9 +1707,9 @@ iter := runner.Query(ctx, "Take this brief and build an audience: 'Travel enthus
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **No — BYO.** There is no `Registry`, no `SkillSource`, no versioning, no publishing workflow. The closest seams are the pluggable interfaces:
 
@@ -1667,7 +1719,7 @@ iter := runner.Query(ctx, "Take this brief and build an audience: 'Travel enthus
 
 You build a Resource Manager *on top of* these. None are layered, none are scoped at the platform level, none have versioning.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source | Provided | How configured |
 |---|---|---|
@@ -1681,7 +1733,7 @@ You build a Resource Manager *on top of* these. None are layered, none are scope
 
 **The skill middleware ships only the filesystem backend; everything else is wired by you.** Same for agents (only your in-process Go agents can be in an `AgentHub` you implement) and models.
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 **Not provided.** You'd implement a `Backend` that composes multiple backends with your priority logic:
 
@@ -1694,27 +1746,27 @@ func (b *layeredBackend) List(ctx context.Context) ([]skill.FrontMatter, error) 
 }
 ```
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 **Not provided.** Skills are mutable files (or rows in your store); no semver, no content-hash refs, no rollback. If you want versioning, your backend produces it.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
-**Not provided at framework level.** Your `Backend` implementation does the scoping (see Q8.6).
+**Not provided at framework level.** Your `Backend` implementation does the scoping (see Q10.6).
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 **Not provided.** No draft / review / promote / multi-environment workflow. Build with git tags + your own CI.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 **Not provided.** No lifecycle states (`draft`, `active`, `deprecated`, `retired`), no RBAC at the resource layer.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 **Not provided as a top-level Resource Manager API.** The `Backend` interface (`List` + `Get`) IS the programmatic API at the skill layer. There is no cross-resource registry.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 **Not provided.** Your `Backend.List` runs on every tool-description-generation. You add caching, watchers, sync intervals yourself.
 
@@ -1759,9 +1811,9 @@ This is **100% custom code**. Eino provides the seam (`Backend`); the platform i
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 On each assistant message's `ResponseMeta.Usage` (`schema/message.go:603-611`):
 
@@ -1783,19 +1835,19 @@ type TokenUsage struct {
 
 You read it off `message.ResponseMeta.Usage` after a generation. Per-turn / per-session aggregation is your responsibility.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 **Per-call**: yes (on `ResponseMeta.Usage`). **Per-turn / per-session / per-tenant**: not provided as rollups; build with `callbacks.Handler.OnEnd` summing into your metric sink.
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 **Not provided.** Eino reports tokens; you convert to USD using a price table you maintain (it's a simple lookup since `RunInfo.Type` tells you the model adapter).
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 **Not provided.** First-party rollup absent. BYO via metadata-tagged tracing: every `callbacks.Handler.OnStart` knows the ctx (which holds tenantId via `WithSessionValues`), emit metrics tagged by tenant.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 Three first-party tracing exporters (all in eino-ext as separate Go modules):
 
@@ -1807,11 +1859,11 @@ Plus **CozeLoop** for ByteDance's internal tracing platform.
 
 All are wired in via `callbacks.AppendGlobalHandlers(handler)` at process boot, after which **every** component invocation (Graph, ChatModel, Tool, Retriever, Indexer, Embedding, Lambda) is automatically traced.
 
-### 10.6 Audit logging (who / when / what)
+### 12.6 Audit logging (who / when / what)
 
 **Not first-class as separate from tracing.** You'd write a `callbacks.Handler` (or use the agent-level `WithCallbacks` option) that emits structured audit events to your sink. Tamper-evident logging (hash chain, signed events) is not provided.
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 ```go
 // schema/message.go:680  (Message struct)
@@ -1874,9 +1926,9 @@ callbacks.AppendGlobalHandlers(&TokenMetricHandler{inHist: ..., outHist: ...})
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 **Core repo (`eino`)**: zero shipped tool implementations. The `filesystem` middleware bundles 7 tools but only if you wire it in:
 
@@ -1908,13 +1960,13 @@ callbacks.AppendGlobalHandlers(&TokenMetricHandler{inHist: ..., outHist: ...})
 
 There is no `Monitor` (stream events from a background process), no `Edit` with rich anchor matching (the filesystem `edit_file` is simpler than Claude Code's), no `Read` with auto-snippet line-numbering. **The catalog is broader by name but shallower by depth than Claude Agent SDK's bundled tools.**
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 - **Filesystem middleware**: medium. `read_file` supports offset/limit and ships an oversize-result-stash-to-FS pattern (`large_tool_result.go`). `edit_file` does single-anchor string replace. There's no `Edit` analogue with multi-anchor / replace-all / smart whitespace handling.
 - **MCP tools**: thin client wrappers around `mcp-go` / `go-sdk`; quality depends on the SDK.
 - **Search tools**: thin REST wrappers.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 The simplest possible tool (`components/tool/utils/invokable_func.go:46-53`):
 
@@ -1938,19 +1990,19 @@ weatherTool, _ := utils.InferTool(
 
 For options-aware tools: `utils.InferOptionableTool`. For manual schema control: `utils.NewTool(toolInfo, fn)`. For full control: implement `tool.InvokableTool` directly.
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 `utils.InferTool` runtime-validates LLM-generated args by unmarshalling into the typed struct via `sonic`. **Unmarshal errors propagate to the model** as tool errors. There is no Pydantic-level validation (you can layer `go-playground/validator/v10` yourself — Ray does this in `pkg/conversation/`).
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 **Yes** — `StreamableTool` returns `*schema.StreamReader[string]` (`components/tool/interface.go:53-57`). The tool can yield chunks; the framework concatenates / forwards them. `EnhancedStreamableTool` does the same for multimodal results.
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 **Yes — first-class via two parallel adapters in eino-ext**:
 
@@ -1959,19 +2011,19 @@ For options-aware tools: `utils.InferOptionableTool`. For manual schema control:
 
 Pattern: `mcp.GetTools(ctx, &mcp.Config{Cli: mcpClient, ToolNameList: ["search"]})` returns `[]tool.BaseTool` you append to your `ToolsConfig.Tools`. The tools' JSON schema is auto-translated from MCP `InputSchema` via `jsonschema.Schema` (`components/tool/mcp/mcp.go:80-101`).
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 **Not provided in eino-ext.** You can expose Eino tools as MCP servers by using `mark3labs/mcp-go`'s server API yourself, but there's no `eino.NewMCPServer` helper.
 
-### 12.3 Transports
+### 14.3 Transports
 
 Whatever the underlying SDK supports. `mark3labs/mcp-go` supports stdio, SSE, HTTP; the official `go-sdk` supports stdio + Streamable HTTP. In-process / SDK transport: yes (in-process clients are trivial).
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 Possible — you create an in-process `client.MCPClient` that bridges directly to a server in your Go code. Not a dedicated Eino API; just normal MCP client usage.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 `Config.CustomHeaders` (`components/tool/mcp/mcp.go:46-47`) lets you pass Bearer tokens or any headers on every MCP call. `Config.Meta` (`mcp.Meta`) lets you pass custom metadata. Reconnection / health / version negotiation are delegated to the underlying SDK. The framework does not wrap them.
 
@@ -1979,9 +2031,9 @@ Bonus: `components/prompt/mcp/` exposes MCP **prompts** as `prompt.ChatTemplate`
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 Eleven first-party adapters in eino-ext (`components/model/`):
 
@@ -2000,24 +2052,24 @@ Eleven first-party adapters in eino-ext (`components/model/`):
 
 Any provider implementing `model.BaseChatModel` / `model.ToolCallingChatModel` can be plugged in. No LiteLLM-style gateway is bundled; OpenRouter or BYO is the workaround.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 **Not first-party as a router.** Achievable per pattern:
-- Different sub-agents with different `Model` (e.g. supervisor on Claude Opus, workers on Claude Haiku) — see Q13.5.
+- Different sub-agents with different `Model` (e.g. supervisor on Claude Opus, workers on Claude Haiku) — see Q15.5.
 - The `skill` middleware can specify `model: <name>` per skill, fetched from `ModelHub` (`adk/middlewares/skill/skill.go:79-88`) — gives per-skill model selection.
 - Inside a single agent, `WrapModel` can swap models per turn based on the current message list.
 
 No central registry / cost router ships.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 **Not provided as model-fallback.** What ships is **`ModelRetryConfig`** (`adk/chatmodel.go:307`) — retries on the *same* model with backoff. To fall back to a different model on outage, you write a `WrapModel` that catches `next.Generate(...)` errors and dispatches to a backup.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 Not within a single LLM call (you can't switch the LLM mid-stream). At turn boundaries: yes, via `WrapModel`. The `skill` middleware's `setActiveModel` (`adk/middlewares/skill/skill.go:414-416`) is a real example of mid-run model switching at a turn boundary.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 **Yes — first-class.** Each `ChatModelAgentConfig.Model` is independent. So:
 
@@ -2035,33 +2087,33 @@ Or via the `supervisor` prebuilt (`adk/prebuilt/supervisor/supervisor.go`).
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 **Not provided.** Eino is a Go backend. Frontend hooks (React `useChat`, Vue equivalents) are not part of the framework. Your frontend connects to *your* HTTP layer and parses *your* SSE format.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 **Not provided.**
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 **Not provided.**
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
 Standard. You serialize each `AgentEvent` to JSON over SSE, your React/Vue frontend parses it. Vercel AI SDK protocol is a popular target; nothing in Eino assumes it.
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 **Not built-in.** No `Memory` type, no `MemoryStore`, no auto-recall. You can build cross-session memory by combining `components/retriever` (vector search) + a custom system-message-injection middleware.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 **First-class retrieval primitives**:
 
@@ -2083,27 +2135,27 @@ g.AddChatModelNode("llm", cm)
 
 Or wrap a retriever as a tool the agent can call.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 **Not automatic.** The retriever interface's `Retrieve(ctx, query, opts...)` receives ctx, so you pass tenant scope in ctx, and the retriever adapter's `Options.SubIndexes` or query filter respects it. The framework does not enforce — your adapter does.
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 **Not first-party.** PII redaction, prompt-injection detection, hallucination detection: BYO. Write a `ChatModelAgentMiddleware` that runs a regex / classifier / LLM-judge over input and output messages.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
-- **Allow/deny lists**: BYO via `BeforeAgent` middleware filtering `runCtx.Tools` (see Q4.5).
+- **Allow/deny lists**: BYO via `BeforeAgent` middleware filtering `runCtx.Tools` (see Q6.5).
 - **`canUseTool`-style hook**: closest analogue is `WrapInvokableToolCall` returning an error from the wrapper to deny a call.
 - **Per-tool ACL**: BYO.
 
 There is no built-in tool-execution sandbox (chroot, container, V8 isolate). Tools run with the same OS permissions as your Go process.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 eino-ext ships two `filesystem.Backend` implementations under `adk/backend/`:
 
@@ -2112,35 +2164,35 @@ eino-ext ships two `filesystem.Backend` implementations under `adk/backend/`:
 
 No E2B / Daytona / Modal / code-interpreter direct integration.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 **Default-allow.** All registered tools are visible to the LLM unless you explicitly filter them. The skill middleware enumerates all available skills by default. No "you must call `agent.allowTool('X')` before the LLM can use it" gate.
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 **Not provided — BYO.** No `Dataset`, no `Evaluator`, no `EvalRun`. Roll your own with Go's `testing` package + recorded `model.BaseChatModel` mocks.
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 **Not provided — BYO.** Write a function that calls an LLM with a rubric prompt over the agent's output. Eino itself does not ship a judge framework.
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 **Not provided.** What you can do: in CI, run the agent against a fixture set, assert outputs match expected (or judge-score above a threshold), block PR on failure.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 **Not provided locally.** Traces in Langfuse / LangSmith / APMPlus give you remote viewing; there is no local trace viewer / step-through TUI.
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 **Not first-party.** No `eino dev` CLI, no playground, no TUI. The CloudWeGo team ships a **DevOps tooling** suite that includes an IDE plugin + visual orchestration plugin + visual debug plugin (referenced in `llms.txt`):
 
@@ -2150,15 +2202,15 @@ No E2B / Daytona / Modal / code-interpreter direct integration.
 
 These plugins are JetBrains/IntelliJ-targeted (the docs assume IntelliJ) and primarily Chinese-documented. There is no web-based playground equivalent to Mastra's or LangGraph's.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 Local: none built-in. Remote: Langfuse / LangSmith / APMPlus / CozeLoop dashboards.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 **Not provided** (there's no local sandbox to switch in).
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 For Go code: standard Go tooling (`air`, `reflex`). For SKILL.md: the filesystem `Backend` re-reads files on every `List` / `Get`, so editing a SKILL.md and re-running picks up changes without restart. Same for any custom `Backend` you write.
 

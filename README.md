@@ -46,7 +46,8 @@ Each framework is scored across the following capability areas.
 3. **HTTP API** — Whether the framework ships ready-to-use web API components to interface with the agent, or you have to wrap one yourself.
 4. **Agent Runtime** — Whether the framework can handle many users running agents at the same time without breaking down.
 5. **Sessions & Persistence** — Whether the framework ships a session store to persist conversation messages and state.
-6. **Agent Harness** — How the framework manages the agent loop, interacts with models and tools, and exposes messages and events.
+6. **Agent Loop** — How the framework manages the agent loop, dispatches tools, and exposes messages and events.
+7. **Multi-Model** — Whether the framework can switch between multiple model providers, route per task, fall back on failure, and override the model for sub-agents.
 9. **Context Engineering** — How much control the framework gives over what the AI sees each turn, which drives both answer quality and cost.
 10. **Memory & Knowledge** — Whether the AI can remember things about each user across conversations and tap into your company's knowledge base.
 11. **Skills** — Whether you can extend the agent with packaged capabilities (e.g. "expense reports", "support tickets") without rebuilding the agent each time.
@@ -55,10 +56,11 @@ Each framework is scored across the following capability areas.
 14. **Tools** — How rich the catalog of built-in AI tools is (search, send email, edit files…) and how easy it is to add your own.
 15. **MCP** — Whether the framework supports MCP.
 16. **Safety & Policy** — Whether the framework provides guardrails to keep the AI from saying or doing things you do not want.
-17. **Agent Observability** — Whether you can see what the AI is actually doing in production, debug it, and prove it behaved correctly.
-18. **Multi-tenancy** — Whether the runtime can pick the tool set per tenant, scope the skill library to a tenant, and inject tenant identity into tool calls server-side rather than via LLM-provided arguments.
-19. **Eval / testing** — Whether the framework provides AI agent evaluation and testing capabilities to measure performance and behavior.
-20. **Local sandbox / dev UX** — Whether the framework provides a local sandbox and development environment to build and iterate on the agent day-to-day.
+17. **Observability** — Whether you can see what the AI is actually doing in production, debug it, and prove it behaved correctly.
+18. **Cost & Usage** — Whether token usage and dollar cost can be tracked and rolled up per turn, session, conversation, or tenant.
+19. **Multi-tenancy** — Whether the runtime can pick the tool set per tenant, scope the skill library to a tenant, and inject tenant identity into tool calls server-side rather than via LLM-provided arguments.
+20. **Eval / testing** — Whether the framework provides AI agent evaluation and testing capabilities to measure performance and behavior.
+21. **Local sandbox / dev UX** — Whether the framework provides a local sandbox and development environment to build and iterate on the agent day-to-day.
 
 ## Frameworks
 

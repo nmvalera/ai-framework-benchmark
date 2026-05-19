@@ -1,33 +1,100 @@
-# Claude Agent SDK Python — Benchmark Study
+# Claude Agent SDK Python — Benchmark Analysis
 
 > **Repo**: https://github.com/anthropics/claude-agent-sdk-python
-> **Commit studied**: `c352a509929a712de65637cbafafcc3a1e3ba4f6`
+> **Commit analysed**: `c352a509929a712de65637cbafafcc3a1e3ba4f6`
 > **Branch**: `main`
 > **Framework path**: `frameworks/claude-agent-sdk-python`
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
-- **The run loop is not in Python.** Claude Agent SDK Python is a ~5 kLOC Python facade. The actual agent loop (turn boundaries, tool dispatch, planner, hook firing, system-prompt assembly, compaction, skill discovery, sub-agent fan-out, model routing) runs in the **bundled Claude Code CLI** — a Node.js binary spawned via `subprocess` over a stdin/stdout JSON control protocol (`src/claude_agent_sdk/_internal/transport/subprocess_cli.py:225`). The Python side is a transport, typed-message parser, hook callback router, and an in-process MCP host. **You cannot fork the loop without forking Claude Code.**
-- **Open-source, Anthropic-owned, MIT-licensed, but classified `Development Status :: 3 - Alpha`** (`pyproject.toml:17`). Tightly coupled to the bundled CLI version which ships per release (currently `2.1.143`, `src/claude_agent_sdk/_cli_version.py`); the package version itself is at `0.2.82` (released 2026-05-13 with concurrency-doc clarifications).
-- **Hooks are best-in-class.** 10 lifecycle events (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `PreCompact`, `Notification`, `SubagentStart`, `PermissionRequest` — `types.py:259-270`) plus an undocumented-but-real `SessionStart`, all strongly typed per event. Outputs can mutate tool input (`updatedInput`), replace tool output (`updatedToolOutput` works for any tool since 0.1.74), inject `additionalContext`, block (`continue_=False`), or defer the tool (`permissionDecision: "defer"` lands on `ResultMessage.deferred_tool_use`). Matchers fire **concurrently** per event — explicitly documented (`types.py:1766-1771`, change in 0.2.82).
-- **Forcing tool arguments works** via either `can_use_tool` (`PermissionResultAllow.updated_input`) or `PreToolUse` hook (`updatedInput`). Both are out-of-band Python callbacks invoked via the control protocol, so `tenantId` injection is feasible without trusting the LLM (`types.py:233-239`, dispatch site `query.py:415-423`). Caveat: `can_use_tool` only fires on `"ask"`; `PreToolUse` fires on every tool call.
-- **Multi-tenant scoping is filesystem-shaped, not API-shaped.** Skills, sub-agents, slash commands, plugins, and CLAUDE.md all load from `.claude/` directories on disk. There is no programmatic `registerSkill(tenantID, ...)` API. To scope to a tenant, you materialize a per-tenant `.claude/` tree and point the subprocess at it via `cwd` + `setting_sources` + `plugins[]`. The `skills` option (`types.py:1812-1830`) is only a "context filter" over already-on-disk skills — explicitly documented as "not a sandbox".
-- **`max_budget_usd` is real, first-party, and unique in the comparison.** Implemented as a CLI flag (`subprocess_cli.py:262-263`) that the CLI evaluates after each turn. On overrun the run ends with `ResultMessage.subtype == "error_max_budget_usd"` (`examples/max_budget_usd.py:72`). Cost itself (`total_cost_usd`) is exposed on every `ResultMessage`.
-- **Native MCP everywhere.** External stdio/SSE/HTTP MCP servers AND in-process `SdkMcpServer` are supported. In-process MCP tools are bridged through the control protocol (`query.py:548-721`), so a Python `@tool`-decorated coroutine runs in your process with full closure access — same effect as a native SDK tool. `strict_mcp_config` (0.1.74) lets you fence the CLI off from ambient project/user MCP servers.
-- **Session store (0.1.64+) is the SDK's main multi-tenant lever.** Reference adapters for Postgres, Redis, S3 ship in `examples/session_stores/`. `SessionKey.project_key` is the documented tenant id; transcripts are mirrored from the CLI to your async store, with batched (default) or eager flush.
+- ⭐ **Architectural shape**: ~5 kLOC Python facade around the bundled **Claude Code CLI** (Node.js binary) spawned via `subprocess` over a stdin/stdout JSON control protocol (`src/claude_agent_sdk/_internal/transport/subprocess_cli.py:225`). The actual agent loop (turn boundaries, tool dispatch, planner, hook firing, system-prompt assembly, compaction, skill discovery, sub-agent fan-out, model routing) runs **in Node, not Python**. The Python side is a transport, typed-message parser, hook callback router, and an in-process MCP host. **You cannot fork the loop without forking Claude Code.**
+- **Ecosystem**: Python (3.10+). The TypeScript counterpart `claude-agent-sdk-typescript` is the parity baseline.
+- **Open-source, Anthropic-owned, MIT-licensed, classified `Development Status :: 3 - Alpha`** (`pyproject.toml:17`). Tightly coupled to the bundled CLI version (`2.1.143` per `src/claude_agent_sdk/_cli_version.py`); the Python package itself is at `0.2.82` (released 2026-05-13).
+- **Maturity / adoption**: ~80 releases in roughly a year, release cadence every 3–7 days, PRs landed routinely (multiple PR numbers cited per CHANGELOG entry). API still evolving fast (skills option in 0.1.62, SessionStore in 0.1.64, defer-hook + `updatedToolOutput` for any tool + `strict_mcp_config` in 0.1.74, parallel-hooks doc clarification in 0.2.82).
+- **Where the loop actually executes**: Inside the Node CLI subprocess, on every `query()` / `ClaudeSDKClient.connect()` call.
+- **Strongest architectural choice for our use case**: Hooks (10 events, all strongly typed, can mutate input/output, block, defer, or branch — `types.py:259-270`) + `can_use_tool` callback + `max_budget_usd` per-run USD cap (`subprocess_cli.py:262-263`). Forcing tool arguments works via `PreToolUse.updatedInput` (`types.py:412-419`) or `PermissionResultAllow.updated_input` — both are out-of-band Python callbacks invoked via the control protocol, so `tenantId` injection is feasible without trusting the LLM.
+- **Weakest / biggest gap**: No first-class Resource Manager. Skills/agents/plugins live on disk under `.claude/` and `setting_sources`; multi-tenant scoping requires per-tenant filesystem trees. No programmatic `registerSkill(tenantID, ...)` API, no versioning, no publishing workflow. The `skills` option is "a context filter, not a sandbox" (`types.py:1826-1830`).
+- **Most surprising finding (good)**: `max_budget_usd` is real, first-party, and unique in the comparison — a CLI flag the bundled binary honors, with a dedicated `ResultMessage.subtype == "error_max_budget_usd"` terminal state.
 - **Per-stack one-liners**:
-  - **Sessions/persistence**: filesystem-backed JSONL in CLI + optional `SessionStore` adapter mirror (Postgres/Redis/S3 references) → 🟢 production-shaped.
+  - **Sessions/persistence**: CLI-owned filesystem JSONL + optional `SessionStore` adapter mirror (Postgres/Redis/S3 references) → 🟢 production-shaped.
   - **Skills**: filesystem-only, no programmatic registration; multi-tenant requires per-tenant `.claude/skills/` trees → 🟡.
   - **Resource manager**: no first-party registry, no versioning, no publishing workflow → 🔴 BYO.
   - **Sub-agents**: first-class, configurable inline via `AgentDefinition`, dispatched by the CLI's built-in `Task` tool with native parallelism (`types.py:82-101`) → 🟢.
   - **Multi-tenancy**: forcing tool args works; tool-set filtering works; `SessionKey.project_key` scopes storage; per-tenant skills require disk staging → 🟡.
-  - **Hooks**: 10 events, mutate input/output, block/defer/branch → 🟢 best-in-class.
-  - **API**: library-only, no HTTP server. JSON-over-stdio with the CLI subprocess → 🔴 BYO.
-  - **Observability**: usage on every `AssistantMessage.usage`, cost on every `ResultMessage.total_cost_usd`, OTel context auto-propagated (`subprocess_cli.py:441-462`), live `get_context_usage()` → 🟢.
-- **Production-readiness for multi-tenant server-side deployment**: viable but with sharp edges — every request spawns a Node subprocess (cold-start cost), HTTP layer is BYO, skill catalog scoping is filesystem-staging-shaped, and no first-party registry. The CLI is the single point of architectural truth — every architectural decision the SDK exposes is filtered through "what does the bundled `claude` Node binary support today?"
+  - **Hooks**: 10 events, mutate input/output, block/defer/branch, parallel-by-default → 🟢 best-in-class in this comparison.
+  - **API**: library-only, no HTTP server. JSON-over-stdio with the CLI subprocess → 🔴 BYO HTTP layer.
+  - **Observability**: usage on every `AssistantMessage.usage`, USD cost on every `ResultMessage.total_cost_usd`, OTel context auto-propagated (`subprocess_cli.py:441-462`), live `get_context_usage()` → 🟢.
+- **Production-readiness for multi-tenant server-side deployment**: viable but with sharp edges — every request spawns a Node subprocess (cold-start cost; issue #333 reports 20–30 s on some configs), HTTP layer is BYO, skill catalog scoping is filesystem-staging-shaped, no first-party registry. The CLI is the single point of architectural truth — every architectural decision the SDK exposes is filtered through "what does the bundled `claude` Node binary support today?"
 
-## 0. Architectural Overview & Deployment Model
+---
+
+## 0. General
+
+### 0.1 What is this stack?
+
+**Library.** A Python wrapper around the bundled Node.js Claude Code CLI subprocess. Library-only — no HTTP server, no UI, no runtime daemon. Distributed as a Python package on PyPI; each platform wheel ships the `claude` Node binary under `src/claude_agent_sdk/_bundled/claude`.
+
+### 0.2 Ecosystem
+
+**Python** (3.10+ per `pyproject.toml:10`). A TypeScript counterpart (`claude-agent-sdk-typescript`) is maintained in parallel as the parity baseline (referenced repeatedly in `CHANGELOG.md` — e.g. "matches the TypeScript SDK's `includeHookEvents`", `CHANGELOG.md:88-89`). The bundled CLI itself is Node.js.
+
+### 0.3 Project status & governance
+
+- **License**: MIT (`pyproject.toml:11`).
+- **Owner**: Anthropic, PBC (`pyproject.toml:13`). First-party SDK for Claude Code.
+- **Backing**: Commercial — Anthropic's [Commercial Terms](https://www.anthropic.com/legal/commercial-terms) apply, and Claude Code is gated on an Anthropic API key.
+- **Support**: Community (GitHub issues), no separate paid support tier beyond the underlying Claude API / Claude Code subscription.
+
+### 0.4 Project maturity / age
+
+- **Current Python package version**: `0.2.82` (`pyproject.toml:7`), released 2026-05-13.
+- **Bundled CLI version**: `2.1.143` (`src/claude_agent_sdk/_cli_version.py`, commit message of `c352a50`).
+- **Status classifier**: `"Development Status :: 3 - Alpha"` (`pyproject.toml:17`). The semantic API has stabilized but the trove classifier is still alpha.
+- **Origin**: Renamed from `claude-code-sdk` (`README.md:283`); migration guide in `CHANGELOG.md` `0.1.0`.
+- **Stability signals**: API still evolves quickly. Recent breaking-adjacent changes include the `0.2.x` line introducing the `skills` top-level option (0.1.62), `SessionStore` adapter protocol (0.1.64), session-store eager flushing (0.1.73), defer hook decision + `strict_mcp_config` + `updatedToolOutput` for non-MCP tools (0.1.74), parallel-hooks doc clarification (0.2.82). Each release also bumps the bundled CLI version, so behavior changes in Claude Code ripple through.
+
+### 0.5 Adoption & community signal
+
+GitHub numbers (captured 2026-05-19): not directly enumerated in the repo metadata; Anthropic's first-party SDK has high visibility. Release cadence: ~3-7 days between releases (`CHANGELOG.md` shows 80+ releases in roughly a year). Active maintenance: PRs are referenced inline in CHANGELOG entries (e.g. #951, #932, #931, #955 in the 0.2.82 release), indicating active community contributions and routine maintainer engagement.
+
+### 0.6 Ecosystem fit
+
+- **Language**: Python 3.10+.
+- **Package**: `claude-agent-sdk` on PyPI.
+- **Runtime deps**: `anyio>=4.0`, `sniffio>=1.0`, `mcp>=1.23` (bumped to address CVE-2025-66416 in 0.2.82), `typing_extensions>=4.0` (only on 3.10).
+- **Optional extras**: `otel` (opentelemetry-api), `examples` (boto3, moto, redis, fakeredis, asyncpg for the SessionStore reference adapters), `dev`.
+- **Bundled artifact**: each platform wheel ships the Claude Code Node binary under `src/claude_agent_sdk/_bundled/claude` — so the library has a chunky wheel and platform-specific releases (macOS x86_64 added in 0.1.49). No separate Node install needed.
+- **Examples / templates**: 18 standalone Python scripts under `examples/` and 4 reference SessionStore adapters under `examples/session_stores/`.
+- **Primary mode of use**: Library embedded into a host process (FastAPI, aiohttp, CLI wrapper, batch worker, etc.).
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- Official docs live at https://docs.anthropic.com/en/docs/claude-code/sdk and https://platform.claude.com/.
+- In-repo docs: `README.md` (~360 lines), `CHANGELOG.md` (1 k+ lines), `RELEASING.md`, `CLAUDE.md`.
+- Code is heavily docstringed (`ClaudeAgentOptions` got per-field docstrings in 0.1.69, `CHANGELOG.md:150`).
+- **Accessibility for non-engineers**: low — every interaction is a Python coroutine, JSON wire frames, and CLI flags. PMs / Data folks cannot meaningfully author here. **Skill authoring** (markdown `SKILL.md` files) is approachable for non-engineers, but the SDK doesn't help you publish them — that's a filesystem operation.
+
+### 0.8 Documentation entry points
+
+- Official docs landing: https://docs.anthropic.com/en/docs/claude-code/sdk (also https://platform.claude.com/docs/en/agent-sdk/python)
+- Quickstart: https://docs.anthropic.com/en/docs/claude-code/sdk/sdk-overview
+- API reference: in-repo docstrings + `types.py` + https://docs.anthropic.com/en/docs/claude-code/sdk-python
+- Hosting / deployment / production guide: not provided as a single page — see Claude Code docs for "self-hosted" guidance.
+- Examples / demos: `examples/` directory in this repo (`examples/quick_start.py`, `examples/hooks.py`, `examples/agents.py`, `examples/mcp_calculator.py`, `examples/max_budget_usd.py`, `examples/tool_permission_callback.py`, `examples/setting_sources.py`, `examples/session_stores/`)
+- Changelog: `CHANGELOG.md` (in-repo)
+- GitHub Releases: https://github.com/anthropics/claude-agent-sdk-python/releases
+- Issues tracker: https://github.com/anthropics/claude-agent-sdk-python/issues
+- Hooks docs: https://docs.anthropic.com/en/docs/claude-code/hooks
+- Permissions guide: https://platform.claude.com/docs/en/agent-sdk/permissions
+- Built-in tools: https://code.claude.com/docs/en/settings#tools-available-to-claude
+- Discord / community: no dedicated forum; community signals through GitHub Issues.
+
+---
+
+## 1. High Level Architecture
+
+### Deployment diagram
 
 ```
                 ┌─────────────────────────────────────────────┐
@@ -65,46 +132,13 @@
        └─────────────────────────────────────────────────────────┘
 ```
 
-### 0.1 What is this stack?
+### 1.1 Where does the agent loop *actually* execute?
 
-Library. A Python wrapper around the bundled Node.js Claude Code CLI subprocess. Library-only — no HTTP server, no UI, no runtime daemon.
-
-### 0.2 Project status & governance
-
-- **License**: MIT (`pyproject.toml:11`).
-- **Owner**: Anthropic, PBC (`pyproject.toml:13`). First-party SDK for Claude Code.
-- **Backing**: Commercial — Anthropic's [Commercial Terms](https://www.anthropic.com/legal/commercial-terms) apply, and Claude Code is gated on an Anthropic API key.
-- **Support**: Community (GitHub issues), no separate paid support tier beyond the underlying Claude API/Claude Code subscription.
-- **Sister SDK**: A TypeScript counterpart (`claude-agent-sdk-typescript`) is referenced repeatedly in `CHANGELOG.md` as the parity baseline (e.g. "matches the TypeScript SDK's `includeHookEvents`" — `CHANGELOG.md:88-89`).
-
-### 0.3 Project maturity / age
-
-- **Current version**: `0.2.82` (`pyproject.toml:7`). Released 2026-05-13.
-- **Bundled CLI version**: `2.1.143` (`src/claude_agent_sdk/_cli_version.py`, commit message of `c352a50`).
-- **Status classifier**: `"Development Status :: 3 - Alpha"` (`pyproject.toml:17`). The semantic API has stabilized but the trove classifier is still alpha.
-- **Origin**: Renamed from `claude-code-sdk` (`README.md:283`); migration guide in CHANGELOG `0.1.0`.
-- **Stability signals**: API still evolves quickly. Recent breaking-adjacent changes include the `0.2.x` line introducing the `skills` top-level option (0.1.62), `SessionStore` adapter protocol (0.1.64), session-store eager flushing (0.1.73), defer hook decision + `strict_mcp_config` + `updatedToolOutput` for non-MCP tools (0.1.74), parallel-hooks doc clarification (0.2.82). Each release also bumps the bundled CLI version, so behavior changes in Claude Code ripple through.
-
-### 0.4 Adoption & community signal
-
-GitHub numbers (visible from this repo metadata, captured 2026-05-16): not directly enumerated in the repo, but Anthropic's first-party SDK has high visibility. Release cadence: ~3-7 days between releases (CHANGELOG shows 80+ releases in roughly a year). Active maintenance: PRs are referenced inline in CHANGELOG entries (e.g. #951, #932, #931, #955 in the 0.2.82 release), indicating active community contributions and routine maintainer engagement.
-
-### 0.5 Ecosystem fit
-
-- **Language**: Python 3.10+ (`pyproject.toml:10`).
-- **Package**: `claude-agent-sdk` on PyPI.
-- **Runtime deps**: `anyio>=4.0`, `sniffio>=1.0`, `mcp>=1.23` (bumped to address CVE-2025-66416 in 0.2.82), `typing_extensions>=4.0` (only on 3.10).
-- **Optional extras**: `otel` (opentelemetry-api), `examples` (boto3, moto, redis, fakeredis, asyncpg for the SessionStore reference adapters), `dev`.
-- **Bundled artifact**: each platform wheel ships the Claude Code Node binary under `src/claude_agent_sdk/_bundled/claude` — so the library has a chunky wheel and platform-specific releases (macOS x86_64 added in 0.1.49). No separate Node install needed.
-- **Examples**: 18 standalone Python scripts under `examples/` and 4 reference SessionStore adapters under `examples/session_stores/`.
-
-### 0.6 Where does the agent loop *actually* execute?
-
-In the **Node.js Claude Code CLI subprocess**, NOT in Python. The Python entrypoint is a transport + control-protocol shim. The actual model-call → tool-call → tool-result → next-model-call cycle, system prompt assembly, permission evaluation, skill discovery, compaction, and Task sub-agent dispatch all execute in the CLI. This is the single most important architectural fact about this SDK.
+In the **Node.js Claude Code CLI subprocess**, NOT in Python. The Python entrypoint is a transport + control-protocol shim. The actual model-call → tool-call → tool-result → next-model-call cycle, system prompt assembly, permission evaluation, skill discovery, compaction, and Task sub-agent dispatch all execute in the CLI. **This is the single most important architectural fact about this SDK.**
 
 Evidence: `SubprocessCLITransport._build_command()` (`src/claude_agent_sdk/_internal/transport/subprocess_cli.py:221-410`) assembles a `claude --output-format stream-json --verbose --input-format stream-json ...` command line, opens a subprocess (`subprocess_cli.py:474-482`), and JSON-line frames flow both directions over its stdin/stdout. The Python "loop" (`Query._read_messages` at `query.py:247-373`) does nothing but route frames.
 
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - Python 3.10+.
 - A bundled `claude` Node binary (auto-discovered from `src/claude_agent_sdk/_bundled/`), or a system-installed `claude` (`subprocess_cli.py:81-112` walks `~/.npm-global/bin`, `/usr/local/bin`, `~/.local/bin`, etc.).
@@ -113,28 +147,30 @@ Evidence: `SubprocessCLITransport._build_command()` (`src/claude_agent_sdk/_inte
 - Optional OTel collector (`pip install claude-agent-sdk[otel]`).
 - For external MCP: whatever the MCP server requires.
 
-### 0.8 Recommended deployment topology
+No required Postgres / Redis / vector DB / vendor service beyond the Anthropic API.
+
+### 1.3 Recommended deployment topology
 
 Not stated in the SDK repo. Implicit: every `query()` or `ClaudeSDKClient` connection spawns a new `claude` subprocess; the natural shape is "container-per-tenant" or "one-Python-process-many-CLI-subprocesses-but-one-CLI-per-active-conversation". The repo does ship a `Dockerfile.test` for CI but does not include a production Dockerfile or a hosted runtime.
 
-### 0.9 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
-- Cold start: each `connect()` does `_check_claude_version()` (2 s timeout — `subprocess_cli.py:723`), `anyio.open_process(...)` for the CLI binary, then an `initialize` control-protocol roundtrip (default 60 s timeout — `client.py:202-205`, configurable via `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT`). Empirically the CLI takes a few seconds to be ready for the first prompt; cold-start latency is dominated by the Node startup. Issue #333 on the upstream tracker has reported 20–30 s cold start for some configurations.
+- Cold start: each `connect()` does `_check_claude_version()` (2 s timeout — `subprocess_cli.py:723`), `anyio.open_process(...)` for the CLI binary, then an `initialize` control-protocol roundtrip (default 60 s timeout — `client.py:202-205`, configurable via `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT`). Empirically the CLI takes a few seconds to be ready for the first prompt; cold-start latency is dominated by Node startup. Issue #333 on the upstream tracker has reported 20–30 s cold start for some configurations.
 - RAM: a CLI subprocess plus the Python parent — call it 200–500 MB per active session including model context.
 - Disk: each session writes a JSONL transcript to `~/.claude/projects/<sanitized-cwd>/<session_id>.jsonl` (CLI-owned format).
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 
 - **LLM provider**: 🔴 strongly Anthropic-locked. Claude Code CLI talks to Anthropic's Messages API directly; alternative providers route through Anthropic's gateway (Bedrock, Vertex) but only Claude models are first-class.
 - **Hosting**: 🟢 none — pure library, deploys anywhere Python + the bundled `claude` binary run.
 - **Eval/observability**: 🟢 none mandated. OTel is the only first-party path.
 - **CLI binary**: 🔴 strongly Claude-Code-locked. You cannot swap the loop for a non-CLI implementation without rewriting the SDK; some power-users use `ClaudeAgentOptions.cli_path` to pin a different version but the wire protocol is closed-source and CLI-version-specific.
 
-### 0.11 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 Thin Python SDK (~5 kLOC across `src/claude_agent_sdk/`): `types.py` (2,043 lines, all dataclasses & TypedDicts), `_internal/query.py` (899 lines, control protocol), `_internal/transport/subprocess_cli.py` (762 lines), `client.py` (627 lines), `__init__.py` (663 lines including the `@tool` decorator). Heavy lifting is in the bundled CLI binary, which is megabytes of Node bundle and not source-distributed here.
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 
 `CHANGELOG.md` is well-maintained — every PyPI release has an entry with PR numbers. Recent themes (since 0.1.0 → 0.2.82):
 
@@ -146,35 +182,13 @@ Thin Python SDK (~5 kLOC across `src/claude_agent_sdk/`): `types.py` (2,043 line
 - **Sub-agents**: `list_subagents` / `get_subagent_messages` in 0.1.60.
 - **Bundled CLI bumps**: nearly every release.
 
-### 0.13 Documentation depth & cross-team contributor accessibility
-
-- Official docs live at https://docs.anthropic.com/en/docs/claude-code/sdk and platform.claude.com.
-- In-repo docs: `README.md` (~360 lines), `CHANGELOG.md` (1 k+ lines), `RELEASING.md`, `CLAUDE.md`.
-- Code is heavily docstringed (`ClaudeAgentOptions` got per-field docstrings in 0.1.69, `CHANGELOG.md:150`).
-- Accessibility for non-engineers: low — every interaction is a Python coroutine, JSON wire frames, and CLI flags. PMs/Data folks cannot meaningfully author here. Skill authoring (markdown SKILL.md files) is approachable, but the SDK doesn't help you publish them — that's a filesystem operation.
-
-### 0.14 Documentation entry points
-
-- Official docs landing: https://docs.anthropic.com/en/docs/claude-code/sdk (also https://platform.claude.com/docs/en/agent-sdk/python)
-- Quickstart: https://docs.anthropic.com/en/docs/claude-code/sdk/sdk-overview
-- API reference: in-repo docstrings + types.py + https://docs.anthropic.com/en/docs/claude-code/sdk-python
-- Hosting / deployment / production guide: not provided as a single page — see Claude Code docs for "self-hosted" guidance.
-- Examples / demos: `examples/` directory in this repo (`examples/quick_start.py`, `examples/hooks.py`, `examples/agents.py`, `examples/mcp_calculator.py`, `examples/max_budget_usd.py`, `examples/tool_permission_callback.py`, `examples/setting_sources.py`, `examples/session_stores/`)
-- Changelog: `CHANGELOG.md` (in-repo)
-- GitHub Releases: https://github.com/anthropics/claude-agent-sdk-python/releases
-- Issues tracker: https://github.com/anthropics/claude-agent-sdk-python/issues
-- Hooks docs: https://docs.anthropic.com/en/docs/claude-code/hooks
-- Permissions guide: https://platform.claude.com/docs/en/agent-sdk/permissions
-- Built-in tools: https://code.claude.com/docs/en/settings#tools-available-to-claude
-- Discord / community: no dedicated forum; community signals through GitHub Issues.
+GitHub Releases mirror the `CHANGELOG.md` entries at https://github.com/anthropics/claude-agent-sdk-python/releases.
 
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### Run loop
-
-#### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 Two:
 
@@ -210,7 +224,7 @@ class ClaudeSDKClient:
 
 `query()` is one-shot (single prompt, drains the iterator, exits). `ClaudeSDKClient` is bidirectional (keep stdin open, send multiple prompts, interrupt mid-flight, get live context usage, switch model/permission mode mid-conversation).
 
-#### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 The Python "loop" is just an async generator over stdout JSON frames (`src/claude_agent_sdk/_internal/query.py:247-373`):
 
@@ -249,11 +263,11 @@ async def _read_messages(self) -> None:
 
 The actual per-iteration logic of the agent (call model → parse tool calls → run permission/hook gate → dispatch tool → collect result → re-prompt model) happens **inside the CLI subprocess**. We only see the result frames stream by.
 
-#### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 Shipped, but in the CLI subprocess, not in Python. The Python harness does not expose a `tool_call → tool_result` loop you can intercept — only the wire-level frames the CLI emits.
 
-#### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 Three dispatch paths inside the CLI:
 
@@ -263,17 +277,19 @@ Three dispatch paths inside the CLI:
 
 Tool results come back to the model as `ToolResultBlock` content blocks (matched by `tool_use_id`).
 
-#### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 A "turn" is defined by `ResultMessage`. The CLI emits exactly one `ResultMessage` per user prompt. `ResultMessage.num_turns` is also reported (`types.py:1144-1167`), so the CLI's internal concept counts assistant↔tool exchanges within a single user prompt. `max_turns` (`types.py:1653-1657`) caps the CLI's internal turn loop and triggers an `error_max_turns` result on overrun. `ResultMessage.stop_reason` (added in 0.1.46) clarifies why.
 
-#### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 `anyio` memory-object stream (`asyncio` `Queue` equivalent) with `max_buffer_size=100` (`query.py:121-123`). The transport read loop pushes; `receive_messages()` pops. Backpressure is via the bounded buffer — a slow consumer will block the read loop after 100 buffered messages.
 
-### Message & event taxonomy
+---
 
-#### 1.7 Message layers
+## 3. Message & Event Taxonomy
+
+### 3.1 Message layers
 
 Three layers:
 
@@ -291,7 +307,7 @@ There is no separate "UI message" layer; the SDK message layer is what your appl
                             stdout JSON frames        Message dataclasses     UI / DB / metrics
 ```
 
-#### 1.8 Concrete message types
+### 3.2 Concrete message types
 
 Concrete public message dataclasses (`src/claude_agent_sdk/types.py:1014-1268`):
 
@@ -322,9 +338,9 @@ Message = (
 )
 ```
 
-#### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
-**Same iterator, single taxonomy.** Everything is a "message" on the same async generator. The "stream-event vs. turn-event vs. tool-event" categories you'd expect in Mastra/Vercel are all expressed as message-with-subtype on a single iterator:
+**Same iterator, single taxonomy.** Everything is a "message" on the same async generator. The "stream-event vs. turn-event vs. tool-event" categories you'd expect in Mastra / Vercel are all expressed as message-with-subtype on a single iterator:
 
 - Stream event = `StreamEvent`
 - Turn boundary = `ResultMessage` (one per turn)
@@ -333,7 +349,7 @@ Message = (
 - Hook event = `HookEventMessage` when opt-in via `include_hook_events=True`
 - Sub-agent lifecycle = `TaskStartedMessage` / `TaskProgressMessage` / `TaskNotificationMessage`
 
-#### 1.10 Event categories
+### 3.4 Event categories
 
 | Category | Mechanism |
 |---|---|
@@ -347,11 +363,11 @@ Message = (
 | Rate-limit event | `RateLimitEvent` whenever rate-limit status transitions. |
 | Mirror error | `MirrorErrorMessage` when `SessionStore.append()` fails after retry. |
 
-#### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 **`src/claude_agent_sdk/types.py`** (2,043 lines) is the single source of truth. Parser: **`src/claude_agent_sdk/_internal/message_parser.py`** (319 lines, drives the `match` on `type`/`subtype` to produce typed dataclasses).
 
-#### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Sample frames (wire format on CLI stdout):
 
@@ -405,33 +421,33 @@ Control frames (CLI ↔ SDK — never visible to your iterator):
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **Not provided — BYO.** There is no built-in multi-session runtime. Each `ClaudeSDKClient` or `query()` invocation spawns its own `claude` CLI subprocess and owns one conversation. Your Python host (FastAPI, aiohttp, Temporal worker, etc.) is responsible for managing the lifecycle of N clients across N tenants.
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 Isolation is at the OS-subprocess boundary: each session has its own `claude` Node process with its own `cwd`, env, JSONL transcript path, and MCP-server connections. State cannot bleed between subprocesses except through shared filesystem (your `~/.claude/projects/` lives across them) or your shared `SessionStore` adapter. Concurrent `@tool` handlers run in the same Python process — they share closures, globals, and any `asyncio.Lock`s you create.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 **BYO.** No leader election, no shared coordinator. You can run N Python pods that each spawn CLI subprocesses for different sessions; the `SessionStore` adapter is the only shared-state primitive the SDK ships, and it's append-only — concurrent writes to the same session from two pods would interleave unsafely (the SDK assumes one process owns one session at a time). The `SessionKey.project_key` field (`types.py:1276-1295`) is the documented sharding/tenant lever.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 **Not provided — BYO.** No cron, no webhook trigger, no agent-as-background-worker primitive. The closest first-party thing is `AgentDefinition.background: bool` (`types.py:99`), but that's a sub-agent hint for the CLI, not a host-level scheduler.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 **Not provided — BYO.** The runtime model is "one CLI subprocess per active session, lifetime owned by the calling Python coroutine". For queue-shaped workloads you must layer your own (Celery, RQ, Temporal, AWS SQS workers — pick your poison).
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 There is no canonical "Session" dataclass — sessions are identified by `session_id` (a UUID string passed via `ClaudeAgentOptions.session_id` or generated by the CLI) plus a `project_key` for tenant scoping in the `SessionStore`:
 
@@ -462,17 +478,17 @@ class SDKSessionInfo:
 
 Per-message rows are `SessionStoreEntry` (`types.py:1298-1311`) — opaque pass-through dicts with a `type`, `uuid`, and `timestamp`.
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 The CLI's on-disk JSONL transcript at `~/.claude/projects/<sanitized-cwd>/<session_id>.jsonl` stores every entry: user turns, assistant turns, tool calls, tool results, system markers, mode changes, custom titles, tags. The format is owned by the CLI; the SDK treats entries as opaque pass-through dicts (`SessionStoreEntry`). Subagent transcripts live in a sibling `subagents/agent-<id>.jsonl` directory.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 - One conversation per session by default.
 - **Forking** is supported: `fork_session=True` + `resume=<id>` creates a new session-id branching from a prior session (`types.py:1790-1792`). Helper `fork_session()` in `__init__.py:30-34` does this from outside an active client.
 - **Resume**: `ClaudeAgentOptions.resume=<id>` resumes the on-disk session; `ClaudeAgentOptions.continue_conversation=True` resumes the most recent in the current cwd.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 - **Default**: local-disk JSONL written by the CLI to `~/.claude/projects/<sanitized-cwd>/<session_id>.jsonl`.
 - **`InMemorySessionStore`** (`src/claude_agent_sdk/_internal/session_store.py:35-100`) — reference for testing.
@@ -481,7 +497,7 @@ The CLI's on-disk JSONL transcript at `~/.claude/projects/<sanitized-cwd>/<sessi
   - Redis (`redis_session_store.py`, RPUSH/LRANGE lists + zset index)
   - S3 (`s3_session_store.py`, JSONL part files)
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 ```python
 # src/claude_agent_sdk/_internal/query.py:296-303
@@ -496,15 +512,15 @@ if msg_type == "result":
 
 Default is **batched, flush-on-turn-end** (or eager with `session_store_flush="eager"` — added 0.1.73). Local JSONL is written by the CLI on every entry. The SDK guarantees the external store is up-to-date by the time you observe a `ResultMessage`. Backpressure: 500 entries / 1 MiB max-pending thresholds (`transcript_mirror_batcher.py:26-27`), with bounded retry (3 attempts, short backoff) before dropping a batch and surfacing it as `MirrorErrorMessage`.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 Best-effort: local JSONL on disk is updated by the CLI on every entry, so a crash mid-tool-call leaves the transcript with everything up to that point. The `SessionStore` adapter receives batched entries (~100 ms cadence during active turns); set `session_store_flush="eager"` for near-real-time forwarding. A `--resume <id>` after a crash re-loads the on-disk JSONL into a fresh subprocess. **No transactional "commit-per-tool-write" the way LangGraph's `_runner.commit() → put_writes()` works** — you get "everything before the last assistant message is durable, the in-flight LLM call may be lost".
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 UUID. Auto-generated by the CLI unless you supply `ClaudeAgentOptions.session_id` (must be a valid UUID — `types.py:1646-1650`). `SessionKey.project_key` lets you namespace separately (tenant-prefixing happens at the store-adapter level).
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 `SessionStore` is a Protocol (`types.py:1370-1487`) with two required methods (`append`, `load`) and four optional ones (`list_sessions`, `list_session_summaries`, `delete`, `list_subkeys`). The SDK ships a **13-contract conformance test harness** at `claude_agent_sdk.testing.run_session_store_conformance` (`CHANGELOG.md:207`) — third-party adapter authors can run it to verify their implementation.
 
@@ -520,26 +536,26 @@ class SessionStore(Protocol):
 
 The store is **not** a primary write path — it's a mirror; the local JSONL is still the source of truth and the CLI is the only writer to it.
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 No formal migration helpers. The SDK keeps entries opaque, so backward-compat is the adapter author's responsibility. `import_session_to_store()` (added 0.1.65, `__init__.py:28`) lets you replay a local JSONL into any `SessionStore` adapter — used for migrating from local storage to remote stores.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 - `list_sessions()` / `get_session_messages()` / `list_subagents()` / `get_subagent_messages()` — top-level helpers re-exported from `__init__.py:42-52`.
 - Same functions with `_from_store()` suffixes for store-backed sessions.
 - The on-disk JSONL is a transparent, append-only format and can be replayed by passing `resume=<id>` to a new `query()` call.
 - `tag_session()`, `rename_session()`, `delete_session()`, `fork_session()` (and their `_via_store` variants) — `__init__.py:29-39`.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-The CLI loads `CLAUDE.md` files from `cwd` when `setting_sources` includes `"project"` (and `~/.claude/CLAUDE.md` for user-level memory). This is the only first-party "cross-session knowledge that follows the agent" primitive. For semantic vector memory, see Q15 — **BYO**.
+The CLI loads `CLAUDE.md` files from `cwd` when `setting_sources` includes `"project"` (and `~/.claude/CLAUDE.md` for user-level memory). This is the only first-party "cross-session knowledge that follows the agent" primitive. For semantic vector memory, see Q17 — **BYO**.
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context
+## 6. Multi-tenancy & Arbitrary Context
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 `ClaudeAgentOptions` is a single dataclass with ~50 fields (`src/claude_agent_sdk/types.py:1578-1939`). The big ones:
 
@@ -591,7 +607,7 @@ class ClaudeAgentOptions:
 
 There is **no field for arbitrary opaque user context** to be passed *into* tool handlers or hooks. To pass tenant context you must close over it in your Python callbacks (hooks, `can_use_tool`, `@tool` handlers).
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 For an **SDK MCP tool** (in-process, decorated with `@tool`), the handler signature is `Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]` (`src/claude_agent_sdk/__init__.py:162`):
 
@@ -620,7 +636,7 @@ For an **external MCP tool** (stdio/SSE/HTTP), the tool runs out-of-process — 
 
 For the **CLI's built-in tools**, the same applies — they run inside the CLI subprocess with whatever `cwd` / env you set.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 For SDK MCP tools, the entire signature is `Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]` — args in, dict out, no context object. The `@tool` decorator parses an inline input schema and emits a JSON-schema for the model (`__init__.py:166-260`).
 
@@ -640,7 +656,7 @@ class ToolPermissionContext:
     description: str | None = None
 ```
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 **Yes — two mechanisms.** Both are out-of-band Python callbacks invoked via the control protocol, so the LLM cannot bypass them.
 
@@ -679,7 +695,7 @@ options = ClaudeAgentOptions(
 
 Caveat: `can_use_tool` only fires when the CLI's permission evaluation reaches "ask" — tools already allowed by `allowed_tools` or `permission_mode="bypassPermissions"` bypass it (`types.py:1748-1758`). `PreToolUse` hook fires on **every** tool call regardless of permission state, which is what you want for forced argument injection.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 **Three layers, all explicit:**
 
@@ -689,15 +705,15 @@ Caveat: `can_use_tool` only fires when the CLI's permission evaluation reaches "
 
 To change the toolset **per session**, set these on `ClaudeAgentOptions` at construction. To change **mid-session**, there is no first-party `set_tools()` control request — but you can use `PreToolUse` hook to deny a tool conditionally with `permissionDecision: "deny"`. There is also `set_permission_mode()` to flip the whole mode (`client.py:319-344`) and `toggle_mcp_server(name, enabled)` to enable/disable an entire MCP server's tools (`client.py:424-448`).
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 `SessionKey.project_key` (`types.py:1276-1295`) is the documented multi-tenant primitive for the **session store** specifically: *"Multi-tenant deployments should set this to a tenant ID or project name."* But that scopes session storage only, not the toolset/skills/agents the CLI can see. There is no first-class `tenant_id` field on `ClaudeAgentOptions` itself; you set `cwd`, `env`, and `setting_sources` per request and let those shape the CLI subprocess.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 **BYO.** Captured via closure into hook/tool callbacks. No SDK primitive automatically threads "the caller's JWT" to every tool call.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 **The SDK's scoping mechanism is the filesystem.** Skills, sub-agents (`.claude/agents/*.md`), slash commands, plugins, MCP config, and CLAUDE.md memory all load from `setting_sources` (`types.py:1800-1810`): `user` (`~/.claude/`), `project` (`.claude/` in cwd), `local` (`.claude/settings.local.json`). The CLI subprocess inherits `cwd` and optionally `CLAUDE_CONFIG_DIR` via `env`.
 
@@ -710,7 +726,7 @@ For our multi-tenant long-running-agent case, this means **per-tenant resource s
 
 There is no in-memory `Registry` you can pass per-request that says "tenant acme sees skills X,Y; tenant bcm sees skills A,B" — the SDK's `skills` option (`types.py:1812-1830`) is a **filter** over what's already on disk.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 🟢 **Real per-run USD budget cap.** `max_budget_usd: float | None` (`types.py:1659-1664`) is wired to the CLI flag `--max-budget-usd` (`subprocess_cli.py:262-263`). On overrun the run ends with `ResultMessage.subtype == "error_max_budget_usd"` (`examples/max_budget_usd.py:72`). **Caveat**: post-call check, so cost may exceed the cap by up to one API call. No per-tenant aggregation primitive — you set the cap per run; cross-run/per-tenant USD totals are BYO (sum `total_cost_usd` keyed by your tenant id).
 
@@ -749,11 +765,11 @@ async with ClaudeSDKClient(options=options) as client:
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
 This SDK has the most comprehensive hook system in the comparison.
 
-### 5.1 Enumerated hook events
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 `HookEvent` (`src/claude_agent_sdk/types.py:259-270`):
 
@@ -801,7 +817,7 @@ class SyncHookJSONOutput(TypedDict):
     hookSpecificOutput: NotRequired[HookSpecificOutput]
 ```
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 **Concurrent — explicitly documented** (`types.py:1766-1771`): *"All `hook_callback` control requests for a given event fire in parallel, not sequentially. Design each hook to be independent; do not rely on one completing before another starts."* — clarified in 0.2.82 (`CHANGELOG.md:17`).
 
@@ -816,7 +832,7 @@ class HookMatcher:
     timeout: float | None = None  # default 60s
 ```
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 | Scenario | Supported | How |
 |---|---|---|
@@ -827,7 +843,7 @@ class HookMatcher:
 | Mutate / decorate tool result before returning to the LLM (redact, summarize) | **Yes** | `PostToolUse` → `updatedToolOutput` (`types.py:427-433`). Works for any built-in or MCP tool since 0.1.74 (was MCP-only previously). |
 | Emit additional tool calls in response to a tool result | **No first-class equivalent** | `PostToolUse` can inject `additionalContext` (free-text system message) to nudge the model into making another call, but cannot synthetically emit a `tool_use` block on the model's behalf. |
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 🟢 **Built-in inside the CLI.** The CLI implements automatic context-window compaction when approaching the limit; the SDK exposes it via:
 
@@ -837,15 +853,15 @@ class HookMatcher:
 
 Compaction logic itself is opaque (lives in the CLI binary); you can inject instructions via the `PreCompact` hook but cannot replace the algorithm.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 🟢 Partial. The CLI handles Anthropic prompt-caching automatically; cache-token counts are surfaced on `AssistantMessage.usage["cache_creation_input_tokens"]` / `cache_read_input_tokens`. For cross-user cache hits, `SystemPromptPreset.exclude_dynamic_sections` (`types.py:42-53`, added 0.1.57) strips per-user dynamic sections out of the system prompt and re-injects them into the first user message — explicit support for multi-tenant cache amortization. Manual breakpoint placement: **BYO** (the CLI owns it).
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 🟡 Partial. `PostToolUse.updatedToolOutput` lets you replace large tool outputs with a summary before the model sees them. No first-party "stash to filesystem and replace with a token-budget summary" pattern, but it's straightforward to layer.
 
-### 5.7 Architectural diagram — where hooks fire
+### 7.7 Architectural diagram — where hooks fire
 
 ```
                        ┌─────────────────────────────────────────────┐
@@ -943,35 +959,35 @@ options = ClaudeAgentOptions(
 
 ---
 
-## 6. Agent API Exposition
+## 8. HTTP API
 
-### 6.1 HTTP server?
+### 8.1 Does the framework ship an HTTP server?
 
 **No.** Library-only. There is no `app.listen()`, no Flask/FastAPI integration, no built-in SSE endpoint. You BYO HTTP layer (FastAPI, aiohttp, Starlette, whatever) and wrap `query()` or `ClaudeSDKClient` in your handler.
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 **Internal**: JSON-line over stdin/stdout to the CLI subprocess. Not HTTP — pure pipe IPC. The Python transport is `SubprocessCLITransport` (`src/claude_agent_sdk/_internal/transport/subprocess_cli.py`). For a non-subprocess transport, implement the `Transport` protocol (`src/claude_agent_sdk/_internal/transport/__init__.py`) and pass it as `transport=` to `query()` / `ClaudeSDKClient`.
 
-**External** (to your end user): BYO. Most users expose SSE on top of `client.receive_messages()`.
+**External** (to your end user): **Not provided — BYO HTTP layer.** Most users expose SSE on top of `client.receive_messages()`.
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
-Not provided — BYO. Pattern is "POST /chat → spawn ClaudeSDKClient → stream `receive_response()` as SSE → close".
+**Not provided — BYO HTTP layer.** Pattern is "POST /chat → spawn `ClaudeSDKClient` → stream `receive_response()` as SSE → close".
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
-See **Q1.12** — sample frames are the CLI's stdout format. Most consumers parse the typed `Message` dataclasses and re-emit in their own SSE schema.
+**Not provided — BYO HTTP layer.** See **Q3.6** — sample frames are the CLI's stdout format. Most consumers parse the typed `Message` dataclasses and re-emit in their own SSE schema.
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
-**BYO.** The SDK is not aware of HTTP; auth is your concern.
+**Not provided — BYO HTTP layer.** The SDK is not aware of HTTP; auth is your concern.
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
-`ClaudeAgentOptions.resume=<session_id>` re-opens an existing session from disk (or from `SessionStore` if `materialize_resume_session` materializes it). `continue_conversation=True` resumes the most recent in cwd. There is no resume *endpoint* — it's a parameter you pass when you spawn a new `ClaudeSDKClient`.
+`ClaudeAgentOptions.resume=<session_id>` re-opens an existing session from disk (or from `SessionStore` if `materialize_resume_session` materializes it). `continue_conversation=True` resumes the most recent in cwd. There is no resume *endpoint* — it's a parameter you pass when you spawn a new `ClaudeSDKClient`. **HTTP exposure: BYO.**
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 `ClaudeSDKClient.interrupt()` (`client.py:313-317`) sends a `control_request` with `subtype: "interrupt"` (`query.py:731-733`):
 
@@ -985,11 +1001,13 @@ The CLI handles the actual mid-LLM-call / mid-tool-call cancellation. There is *
 
 `ClaudeSDKClient.stop_task(task_id)` cancels a specific sub-agent task by ID (`client.py:450-471`).
 
-### 6.8 Tool-arg streaming (partial JSON)
+**HTTP exposure: BYO** — host pattern is "DELETE /chat/{sid} → look up the `ClaudeSDKClient` in your in-memory map → call `client.interrupt()`".
 
-🟢 Supported via `include_partial_messages=True` (`types.py:1776-1780`). `StreamEvent` carries the raw Anthropic SSE event (including `input_json_delta`) so you can show "Claude is generating Bash command: 'ls -l /var/'..." to your UI. (0.1.48 fixed the env-var wiring for fine-grained streaming.)
+### 8.8 Tool-arg streaming (partial JSON)
 
-### 6.9 HITL approval workflow
+🟢 Supported via `include_partial_messages=True` (`types.py:1776-1780`). `StreamEvent` carries the raw Anthropic SSE event (including `input_json_delta`) so you can show "Claude is generating Bash command: 'ls -l /var/'..." to your UI. (0.1.48 fixed the env-var wiring for fine-grained streaming.) HTTP-level exposure is BYO — re-emit `StreamEvent.event` frames over your SSE channel.
+
+### 8.9 HITL approval workflow over HTTP
 
 🟡 Intra-process only. When the CLI hits a tool that requires permission and a `can_use_tool` callback is registered, the CLI sends a `control_request` of subtype `can_use_tool` over stdout. The Python read loop spawns a handler that awaits the user's `CanUseTool` callback and writes back a `control_response`:
 
@@ -1019,7 +1037,7 @@ From the Python side, the iterator keeps emitting earlier messages but you won't
 
 A weaker form of HITL exists via `PreToolUse` hook returning `permissionDecision: "defer"` (added 0.1.74, `types.py:412-419`) — the CLI then ends the turn with `ResultMessage.deferred_tool_use: DeferredToolUse` set (`types.py:1131-1141`) so a *different* process can later inspect what was deferred and decide whether to resume.
 
-### 6.10 Tool-call state reconstruction
+### 8.10 Tool-call state reconstruction
 
 ⭐ **Explicit by `tool_use_id`** (`types.py:935-950`):
 
@@ -1057,9 +1075,9 @@ class TaskStartedMessage(SystemMessage):
     task_type: str | None = None
 ```
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
-- `/healthz`, `/readyz`, `/metrics`: **BYO** (no HTTP layer).
+- `/healthz`, `/readyz`, `/metrics`: **Not provided — BYO HTTP layer.**
 - SIGTERM drain: the SDK's `close()` does a 5s graceful wait + SIGTERM + 5s + SIGKILL fallback (`subprocess_cli.py:571-595`). `atexit` registers a final cleanup pass.
 
 ### ⭐ Light usage example — wrap in FastAPI
@@ -1103,17 +1121,34 @@ async def cancel(sid: str):
     return {"ok": True}
 ```
 
-There is no first-party HITL-approval endpoint — you'd need to keep the `ClaudeSDKClient` alive across the user's HTTP round-trip and signal the verdict back through `can_use_tool` via an `asyncio.Event`.
+Sample curl flows (all BYO above; the SDK doesn't ship them):
+
+```bash
+# Start a run
+curl -N -X POST http://localhost:8000/chat \
+     -H 'X-Tenant-Id: acme' -H 'Content-Type: application/json' \
+     -d '{"session_id": "sess-1", "message": "Plan an audience for soccer fans"}'
+
+# SSE the client would receive (your handler re-emits SDK Message frames):
+# data: {"text": "I will start by searching topics..."}
+# data: {"tool_use": {"id": "toolu_01", "name": "topicSearch", "input": {"q": "soccer"}}}
+# data: {"done": true, "cost": 0.0042}
+
+# Cancel
+curl -X DELETE http://localhost:8000/chat/sess-1
+```
+
+There is no first-party HITL-approval endpoint — you'd need to keep the `ClaudeSDKClient` alive across the user's HTTP round-trip and signal the verdict back through `can_use_tool` via an `asyncio.Event` (e.g. POST `/chat/{sid}/approve` sets the event, the `can_use_tool` coroutine awaits it).
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 **Both** — sub-agents are first-class but invoked via a tool. The CLI ships a built-in `Task` tool that the parent LLM calls to delegate to a sub-agent. The sub-agent runs its own loop in the CLI subprocess.
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 Two paths:
 
@@ -1141,11 +1176,11 @@ Set on `ClaudeAgentOptions.agents={"code-reviewer": AgentDefinition(...)}`. Sent
 
 2. **Filesystem markdown** at `.claude/agents/<name>.md` with YAML frontmatter (the conventional Claude Code format, loaded when `setting_sources` includes `"project"` or `"user"`). Example in-repo: `.claude/agents/test-agent.md`.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 🟡 **Partial.** `AgentDefinition` is a dataclass you can build at request time per-tenant. There is no requirement that the dict be statically declared at boot. The parent LLM cannot itself generate a new `AgentDefinition` mid-run, but the Python harness can decide per-request which agents to register.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 The parent LLM calls the `Task` tool; the sub-agent runs to completion; the result returns as a `ToolResultBlock` (text summary) on the next user message. The parent sees a single result string per sub-agent call — not a stream.
 
@@ -1179,7 +1214,7 @@ class TaskNotificationMessage(SystemMessage):
 
 So the harness gets per-task progress/usage telemetry even though the parent LLM gets just the summary string.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 🟢 **Parallel — first-class.** The CLI's `Task` tool supports parallel sub-agent fan-out natively. Sub-agent tool-lifecycle hooks interleave on the control channel; the SDK documents this and provides `_SubagentContextMixin` so hook handlers can attribute concurrent tool calls back to their sub-agent via `agent_id` / `agent_type` (`types.py:289-306`):
 
@@ -1196,15 +1231,15 @@ class _SubagentContextMixin(TypedDict, total=False):
     agent_type: str
 ```
 
-`background: bool` on `AgentDefinition` and `ClaudeSDKClient.stop_task(task_id)` give explicit control over backgrounded sub-agents. Parallelism is implemented in the CLI; Python only observes the resulting interleaved messages.
+`background: bool` on `AgentDefinition` and `ClaudeSDKClient.stop_task(task_id)` give explicit control over backgrounded sub-agents. Parallelism is implemented in the CLI (the actual `Promise.all`-equivalent lives in the Node binary, not surfaced as a line in the Python SDK); Python only observes the resulting interleaved messages.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 Each sub-agent has its **own transcript** at `<projects_dir>/<project_key>/<session_id>/subagents/agent-<id>.jsonl`. The `SessionStore` adapter sees them as separate `SessionKey` entries with a `subpath` (`types.py:1276-1295`). The parent does not see the sub-agent's internal turns; only the final summary string returned by the `Task` tool. The harness can list/inspect them via `list_subagents()` / `get_subagent_messages()` (exported from `__init__.py:46-52`, added 0.1.60).
 
 The sub-agent's system prompt is its own — set via `AgentDefinition.prompt`. The parent's context is not inherited (the sub-agent starts fresh with its `prompt` + `initialPrompt`).
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 🟢 `TaskStartedMessage` / `TaskProgressMessage` / `TaskNotificationMessage` (added 0.1.46, `types.py:1059-1110`) carry per-task `task_id`, `description`, `usage`, `status`. Combined with `SubagentStart` / `SubagentStop` hooks, the parent can observe sub-agent lifecycle in flight.
 
@@ -1245,9 +1280,9 @@ async for msg in query(
 
 ---
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 🟢 **Yes, but filesystem-only.** Skills are a native concept in Claude Code (the CLI), and the SDK exposes a single `skills` option to filter them (`types.py:1812-1830`):
 
@@ -1255,7 +1290,7 @@ async for msg in query(
 skills: list[str] | Literal["all"] | None = None
 ```
 
-### 8.2 File format
+### 10.2 File format
 
 The SDK source does not define the SKILL.md schema (because the CLI owns it). Per Claude Code convention (visible in this repo's own `.claude/agents/test-agent.md`), it's a markdown file with YAML frontmatter — `name`, `description`, optional `tools`. The actual SKILL.md schema lives in the CLI's Node source, not in this repository.
 
@@ -1270,7 +1305,7 @@ Plugin format example (`examples/plugins/demo-plugin/.claude-plugin/plugin.json`
 
 Plugins can bundle `commands/`, `agents/`, `skills/`, and `hooks/`.
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 **Filesystem scan inside the CLI.** The CLI looks at `~/.claude/skills/`, `<cwd>/.claude/skills/`, and `<plugin>/skills/` directories (gated by `setting_sources`). The Python SDK auto-configures `setting_sources=["user", "project"]` and `allowed_tools` to include `Skill` when you set `options.skills` (`subprocess_cli.py:183-219`):
 
@@ -1297,15 +1332,15 @@ def _apply_skills_defaults(self) -> tuple[list[str], list[str] | None]:
 
 The CLI does the actual SKILL.md parsing — it's not exposed in the Python SDK.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Tool call.** The CLI exposes a built-in `Skill` tool to the model. When the model wants to use skill X it calls `Skill(name="X")`, which (per the CLI's internal logic) loads the SKILL.md body into the conversation as context. Observable from Python as a `ToolUseBlock(name="Skill", input={"name": "..."})`.
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Lazy.** Per the CLI's design (and confirmed by `ContextUsageResponse.skills` showing "frontmatter breakdown" — `types.py:814-815`), the metadata (name + description from frontmatter) goes in the system prompt; the full body loads on `Skill(name=...)` invocation.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 🔴 **No programmatic per-tenant scoping API.** Skills live on disk under `~/.claude/skills/` or `<cwd>/.claude/skills/`. To scope per-tenant you must either:
 
@@ -1314,7 +1349,7 @@ The CLI does the actual SKILL.md parsing — it's not exposed in the Python SDK.
 
 For our use case, the practical pattern is: a per-tenant `tenants/<tid>/.claude/skills/` tree, materialized before subprocess spawn, with `cwd=tenants/<tid>`. This adds non-trivial filesystem hygiene work (provisioning, cleanup, atomicity, retention).
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 The CLI supports cross-skill references implicitly via skill bodies that mention each other; via plugins which bundle multiple skills together (`SdkPluginConfig` — `types.py:824-831`); and via `AgentDefinition.skills` (`types.py:93`) which scopes which skills a sub-agent can see. Programmatic composition primitives: **BYO** at the SDK level.
 
@@ -1358,13 +1393,13 @@ async for msg in query(
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 🔴 **Not provided — BYO.** No registry, no source abstraction, no publishing workflow, no versioning. The SDK's "resource manager" is the filesystem and the `setting_sources` flag.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source | Supported | How |
 |---|---|---|
@@ -1377,7 +1412,7 @@ async for msg in query(
 | HTTP fetch | 🔴 No | BYO |
 | Plugins (local dir) | 🟢 Yes | `SdkPluginConfig{"type": "local", "path": ...}` (`types.py:824-831`) |
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 🟡 Layered by `setting_sources` (`types.py:1800-1810`):
 
@@ -1389,23 +1424,23 @@ When unset, all three load (CLI defaults). Pass `[]` to disable all filesystem s
 
 The CLI defines the conflict-resolution order internally; the SDK doesn't expose precedence configuration.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 🔴 None first-party. The CLI version itself is pinned via `_cli_version.py` (currently `2.1.143`); skill/agent versioning is the file mtime on disk.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 🔴 Not provided — BYO via filesystem layout (`tenants/<tid>/.claude/`).
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 🔴 Not provided.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 🔴 Not provided.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 🟡 Partial:
 
@@ -1415,7 +1450,7 @@ The CLI defines the conflict-resolution order internally; the SDK doesn't expose
 - `options.mcp_servers={"name": ...}` registers MCP servers per request.
 - No `register_skill`/`promote_skill`/`pin_version` API.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 🔴 Not provided — the CLI scans the filesystem on each subprocess spawn.
 
@@ -1455,9 +1490,9 @@ options = ClaudeAgentOptions(
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 Three levels:
 
@@ -1465,21 +1500,21 @@ Three levels:
 2. **Per turn (terminal)** — `ResultMessage.usage` + `ResultMessage.model_usage` (`types.py:1144-1167`). `model_usage` is per-model (when fallback model was used mid-turn).
 3. **Sub-agent tasks** — `TaskUsage` (`types.py:1047-1052`) on `TaskProgressMessage` / `TaskNotificationMessage`: `total_tokens`, `tool_uses`, `duration_ms`.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 - Per-call & per-turn & per-task: built-in.
 - Per-session running counter: **BYO** — accumulate yourself by summing across `ResultMessage`s.
 - Per-tenant: **BYO** (key on `SessionKey.project_key`).
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 🟢 **`ResultMessage.total_cost_usd: float | None`** (`types.py:1155`). **The CLI computes this**, not the Python SDK. We get an authoritative USD figure per turn for free, including across model fallback. **Claude Agent SDK Python is the only stack in our comparison with first-party USD cost on the result object.**
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 BYO — accumulate `total_cost_usd` keyed by your tenant id. The `SessionKey.project_key` is the natural tagging key.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 🟢 **OpenTelemetry context auto-propagation** (`subprocess_cli.py:441-462`, added 0.1.60):
 
@@ -1503,11 +1538,11 @@ So the CLI's spans parent under the caller's distributed trace via the `TRACEPAR
 
 No first-party LangSmith / LangFuse / Datadog adapters.
 
-### 10.6 Audit logging
+### 12.6 Audit logging (who / when / what)
 
 🟡 Indirect. The SessionStore mirror is your audit log — every transcript line (tool calls, tool results, prompts, mode changes) flows through `SessionStore.append()`. Combined with `include_hook_events=True` (added 0.1.74), you get a hook-execution audit stream as well (`HookEventMessage` carries `hook_event_name`, `subtype` ∈ `{"hook_started", "hook_response"}`, exit codes, outcomes). No tamper-evident chain.
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 ```python
 async for msg in client.receive_response():
@@ -1547,9 +1582,9 @@ OTel trace context is auto-propagated to the CLI subprocess; spans the CLI emits
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 The CLI ships the full Claude Code toolset. Names enumerable from `examples/` & docs:
 
@@ -1573,11 +1608,11 @@ Plus server-executed tools surfaced via `ServerToolUseBlock` (`types.py:953-961`
 
 Full list lives in the Claude Code docs, not this repo.
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 🟢 High. The Claude Code tooling encodes patterns: `Read` reads with line numbers and image rendering, `Edit` uses anchor matching, `Monitor` streams stdout line-by-line as events, `Bash` integrates with the sandbox settings (`types.py:873-916`), `WebFetch` honors network allowlists.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 ```python
 # src/claude_agent_sdk/__init__.py:196
@@ -1600,35 +1635,35 @@ The schema can be:
 
 The decorator returns an `SdkMcpTool` dataclass (`__init__.py:155-164`); `create_sdk_mcp_server` builds an MCP server around them; the SDK MCP bridge (`query.py:548-721`) routes `tools/list` and `tools/call` JSON-RPC frames from the CLI back to the in-process handler.
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 JSON-schema-driven, validated by the MCP runtime. Invalid args cause an MCP error response sent back to the CLI, which the model sees as a tool error. The decorator converts Python type hints to JSON Schema (`TypedDict` support fixed in 0.1.51 — `CHANGELOG.md:336-339`).
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 🔴 Not supported in the SDK MCP server path. Tool handlers must return a single `{"content": [...]}` dict. The CLI itself streams tool output (e.g. `Monitor`) but third-party SDK MCP tools are request/response.
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 🟢 First-class. The CLI is the MCP client; the SDK exposes `mcp_servers` config (`types.py:1615-1620`).
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 🟢 First-class via `create_sdk_mcp_server` + `@tool` (in-process). The SDK does **not** expose a standalone "publish my tools as a stdio MCP server" entrypoint, but `python -m mcp` over an SDK tool collection would achieve the same.
 
-### 12.3 Transports
+### 14.3 Transports
 
 🟢 stdio, SSE, HTTP (`McpStdioServerConfig`, `McpSSEServerConfig`, `McpHttpServerConfig` — `types.py:602-624`), plus `McpSdkServerConfig` (in-process — `types.py:627-633`).
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 🟢 **Headline feature.** `@tool`-decorated coroutines run in the parent Python process via control-protocol bridge (`query.py:548-721`). No separate subprocess. Closure capture for tenant id / session id works naturally.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 - Credentials: pass as env or headers in the MCP server config (`McpHttpServerConfig.headers`).
 - Reconnection: `ClaudeSDKClient.reconnect_mcp_server(name)` (`client.py:402-422`).
@@ -1639,73 +1674,73 @@ JSON-schema-driven, validated by the MCP runtime. Invalid args cause an MCP erro
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 🟡 **Anthropic models only** (Sonnet/Opus/Haiku across versions). Bedrock and Vertex routing are supported by the underlying CLI but the SDK is opaque to it.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 🟢 **Sub-agent override** via `AgentDefinition.model` (`types.py:92`) — Sonnet supervisor + Haiku workers is the canonical pattern.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 🟢 `fallback_model: str | None` on `ClaudeAgentOptions` (`types.py:1679-1680`). Single-step fallback only — not a multi-rung chain. On overage/outage the CLI falls back; `ResultMessage.model_usage` shows the split.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 🟢 `ClaudeSDKClient.set_model(model)` (`client.py:346-368`) switches at turn boundaries.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 🟢 `AgentDefinition.model="haiku"` etc. — first-class.
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 🔴 **Not provided — BYO.** No React `useChat`, no Vue/Svelte equivalents. Anthropic ships separate frontend SDKs (anthropic-sdk-typescript with React helpers) but Claude Agent SDK Python is backend-only.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 🔴 Not provided.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 🔴 Not provided.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
-Parse the SDK message stream into your own SSE/WebSocket frames; render them with your favorite frontend library. The `tool_use_id` linkage (Q6.10) is the only structural help the SDK gives the UI layer.
+Parse the SDK message stream into your own SSE/WebSocket frames; render them with your favorite frontend library. The `tool_use_id` linkage (Q8.10) is the only structural help the SDK gives the UI layer.
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 🟡 Partial via `CLAUDE.md` files (filesystem). No vector store, no embeddings, no semantic recall. The CLI loads `CLAUDE.md` automatically when `setting_sources` includes `project`. `AgentDefinition.memory: "user" | "project" | "local"` (`types.py:94`) scopes which CLAUDE.md a sub-agent sees.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 🔴 BYO. Layer it as an MCP server or SDK tool.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 🟡 Filesystem-shaped. Per-tenant CLAUDE.md lives under `tenants/<tid>/CLAUDE.md` and the SDK loads it via `cwd`.
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 🔴 No PII redaction, no prompt-injection detection, no hallucination detection. BYO via `UserPromptSubmit` / `PostToolUse` hooks.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 🟢 **`SandboxSettings`** (`types.py:873-916`, added 0.1.62 with refinements through 0.1.71). On macOS/Linux, controls bash sandboxing:
 
@@ -1724,51 +1759,51 @@ class SandboxSettings(TypedDict, total=False):
 
 🟢 **Permissions**: `permission_mode` ∈ `{"default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"}` (`types.py:24-26`). `auto` (added 0.1.57) uses a model classifier. `dontAsk` denies anything not pre-approved by allow rules. `can_use_tool` callback is the per-call interception point.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 🟡 First-party bash sandbox via OS primitives only (macOS sandbox-exec, Linux seccomp). No E2B/Daytona/Modal adapters.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 `permission_mode="default"` prompts on each dangerous tool. `permission_mode="dontAsk"` is a default-deny posture. `bypassPermissions` is default-allow (CAUTION). For multi-tenant servers, `default` with a `can_use_tool` callback is the natural posture.
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
-
-🔴 Not provided.
-
-### 17.2 LLM-as-judge scoring
+### 19.1 Golden datasets / regression suites
 
 🔴 Not provided.
 
-### 17.3 CI eval gates / pre-merge
+### 19.2 LLM-as-judge scoring
 
 🔴 Not provided.
 
-### 17.4 Trace replay for skill iteration
+### 19.3 CI eval gates / pre-merge
+
+🔴 Not provided.
+
+### 19.4 Trace replay for skill iteration
 
 🟡 Indirect: on-disk JSONL transcripts can be re-loaded via `get_session_messages()` and re-played manually; the in-CLI `/replay` command works inside the CLI but is not exposed via SDK.
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 🟢 The Claude Code CLI itself (`claude` binary) is a TUI you can run on your laptop. SDK ships `examples/quick_start.py` for headless local runs.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 🟡 Local JSONL transcripts at `~/.claude/projects/...`. The CLI ships `/context`, `/cost`, `/status` commands. SDK exposes `get_context_usage()` programmatically.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 BYO — different `cwd` per tenant.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 🟢 Skills/agents/plugins are loaded on each subprocess spawn — change a SKILL.md on disk and the next `query()` picks it up. No long-lived caching daemon to flush.
 

@@ -1,16 +1,17 @@
-# Mastra TypeScript — Benchmark Study
+# Mastra TypeScript — Benchmark Analysis
 
 > **Repo**: https://github.com/mastra-ai/mastra
-> **Commit studied**: `318b0279b8d1cc36ecd5280db209e00b6e119e2e` (chore: regenerate providers and docs)
+> **Commit analysed**: `318b0279b8d1cc36ecd5280db209e00b6e119e2e` (chore: regenerate providers and docs)
 > **Branch**: `main`
 > **Framework path**: `frameworks/mastra/`
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
-Studied at version `@mastra/core@1.36.0-alpha.0`. All file paths in this document are relative to `frameworks/mastra/` unless otherwise noted.
+Analysed at version `@mastra/core@1.36.0-alpha.0`. All file paths in this document are relative to `frameworks/mastra/` unless otherwise noted.
 
 ## TL;DR
 
 - **Architecturally**: full-stack TypeScript AI framework. `Mastra` is a central registry/DI container that you instantiate in your Node/Bun/Edge process. The agent loop is **itself a Mastra workflow** (`createWorkflow(...).then(llmExecutionStep).foreach(toolCallStep).then(...)`), giving you free parallel tool dispatch, suspend/resume via workflow snapshots, and HITL approval without writing orchestration.
+- **Ecosystem**: TypeScript.
 - **License & governance**: Apache-2.0 with a dual-license `ee/` directory under the Mastra Enterprise License. Owned by **Kepler Software, Inc.** (Y Combinator W25). Commercial backing + community Discord.
 - **Maturity**: ~1.5 years old (Mastra was launched in 2024), already in `1.36.0-alpha.0` for `@mastra/core` and `1.9.4-alpha.0` for the `mastra` CLI. Active monorepo with 50+ packages and 15+ first-party storage adapters. Submodule was a shallow clone so star/contributor counts come from the README badges.
 - **Where the loop executes**: in your process. `@mastra/core` is pure TypeScript, no subprocess, no vendor binary. The HTTP server (`@mastra/server`) is Hono-based and embeds the agent.
@@ -22,9 +23,65 @@ Studied at version `@mastra/core@1.36.0-alpha.0`. All file paths in this documen
 
 ---
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
 
-### Deployment diagram
+### 0.1 What is this stack?
+
+A TypeScript **framework + app platform + CLI**. You instantiate `new Mastra({ agents, workflows, storage, memory, mcpServers, vectors, ... })` in your process; that object exposes the agent surface (`agent.stream()` / `agent.generate()`) and registers routes when handed to `@mastra/server`. There is no managed runtime you must call out to — Mastra Cloud exists but is optional.
+
+### 0.2 Ecosystem
+
+**TypeScript** (strict). Uses `pnpm` + `turborepo`. No Python/Go/Rust components.
+
+### 0.3 Project status & governance
+
+- **Open source** under **Apache License 2.0** for everything outside `ee/` (`LICENSE.md:18-29`).
+- **`ee/` directory under Mastra Enterprise License** — covers `packages/core/src/auth/ee/` and `packages/server/src/server/auth/ee/`. Free for dev/testing; commercial use needs a license (`LICENSE.md:3-10`).
+- Maintained by **Kepler Software, Inc.** (Y Combinator W25). Active community Discord, dedicated security email `security@mastra.ai`.
+- Commercial backing: Mastra Cloud (hosted offering) + paid enterprise support.
+
+### 0.4 Project maturity / age
+
+- `@mastra/core@1.36.0-alpha.0` (from `packages/core/package.json:3`). CLI `mastra@1.9.4-alpha.0`.
+- Approximately ~1.5 years public (Mastra launched in 2024).
+- Most APIs are marked stable. `vNext` / `deprecated` markers exist on a few routes (e.g. `STREAM_GENERATE_VNEXT_DEPRECATED_ROUTE` at `packages/server/src/server/server-adapter/routes/agents.ts:9`), suggesting active churn at the HTTP layer.
+
+### 0.5 Adoption & community signal (captured 2026-05-19)
+
+- Hosted on GitHub (`mastra-ai/mastra`). Star/fork counts via badge: see README at `frameworks/mastra/README.md` — the repo carries the typical YC-backed activity profile (multiple commits per day, active issue triage). Submodule was a shallow clone so per-tag history is not available locally — see GitHub for exact numbers.
+- Discord: https://discord.gg/BTYqqHKUrf (linked from README badges).
+- Twitter: `@mastra` (linked from README).
+
+### 0.6 Ecosystem fit
+
+- **Package namespace**: `@mastra/*` on npm (`@mastra/core`, `@mastra/server`, `@mastra/memory`, `@mastra/rag`, `@mastra/mcp`, `@mastra/deployer-*`, …).
+- 50+ packages in the monorepo (`ls packages/` shows core, cli, evals, mcp, memory, rag, server, deployer, playground, playground-ui, agent-builder, editor, …).
+- 15+ first-party storage adapters under `stores/` (libsql, pg, dynamodb, cloudflare, cloudflare-d1, clickhouse, mongodb, mssql, opensearch, pinecone, qdrant, chroma, astra, …).
+- Used as a **library + app framework + CLI**. `mastra dev` boots a local playground; `mastra start` boots production.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- Docs are deep and TypeScript-flavored. `docs/` is part of the monorepo (Mintlify-style) and ships its own `AGENTS.md` for contribution.
+- A Product/Data person could author `SKILL.md` and YAML frontmatter unaided — skills are markdown.
+- Tools / processors require TypeScript.
+
+### 0.8 Documentation entry points ⭐
+
+- Official docs: https://mastra.ai/docs
+- Quickstart / getting-started: https://mastra.ai/docs/getting-started/installation
+- API reference: https://mastra.ai/docs (per-package sections under "Reference")
+- Hosting / deployment: https://mastra.ai/docs/server-db/server-deployment
+- Examples / demos: https://github.com/mastra-ai/mastra/tree/main/examples + `templates/` directory in the repo
+- Changelog / release notes: per-package `CHANGELOG.md` (e.g. `packages/core/CHANGELOG.md`)
+- GitHub Releases: https://github.com/mastra-ai/mastra/releases
+- GitHub issues: https://github.com/mastra-ai/mastra/issues
+- Discord: https://discord.gg/BTYqqHKUrf
+
+---
+
+## 1. High Level Architecture
+
+### Deployment diagram ⭐
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -68,38 +125,7 @@ Studied at version `@mastra/core@1.36.0-alpha.0`. All file paths in this documen
                             └──────────────┘
 ```
 
-### 0.1 What is this stack?
-
-A TypeScript framework. You instantiate `new Mastra({ agents, workflows, storage, memory, mcpServers, vectors, ... })` in your process; that object exposes the agent surface (`agent.stream()` / `agent.generate()`) and registers routes when handed to `@mastra/server`. There is no managed runtime you must call out to — Mastra Cloud exists but is optional.
-
-### 0.2 Project status & governance
-
-- **Open source** under **Apache License 2.0** for everything outside `ee/` (`LICENSE.md:18-29`).
-- **`ee/` directory under Mastra Enterprise License** — covers `packages/core/src/auth/ee/` and `packages/server/src/server/auth/ee/`. Free for dev/testing; commercial use needs a license (`LICENSE.md:3-10`).
-- Maintained by **Kepler Software, Inc.** (Y Combinator W25). Active community Discord, dedicated security email `security@mastra.ai`.
-- Commercial backing: Mastra Cloud (hosted offering) + paid enterprise support.
-
-### 0.3 Project maturity / age
-
-- `@mastra/core@1.36.0-alpha.0` (from `packages/core/package.json:3`). CLI `mastra@1.9.4-alpha.0`.
-- Approximately ~1.5 years public.
-- Most APIs are marked stable. `vNext` / `deprecated` markers exist on a few routes (e.g. `STREAM_GENERATE_VNEXT_DEPRECATED_ROUTE` at `packages/server/src/server/server-adapter/routes/agents.ts:9`), suggesting active churn at the HTTP layer.
-
-### 0.4 Adoption & community signal (captured 2026-05-16)
-
-- Hosted on GitHub (`mastra-ai/mastra`). Star/fork counts via badge: see README at `frameworks/mastra/README.md` — the repo carries the typical YC-backed activity profile (multiple commits per day, active issue triage). Submodule was a shallow clone so per-tag history is not available locally — see GitHub for exact numbers.
-- Discord: https://discord.gg/BTYqqHKUrf (linked from README badges).
-- Twitter: `@mastra` (linked from README).
-
-### 0.5 Ecosystem fit
-
-- **Primary language**: TypeScript (strict). Uses `pnpm` + `turborepo`.
-- **Package namespace**: `@mastra/*` on npm (`@mastra/core`, `@mastra/server`, `@mastra/memory`, `@mastra/rag`, `@mastra/mcp`, `@mastra/deployer-*`, …).
-- 50+ packages in the monorepo (`ls packages/` shows core, cli, evals, mcp, memory, rag, server, deployer, playground, playground-ui, agent-builder, editor, …).
-- 15+ first-party storage adapters under `stores/` (libsql, pg, dynamodb, cloudflare, cloudflare-d1, clickhouse, mongodb, mssql, opensearch, pinecone, qdrant, chroma, astra, …).
-- Used as a **library + app framework + CLI**. `mastra dev` boots a local playground; `mastra start` boots production.
-
-### 0.6 Where does the agent loop *actually* execute?
+### 1.1 Where does the agent loop *actually* execute?
 
 **In your TypeScript process.** No subprocess, no vendor binary. The loop is a Mastra workflow (`packages/core/src/loop/loop.ts:11`):
 
@@ -116,7 +142,7 @@ export function loop<Tools extends ToolSet = ToolSet, OUTPUT = undefined>({
 
 The workflow primitive is itself defined in `packages/core/src/workflows/` and the agent's loop runs entirely on it — no external scheduler.
 
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - **Node.js ≥ 18** (or Bun, Cloudflare Workers, Vercel Edge — see `deployers/`).
 - **pnpm** for monorepo dev.
@@ -124,7 +150,7 @@ The workflow primitive is itself defined in `packages/core/src/workflows/` and t
 - **Storage backend**: by default Mastra uses an in-memory store (`packages/core/src/storage/inmemory-db.ts`) — fine for dev, **must replace with a durable store for production** (e.g. `@mastra/store-libsql`, `@mastra/store-pg`).
 - Optional: vector store for memory/RAG, Redis for pubsub, Datadog/OTel for observability.
 
-### 0.8 Recommended deployment topology
+### 1.3 Recommended deployment topology
 
 The recommended pattern is **one-process-many-tenants**:
 
@@ -135,22 +161,22 @@ The recommended pattern is **one-process-many-tenants**:
 
 Deployers under `deployers/` package this for **Vercel, Netlify, Cloudflare Workers**, and `deployers/cloud` for **Mastra Cloud**.
 
-### 0.9 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 No public benchmark in-repo. Mastra's processor pipeline and registry are lazy-instantiated, but `@mastra/core` is heavy (>200 source files). Realistic baseline for a 5-agent app: tens of MB RAM, sub-second cold start on Node, longer (~1–2 s) on Cloudflare Workers due to bundle size. Not officially reported.
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 
 - **LLM provider lock-in**: low. Mastra uses Vercel AI SDK v5/v6 provider adapters (40+ providers — see README) and exposes `model: MastraModelConfig` per call.
 - **Hosting lock-in**: low. Deployers for all major edge platforms; the Hono server runs anywhere.
 - **Storage lock-in**: low — 15+ adapters under `stores/`.
 - **Eval / observability lock-in**: medium. Mastra has its own `MastraScorer` API and observability spans; OTel + Langfuse exporters exist but are not the default. Migrating to LangSmith would be a rewrite of scorers.
 
-### 0.11 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 **Heavy framework.** `@mastra/core` is a 200+ file package; `packages/core/src/agent/agent.ts` alone is **6,992 lines**. You get agents + workflows + memory + storage + RAG + voice + MCP + deployer + scheduler + scorers + RBAC/FGA + playground + Studio in one consistent platform. The trade-off is coupling: `Agent` knows about `Mastra` (the central registry), `Storage`, `Memory`, `Workspace`, `MCPServer` — extracting just "the loop" is non-trivial.
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 
 Active changesets in `packages/core/CHANGELOG.md`:
 
@@ -160,31 +186,11 @@ Active changesets in `packages/core/CHANGELOG.md`:
 
 Indicates **fast-moving in 2026** at the auth/governance layer (FGA, favorites, visibility) and the supervisor/scorer layer (`isTaskComplete`).
 
-### 0.13 Documentation depth & cross-team contributor accessibility
-
-- Docs are deep and TypeScript-flavored. `docs/` is part of the monorepo (Mintlify-style) and ships its own `AGENTS.md` for contribution.
-- A Product/Data person could author `SKILL.md` and YAML frontmatter unaided — skills are markdown.
-- Tools / processors require TypeScript.
-
-### 0.14 Documentation entry points
-
-- Official docs: https://mastra.ai/docs
-- Quickstart / getting-started: https://mastra.ai/docs/getting-started/installation
-- API reference: https://mastra.ai/docs (per-package sections under "Reference")
-- Hosting / deployment: https://mastra.ai/docs/server-db/server-deployment
-- Examples / demos: https://github.com/mastra-ai/mastra/tree/main/examples + `templates/` directory in the repo
-- Changelog / release notes: per-package `CHANGELOG.md` (e.g. `packages/core/CHANGELOG.md`)
-- GitHub Releases: https://github.com/mastra-ai/mastra/releases
-- GitHub issues: https://github.com/mastra-ai/mastra/issues
-- Discord: https://discord.gg/BTYqqHKUrf
-
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### Run loop
-
-#### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 Three public entrypoints on `Agent`:
 
@@ -205,7 +211,7 @@ async stream<OUTPUT = TOutput>(
 
 Internally it calls `#validateRequestContext` (`agent.ts:751`), checks FGA permissions (`MastraFGAPermissions.AGENTS_EXECUTE` at `agent.ts:6056, 6216`), merges agent-level `defaultOptions` with per-call options, resolves model + tools dynamically, and invokes the `loop()` primitive (`packages/core/src/loop/loop.ts:11`).
 
-#### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 The inner workflow is built in `packages/core/src/loop/workflows/agentic-execution/index.ts:73-100`:
 
@@ -221,11 +227,11 @@ return createWorkflow({ id: 'executionWorkflow', ... })
   .commit();
 ```
 
-#### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 Mastra ships a built-in ReAct-style loop (LLM call → tool dispatch → next LLM call). The `isTaskCompleteStep` adds a supervisor-style early-stop: if scorers in `isTaskComplete: { scorers, strategy: 'all' }` (`agent.types.ts:540-560`) pass, the loop stops; otherwise feedback is appended and it iterates.
 
-#### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 `toolCallStep` (`packages/core/src/loop/workflows/agentic-execution/tool-call-step.ts`) does dispatch:
 
@@ -234,19 +240,21 @@ Mastra ships a built-in ReAct-style loop (LLM call → tool dispatch → next LL
 - If `requireApproval` or `needsApprovalFn` matches, emits a `tool-call-approval` chunk and calls `suspend(...)` (`tool-call-step.ts:400-443`).
 - Otherwise passes the result back through `llmMappingStep` which builds the next LLM prompt.
 
-#### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 A **turn** is one full pass through the 6-step workflow chain (LLM call + tool dispatches + completion check). The `step-finish` and `finish` stream chunks demarcate turn boundaries.
 
-#### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 The loop returns a **`ReadableStream<ChunkType>`** (web-standard, not `EventEmitter` or async generator). `MastraModelOutput` (`packages/core/src/stream/base/output.ts`) wraps it and exposes both `fullStream` and per-property promises (`text`, `usage`, `toolCalls`, `toolResults`, `finishReason`, `messageList`, `getFullOutput()`).
 
 Processors can push custom `data-*` chunks via `ProcessorStreamWriter.custom(...)` (`packages/core/src/processors/index.ts:33-45`).
 
-### Message & event taxonomy
+---
 
-#### 1.7 Message layers
+## 3. Message & Event Taxonomy
+
+### 3.1 Message layers
 
 Three layers, deliberately separated:
 
@@ -265,7 +273,9 @@ Three layers, deliberately separated:
    Mastra absorbs both AI SDK v4 and v5/v6 message shapes plus its own DB shape, then normalizes through a `MessageList` instance.
 3. **Wire/Stream layer — `ChunkType`** (`packages/core/src/stream/types.ts:931-939`), a tagged union with **~40 distinct types**.
 
-#### 1.8 Concrete message types
+Conversion: `MessageInput → MessageList → MastraDBMessage` (for persistence), and `MessageList → LanguageModelV2Prompt` (for the LLM). The wire `ChunkType` stream is reconstructed back into messages on flush.
+
+### 3.2 Concrete message types
 
 | Layer | Type | Purpose |
 |---|---|---|
@@ -274,11 +284,11 @@ Three layers, deliberately separated:
 | Wire | `ChunkType` | Streamed events (40+ variants) |
 | Internal | `LanguageModelV2Prompt` | LLM-facing prompt after `MessageList.toPrompt()` |
 
-#### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 Clean separation. `MastraDBMessage` is what storage sees; `ChunkType` is what flows through `fullStream`. The stream is reconstructed back into messages by `MessageList` (`packages/core/src/agent/message-list/message-list.ts`) when the run finishes or on persistence flushes.
 
-#### 1.10 Event categories
+### 3.4 Event categories
 
 From `AgentChunkType` (`packages/core/src/stream/types.ts:749-827`):
 
@@ -295,13 +305,13 @@ From `AgentChunkType` (`packages/core/src/stream/types.ts:749-827`):
 
 Plus a generic `DataChunkType = { type: 'data-<custom>'; data: any; transient?: boolean }` (`stream/types.ts:711-717`) for processor-emitted custom events. `transient: true` chunks are streamed but not persisted.
 
-#### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 - `packages/core/src/stream/types.ts` — wire `ChunkType` union (~1086 lines).
 - `packages/core/src/agent/message-list/types.ts` — message inputs.
 - `packages/core/src/agent/message-list/state/types.ts` — DB shape.
 
-#### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Sample frames (SSE-encoded):
 
@@ -327,13 +337,13 @@ data: {"type":"finish","runId":"r-1","from":"AGENT","payload":{"stepResult":{"re
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 Mastra IS a multi-session runtime when you instantiate `Mastra` once and serve many concurrent `agent.stream(...)` calls against it. The agent is reentrant: every `stream()` call constructs its own `loop()` workflow, independent `MessageList`, independent `RequestContext`. The central `Mastra` registry holds singleton-shared resources (storage, memory store, MCP clients, scheduler) but the per-run state is allocated per call.
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 State isolation is enforced at:
 
@@ -344,11 +354,11 @@ State isolation is enforced at:
 
 Tool authors must avoid module-level mutable state (standard concurrency hygiene).
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 **Stateless workers** — multiple Mastra processes behind a load balancer share the storage backend; no leader election. Resumable streams (`/agents/:id/observe-stream`) let any worker pick up an in-progress run because the workflow snapshot lives in storage. Suspended HITL state is durable via workflow snapshots.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 Three first-party mechanisms:
 
@@ -356,15 +366,15 @@ Three first-party mechanisms:
 - **Background tasks** — `disableBackgroundTasks?: boolean` on `AgentExecutionOptions` (`agent.types.ts:626`); `backgroundTaskCheckStep` waits in-loop. Background tasks have their own chunk family (`background-task-started/running/completed/failed/output/...`).
 - **Webhooks / channels** — `channels/slack`, `channels/discord` packages wire agent runs into chat events.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 Not first-party. Mastra assumes you put it behind your normal Node/Edge HTTP infra. The `pubsub/` directory contains a pub/sub abstraction used internally; for production queues you bring your own (BullMQ, SQS, etc.).
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 Mastra calls a session a **"thread"**. A thread is `{ threadId: string, resourceId: string, ... }` and is paired with a `resourceId` (typically a user or tenant id). The `MastraMemory` abstraction (`packages/core/src/memory/memory.ts`) is the public API; storage backends implement it.
 
@@ -379,7 +389,7 @@ memory?: AgentMemoryOption;  // { thread, resource } pair
 - `id`, `threadId`, `resourceId`, `role`, `content`, `createdAt`, `metadata`.
 - `content.metadata.suspendedTools` and `pendingToolApprovals` for HITL.
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 - Conversation messages (all roles).
 - Tool calls + results (as messages).
@@ -389,11 +399,11 @@ memory?: AgentMemoryOption;  // { thread, resource } pair
 - Observability spans + metrics (separate domain — `storage/domains/observability/`).
 - Scorer results (`storage/domains/scores/`).
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 Single conversation per `threadId`. Fork/branch is not first-class; you'd `cloneThread` (see `packages/memory/src/clone-thread-om.test.ts`) and write to the new id.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 15+ adapters under `stores/`:
 
@@ -404,7 +414,7 @@ Single conversation per `threadId`. Fork/branch is not first-class; you'd `clone
 
 Storage domains under `packages/core/src/storage/domains/`: `agents`, `background-tasks`, `blobs`, `channels`, `datasets`, `experiments`, `favorites`, `mcp-clients`, `mcp-servers`, `memory`, `observability`, `operations`, `prompt-blocks`, `schedules`, `scorer-definitions`, `scores`, `skills`, `versioned`, `workflows`, `workspaces`.
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 Default: **debounced 100 ms per-turn-end**. From `packages/core/src/agent/save-queue/index.ts:6-49`:
 
@@ -424,35 +434,35 @@ export class SaveQueueManager {
 
 Switch with `savePerStep: true` on `AgentExecutionOptions` (`agent.types.ts:462`) for "after every assistant step" semantics. On tool approval suspension, `flushMessagesBeforeSuspension()` is called explicitly (`tool-call-step.ts:429`) so suspended state is durable immediately.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 Yes — **via workflow snapshots**. When a tool with `requireApproval: true` is hit, `suspend({ __streamState: streamState.serialize() }, ...)` is called and the snapshot is persisted by the configured storage backend (`tool-call-step.ts:400-443`). Resume goes through `agent.approveToolCall({ runId, toolCallId })` (`agent.ts:6741`) which restores the snapshot and replays from the suspended step. This survives process restarts if storage is durable.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 User-provided. Conventionally UUIDs (or whatever the host generates). No tenant-prefix convention is enforced; you scope by `resourceId` (the second part of the memory tuple) instead.
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 Yes — `MastraStorage` is the interface, with sub-interfaces for each domain (`packages/core/src/storage/domains/<domain>/*.ts`). Add a custom adapter by implementing the domain interfaces and passing the instance to `new Mastra({ storage: yourAdapter })`.
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 Each adapter ships its own migration scripts (e.g. `stores/pg/src/migrations.ts`). No framework-wide migration helper. New fields are usually added as optional and adapters degrade gracefully (see `1.35.0` favorites release note: *"Existing rows without `visibility` or `favoriteCount` continue to work"*).
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 Yes via `storage.getMessages({ threadId })` and the resumable-stream / observe-stream endpoints. There is also a `_llm-recorder` package (`packages/_llm-recorder`) used for test fixture replay.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-Yes — see Q15. `@mastra/memory` provides semantic recall (vector-store-backed), working memory (LLM-summarized rolling notes), and conversation history. Per-resource scope means a tenant or user gets isolated memory naturally.
+Yes — see Q17. `@mastra/memory` provides semantic recall (vector-store-backed), working memory (LLM-summarized rolling notes), and conversation history. Per-resource scope means a tenant or user gets isolated memory naturally.
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context
+## 6. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 `packages/core/src/agent/agent.types.ts:446-636` (`AgentExecutionOptionsBase`):
 
@@ -494,7 +504,7 @@ export type AgentExecutionOptionsBase<OUTPUT> = {
 };
 ```
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 `RequestContext` (`packages/core/src/request-context/index.ts:56-210`) is a typed `Map<string, unknown>`. The HTTP layer (`packages/server/src/server/handlers/agents.ts:98`) defines `mergeBodyRequestContext(serverRequestContext, bodyRequestContext)` which merges the body-supplied context into the server-built one but preserves four reserved keys:
 
@@ -511,7 +521,7 @@ Doc-string at `request-context/index.ts:6-15`:
 
 The same `RequestContext` flows into tool execution via `ToolExecutionContext.requestContext` (`packages/core/src/tools/types.ts:385-426`).
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 ```ts
 export interface ToolExecutionContext<TSuspend, TResume, TRequestContext> {
@@ -540,7 +550,7 @@ createTool({
 })
 ```
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 **There is no dedicated `PreToolUse → updatedInput` hook.** Mastra does not expose anything analogous to Claude Agent SDK's hook that returns `{ updated_input }`. The canonical patterns:
 
@@ -550,7 +560,7 @@ createTool({
 
 If you need "for tool X, always set `tenantId=Y` regardless of what the LLM emits", you write that wrapper yourself in option 2 or 3. **Real gap for porters from Claude Agent SDK / hook-driven stacks.**
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 Two mechanisms:
 
@@ -563,15 +573,15 @@ Two mechanisms:
    ```
 2. **Per step in the loop** — `activeTools` on `AgentExecutionOptions` (whitelist) or `prepareStep` returning `{ activeTools: ['fetch_topics', 'load_taxonomy'] }`. The `toolCallStep` enforces this: calls to non-active tools are rejected with `"Tool X not found. Available: ..."` (`tool-call-step.ts:316-348`).
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 Tenant identity is **not** a first-class top-level field. Conventionally you put it in `requestContext` (as a typed key) and/or use `resourceId` as the tenant scope. RBAC + FGA (under `ee/`) consume `requestContext` for permission checks (`agent.ts:6056` calls `MastraFGAPermissions.AGENTS_EXECUTE`).
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 `MASTRA_AUTH_TOKEN_KEY` (`request-context/index.ts:51`) is the canonical reserved key for forwarding the caller's auth token into tool execution. Tools that hit downstream services (other MCP servers, internal APIs) read it from `ctx.requestContext.get(MASTRA_AUTH_TOKEN_KEY)` and forward it. The editor uses this to forward auth to MCP servers that require the same auth as the Mastra server itself.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 - **Skills**: `SkillsResolver = string[] | ((ctx: { requestContext? }) => string[] | Promise<string[]>)` — paths per request (`packages/core/src/workspace/skills/types.ts:136`).
 - **Sub-agents**: same `DynamicArgument` pattern.
@@ -581,7 +591,7 @@ Tenant identity is **not** a first-class top-level field. Conventionally you put
 
 There is no built-in `org/channel/user` hierarchy — you encode it in the keys you put in `requestContext` and consume via FGA rules.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 **No native USD budget cap.** Two related primitives:
 
@@ -634,11 +644,11 @@ Step 1 (pass context): supported via `requestContext`. Step 2 (filter visible to
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
 Mastra calls them **"processors"**. Eight method slots on the `Processor` interface, plus top-level callback hooks on the execution options, plus `delegation` / `isTaskComplete` / `onIterationComplete` callbacks for loop control.
 
-### 5.1 Enumerate every hook
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 From `packages/core/src/processors/index.ts:465-615`:
 
@@ -655,11 +665,11 @@ From `packages/core/src/processors/index.ts:465-615`:
 
 Plus top-level option callbacks on every `stream()` / `generate()` call: `onChunk`, `onStepFinish`, `onFinish`, `onError`, `onAbort`, `onIterationComplete`, `delegation.onDelegationStart`, `delegation.onDelegationComplete`, `delegation.messageFilter`.
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 Processors fire **sequentially in declaration order** within a single processor pipeline; each hook returns a value that the next consumes. Multiple processors can be combined as a workflow (`InputProcessorOrWorkflow` etc.) so you can compose them.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 - **Inject system messages at session start** — yes. `processInput` or `processInputStep` mutate `systemMessages`. The built-in `SkillsProcessor` (`packages/core/src/processors/processors/skills.ts:209-237`) does exactly this. Two-line injector.
 - **Expand user input (slash commands, attachments)** — yes. `processInput` mutates the messages list before any LLM call.
@@ -668,15 +678,15 @@ Processors fire **sequentially in declaration order** within a single processor 
 - **Mutate / decorate tool result before returning to the LLM** — yes via `toModelOutput` on each tool (`tools/types.ts:459`) or via `processOutputStream` filtering `tool-result` / `tool-output` chunks. Not a dedicated `PostToolUse` either, but the chunk-level hook is general enough.
 - **Emit additional tool calls in response to a tool result** — partially. There is **no Claude-style `PostToolUse → additional_messages` mechanism**. You can: (a) inject a synthetic message via `processOutputStep` (a follow-up instruction the LLM will see next iteration), (b) use `delegation.onDelegationComplete` to feed feedback after a sub-agent returns, (c) use `onIterationComplete` to return `{ feedback: '...' }` which is appended to the conversation. None of these directly inject a `tool-call` event into the same step.
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 Built-in via `TokenLimiterProcessor` (`packages/core/src/processors/processors/token-limiter.ts`) and `BatchPartsProcessor` (`batch-parts.ts`). Triggers when token budget exceeded; strategy is "drop oldest user/assistant pairs until under limit". For richer LLM-summarized compaction, you'd compose your own.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 The processor pipeline supports caching via `processLLMRequest` returning `{ response: <cached chunks> }` to skip the LLM call entirely. A built-in `ResponseCacheProcessor` lives at `packages/core/src/processors/processors/response-cache.ts`. Anthropic-style cache breakpoints are not auto-managed by the framework — you place them in your system prompt yourself or rely on a processor to insert them.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 Two mechanisms:
 
@@ -684,7 +694,7 @@ Two mechanisms:
 - `processOutputStream` can drop or rewrite `tool-result` chunks.
 - The Workspace + Skills system encourages **filesystem stash**: a tool writes its full output to a workspace file and returns a short summary + path, so the LLM can call `skill_read` later to fetch slices.
 
-### 5.7 Architectural diagram of hook firing
+### 7.7 Architectural diagram of hook firing
 
 ```
                                                                   ┌───────────────────────────────┐
@@ -757,13 +767,13 @@ const tenantContextInjector: Processor = {
     const locale = ctx.requestContext?.get('locale') ?? 'en-US';
     messageList.addSystem({
       role: 'system',
-      content: `tenant=${tenantId}, locale=${locale}, today=2026-05-16`,
+      content: `tenant=${tenantId}, locale=${locale}, today=2026-05-19`,
     });
   },
 };
 
 // 2) Force tenantId on topicSearch — done by NOT putting tenantId in inputSchema.
-//    See Q4: forced-args is "read from requestContext in execute()".
+//    See Q6: forced-args is "read from requestContext in execute()".
 
 // 3) PostToolUse-style: summarize topicSearch result if > 50 items
 const topicSearchSummarizer: Processor = {
@@ -789,19 +799,19 @@ await agent.stream(messages, {
 
 ---
 
-## 6. Agent API Exposition
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
-**Yes — `@mastra/server` is a Hono-based HTTP server.** Library-shaped: `new Mastra({...})` is plain, but if you pass the instance to the server adapter (`createMastraServer`), it auto-registers routes and middleware.
+**Yes — `@mastra/server` is a Hono-based HTTP server.** Library-shaped: `new Mastra({...})` is plain, but if you pass the instance to the server adapter (`createMastraServer`), it auto-registers routes and middleware. Both shapes available.
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 - **SSE** for streams (`responseType: 'stream', streamFormat: 'sse'` on stream routes — see `packages/server/src/server/handlers/agents.ts:1490-1491`).
 - JSON for non-streaming.
 - **WebSocket** only for OpenAI realtime voice (`StreamTransport.type === 'openai-websocket'`).
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
 From `packages/server/src/server/server-adapter/routes/agents.ts:46-133` (agent routes only — there are also workflows/memory/conversations/scheduled-jobs/MCP/RAG routes):
 
@@ -843,32 +853,32 @@ Wire body shape (`packages/server/src/server/schemas/agents.ts`):
 }
 ```
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
-Server forwards `fullStream` directly (`agents.ts:1573 — return streamResult.fullStream`). SSE frames are JSON-encoded `ChunkType` objects (see Q1.12 above).
+Server forwards `fullStream` directly (`agents.ts:1573 — return streamResult.fullStream`). SSE frames are JSON-encoded `ChunkType` objects (see Q3.6 above for sample frames).
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 **Yes** — `coreAuthMiddleware` (documented in `packages/server/CLAUDE.md`) terminates auth at the `/api/*` boundary. It supports JWT validation, cookies, API keys; integrates with first-party auth packages (`auth/auth0`, `auth/clerk`, `auth/workos`, `auth/supabase`, `auth/firebase`, `auth/better-auth`, `auth/okta`, `auth/studio`). RBAC and FGA layers run inside the middleware:
 
 - RBAC permissions auto-derived from path + method: `GET /agents/:id → agents:read`, `POST /agents/:id/generate → agents:execute`.
 - FGA route policies via `MastraFGAWorkos` (`MastraFGAPermissions.AGENTS_EXECUTE` is checked inside `agent.stream` at `agent.ts:6056, 6216`).
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 - `GET /agents/:id/observe-stream` — attach to an in-progress run as an observer (resumable stream, multiple clients can attach).
 - `POST /agents/:id/resume-stream` — resume a suspended run (different from approve/decline; for generic tool.suspend()).
 - `GET /agents/:id/subscribe-thread` — SSE subscription to a thread's runs.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 **Implicit via SSE disconnection.** The server-side `AbortSignal` is wired from the HTTP layer into `agent.stream(messages, { abortSignal })` (`agents.ts:1500, 1567`). Dropping the connection cancels. There is **no explicit `DELETE /runs/:id`** endpoint. `POST /agents/:id/signals` can be used to send a stop-style signal if your agent's signal schema defines one (application-specific).
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 Yes — three chunk types: `tool-call-input-streaming-start { toolCallId, toolName }`, `tool-call-delta { toolCallId, argsTextDelta }`, `tool-call-input-streaming-end { toolCallId }`. The client can render partial args in real time.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 `POST /agents/:agentId/approve-tool-call` body:
 
@@ -886,7 +896,7 @@ Decline is symmetric. Both return a **new SSE stream** that resumes execution. W
 
 Alternatively the client can call `/observe-stream` to see the same chunks without owning the connection.
 
-### 6.10 Tool-call state reconstruction
+### 8.10 Tool-call state reconstruction
 
 **Explicit linkage via `toolCallId`.** Every tool-related chunk carries `payload.toolCallId`:
 
@@ -901,7 +911,7 @@ Alternatively the client can call `/observe-stream` to see the same chunks witho
 
 The client builds a `Map<toolCallId, {name, args, result, status}>` deterministically. Sub-agent invocations appear as ordinary `tool-call` chunks with `toolName: 'agent-<subAgentName>'` plus, for network mode, dedicated `agent-execution-*` chunks under `NetworkChunkType`.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 `@mastra/server` ships a `/api/health` endpoint via the server adapter (Hono). SIGTERM handling depends on the deployer; `deployers/vercel`, `deployers/cloudflare`, etc. wire it appropriately.
 
@@ -942,13 +952,13 @@ curl -N -X POST http://localhost:3000/api/agents/audience/approve-tool-call \
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 **Both.** Sub-agents are a first-class config field on `Agent` (`agents?: DynamicArgument<Record<string, SubAgent>>`) AND at runtime they are exposed to the parent LLM as **synthesized `agent-<name>` tools** (built by `listAgentTools()` at `packages/core/src/agent/agent.ts:3665`).
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 Three forms:
 
@@ -957,11 +967,11 @@ Three forms:
 3. **Lightweight via the `SubAgent` interface** (`packages/core/src/agent/subagent.ts:42-98`) — implement `getDescription`, `getModel`, `getInstructions`, `generate`, `stream`, `resumeGenerate`, `resumeStream`, `hasOwnMemory`, `__setMemory`, `getMemory`. Useful for remote-agent wrappers without instantiating `Agent`.
 4. **Network mode** — `agent.network(task, { routing, completion, ... })` wraps the supervisor pattern explicitly (`packages/core/src/loop/network/index.ts`).
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 **No** — configs are statically registered (or returned by the `DynamicArgument` resolver at the start of the run). The LLM picks an existing `agent-<name>` tool; it cannot define a new agent at call time. It CAN pass additional `instructions`, `maxSteps`, `threadId`, `resourceId` to that tool (`agent.ts:3690-3705`), and the wrapper merges those onto the sub-agent's defaults.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 The synthesized `agent-<name>` tool returns:
 
@@ -984,19 +994,19 @@ const toModelOutput = delegation?.includeSubAgentToolResultsInModelContext
   : (output) => ({ type: 'text', value: output.text });
 ```
 
-So the supervisor LLM sees a single text blob unless you opt into `delegation.includeSubAgentToolResultsInModelContext = true`. Mastra also streams sub-agent chunks to the parent stream (you see them in `fullStream` as nested `agent-execution-event-*` chunks for network mode).
+So the supervisor LLM sees a single text blob unless you opt into `delegation.includeSubAgentToolResultsInModelContext = true`. Mastra also streams sub-agent chunks to the parent stream (you see them in `fullStream` as nested `agent-execution-event-*` chunks for network mode). Linkage back to the parent's `tool_use_id` is via the synthesized tool call.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 **Parallel by default.** Sub-agent invocations ARE tool calls, so they go through the same `.foreach(toolCallStep, { concurrency })` machinery as ordinary tools (`packages/core/src/loop/workflows/agentic-execution/index.ts:95`). Default `toolCallConcurrency = 10` (`tool-call-concurrency.ts:7-9`). If any tool/sub-agent in the active set has `requireApproval` or a `suspendSchema`, the concurrency drops to 1 to keep suspension deterministic (`tool-call-concurrency.ts:42-60`).
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 The sub-agent gets a **sanitized copy** of the parent's message history. `stripParentToolParts` removes the parent's `tool-call` and `tool` messages (`agent.ts:3637-3659`) because the sub-agent doesn't have those tools registered. It also gets the parent's `MASTRA_THREAD_ID_KEY` / `MASTRA_RESOURCE_ID_KEY` cleared so it writes to its own isolated thread (`agent.ts:3805-3816`).
 
 If the sub-agent doesn't have its own memory, the parent's memory is injected via `__setMemory(memory)`. Either way, identifiers are kept separate.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 `delegation.onDelegationStart(ctx)` runs before the sub-agent fires; returns `{ proceed?, rejectionReason?, modifiedPrompt?, modifiedInstructions?, modifiedMaxSteps? }` (`agent.types.ts:75-129`). `delegation.onDelegationComplete(ctx)` runs after, with a `bail()` to cancel sibling concurrent delegations. `delegation.messageFilter(ctx)` lets the supervisor decide which parent messages to forward (`agent.types.ts:303`).
 
@@ -1005,7 +1015,7 @@ If the sub-agent doesn't have its own memory, the parent's memory is injected vi
 ```ts
 import { Agent } from '@mastra/core';
 
-const topicSearch = createTool({ /* ...as in Q4... */ });
+const topicSearch = createTool({ /* ...as in Q6... */ });
 
 const personaYoungMom = new Agent({
   id: 'persona-young-mom',
@@ -1054,17 +1064,17 @@ for await (const chunk of stream.fullStream) {
 
 ---
 
-## 8. Skills
+## 10. Skills
 
 **First-class — and the most complete implementation of the Anthropic Agent Skills spec across this benchmark.** Mastra ships a `WorkspaceSkills` interface, a filesystem-backed implementation, a `VersionedSkillSource` backed by a blob store, a `CompositeVersionedSkillSource` to mix versioned and live skills, BM25/vector/hybrid search, and three built-in tools.
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 Yes. The spec is cited at `packages/core/src/workspace/skills/types.ts:7`:
 
 > `@see https://github.com/anthropics/skills`
 
-### 8.2 File format
+### 10.2 File format
 
 ```
 skills/
@@ -1097,13 +1107,13 @@ export interface SkillMetadata {
 
 YAML frontmatter is validated by `validateSkillMetadata` (`packages/core/src/workspace/skills/schemas.ts`).
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 Filesystem scan via `Workspace.filesystem` (`packages/core/src/workspace/filesystem/`). The resolver (`SkillsResolver = string[] | (ctx) => string[]`) returns the paths to scan; `WorkspaceSkillsImpl` walks each path, parses `<dir>/SKILL.md` (YAML frontmatter via `gray-matter`), and indexes content with the configured `SkillSearchEngine` (BM25/vector/hybrid).
 
 Skills auto-refresh on a 5 s glob-walk interval with a 2 s post-discovery cooldown (`workspace-skills.ts:107-108`). `addSkill(path)` / `removeSkill(name)` allow surgical cache updates for live edit scenarios.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Lazy / metadata-only + tool-driven activation.** This is the cleanest tradeoff in the benchmark.
 
@@ -1132,11 +1142,11 @@ Three tools are added to the agent's toolset (`packages/core/src/workspace/skill
 
 Skill tools never require approval (skill tools have `requireApproval: false` baked in).
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Lazy** — only metadata in the system prompt, body fetched on `skill` tool call. Stateless: the `skill` tool returns the body in the tool result; the conversation holds it. If context is compacted, the model calls again.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 Via `SkillsResolver` as a function reading `requestContext`:
 
@@ -1154,7 +1164,7 @@ Three paths shown in the docstring example (`workspace/skills/types.ts:122-134`)
 
 Format options: `'xml' | 'json' | 'markdown'` (`workspace/skills/types.ts:141`). XML is default because deterministic ordering keeps prompt-cache stability (`skills.ts:135 — sorted by name for prompt cache`).
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 A skill can include references / scripts / assets bundled alongside `SKILL.md`. The `skill_read` tool reads them on demand. Skills do not directly invoke sub-agents (that's the agent's job), but a skill's instructions can tell the LLM "delegate to agent-X for this step".
 
@@ -1202,13 +1212,13 @@ await agent.stream([
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **Partial.** Skills have a real resource-manager layer (`VersionedSkillSource` + `CompositeVersionedSkillSource` + blob storage). Sub-agents and tools are first-class but registered programmatically; versioning is per-call via `MASTRA_VERSIONS_KEY` (`packages/core/src/request-context/index.ts:44`). Stored agents/skills are tracked in storage with `visibility: 'private' | 'public'` and `favoriteCount` (added in 1.35.0 — see `packages/core/CHANGELOG.md`).
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source | Supported? | How |
 |---|---|---|
@@ -1222,18 +1232,18 @@ await agent.stream([
 
 `CompositeVersionedSkillSource` (`packages/core/src/workspace/skills/composite-versioned-skill-source.ts:34-100`) mounts multiple versioned skill trees into a virtual filesystem, with an optional fallback to a "live" filesystem source for actively-edited skills.
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 For skills: **`local > managed > external`** (`workspace-skills.ts:207`). Multiple sources stack via `CompositeVersionedSkillSource`.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 - **Per-call versions** via `MASTRA_VERSIONS_KEY` for sub-agents (and "future primitives" per the codebase comment).
 - **Versioned skill source** uses `SkillVersionTree` manifest with content-hashed blob refs.
 - Storage domain `storage/domains/versioned.ts` underlies it.
 - No semver-based registry; immutable content-hash refs.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 **Yes for stored agents/skills (since 1.35.0):**
 - `visibility: 'private' | 'public'` on stored rows.
@@ -1242,17 +1252,17 @@ For skills: **`local > managed > external`** (`workspace-skills.ts:207`). Multip
 
 **Yes for skills via `SkillsResolver`** at runtime (function reading `requestContext`).
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 Not first-class — no "draft → review → publish → promote" workflow shipped. The deployers (`mastra deploy`) handle env promotion at the *application* level.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 - Stored agents/skills have `visibility` and `favoriteCount` (`1.35.0`).
 - RBAC + FGA (under `ee/`) gate who can read/write/execute stored entities.
 - No explicit `draft / active / deprecated / retired` lifecycle state.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 ```ts
 const skills = await storage.getStore('skills');
@@ -1264,7 +1274,7 @@ await favorites.favorite({ userId: 'u1', entityType: 'agent', entityId: 'agent-1
 const ids = await favorites.listFavoritedIds({ userId: 'u1', entityType: 'agent' });
 ```
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 `WorkspaceSkillsImpl` auto-refreshes on a 5 s glob-walk interval with a 2 s post-discovery cooldown (`workspace-skills.ts:107-108`). `maybeRefresh(context)` is called by `processInput` on each agent turn — staleness check avoids unnecessary re-discovery.
 
@@ -1309,9 +1319,9 @@ const skills = await workspace.skills.list();
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 Three places:
 
@@ -1332,14 +1342,14 @@ export type LanguageModelUsage = LanguageModelV2Usage & {
 
 Input / output / reasoning / cache-read / cache-write are all tracked when the provider supports them.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 - Per LLM call → `step-finish` chunk's `payload.output.usage`, and `onStepFinish` callback.
 - Per turn → `finish` chunk's `payload.output.usage` and `MastraStepResult.usage`.
 - Per session → query the storage backend, which persists usage on conversation messages.
 - Per tenant → **not natively scoped.** You attach it via the observability metrics path.
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 **Not computed by the SDK.** `CostContext.estimatedCost` is just a field the caller (host app or an exporter) fills in (`packages/core/src/observability/types/metrics.ts:60-66`):
 
@@ -1355,11 +1365,11 @@ export interface CostContext {
 
 There is no `pricing.ts` table inside `@mastra/core` that maps provider+model to USD-per-1k-tokens.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 **BYO.** Pattern: keep your pricing table, hook `onStepFinish` (or a custom processor) to compute `tokens × rate`, emit a metric with `costContext.estimatedCost`. ~30 lines.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 Three pipelines run inside Mastra's `ObservabilityEntrypoint`:
 
@@ -1369,14 +1379,14 @@ Three pipelines run inside Mastra's `ObservabilityEntrypoint`:
 
 `MetricEvent` and `MetricsConfig` ship with cardinality protection: `DEFAULT_BLOCKED_LABELS = ['trace_id', 'span_id', 'run_id', 'request_id', 'user_id', 'resource_id', 'session_id', 'thread_id']` and UUID-shaped values are blocked by default (`metrics.ts:131-164`).
 
-### 10.6 Audit logging (who / when / what)
+### 12.6 Audit logging (who / when / what)
 
 - Spans + metrics are the primary audit signal.
 - `storage/domains/observability/` persists all spans/metrics for query.
 - RBAC + FGA route guards log denials at the middleware layer.
 - No first-party "tamper-evident" audit log (you'd ship spans to an append-only sink).
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 ```ts
 const stream = await agent.stream(messages, {
@@ -1430,9 +1440,9 @@ console.log(`Run total tokens: in=${finalUsage.inputTokens} out=${finalUsage.out
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 Mastra's tool ecosystem ships as separate packages and via the `Workspace`:
 
@@ -1446,11 +1456,11 @@ Mastra's tool ecosystem ships as separate packages and via the `Workspace`:
 
 There is no "built-in Bash/Edit/Read" catalog à la Claude Code. Mastra's stance: tools are app-specific; the platform ships the runtime + a few utilities.
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 The skill tools encode real patterns: `skill_read` does line-range slicing and binary-file detection; `skill_search` runs full BM25/vector/hybrid against indexed content. The Workspace + filesystem primitives are thin but consistent.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 ```ts
 import { createTool } from '@mastra/core/tools';
@@ -1469,93 +1479,93 @@ const weatherTool = createTool({
 
 Examples in `packages/core/src/tools/tool.ts:29-58`. JSON-schema is generated automatically from the Zod schema and passed to the LLM as the tool definition.
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 - Input validation via Zod (or any standard schema — JSON-Schema, Yup, etc. via `PublicSchema`).
 - On invalid args the framework returns a `ValidationError` to the model (not the host) so the LLM can self-correct.
 - `requestContextSchema?: PublicSchema<TRequestContext>` (`packages/core/src/tools/types.ts:448`) validates the request context against the tool's expectations.
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 Yes — tools can yield mid-execution progress via `ctx.writer: ToolStream` (`packages/core/src/tools/types.ts:417`). These produce `tool-output` chunks in `fullStream`. Tools can also `suspend(payload)` via `ctx.agent.suspend` for HITL pauses with custom payloads.
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 Yes — `@mastra/mcp` (`packages/mcp/src/client/`) wires external MCP servers in. Routes under `/api/mcp-clients/*` expose management; in-process consumption via the Mastra `mcpServers: { ... }` config.
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 Yes — `@mastra/mcp` (`packages/mcp/src/server/`) lets you expose Mastra tools/skills as an MCP server for other agents/clients to consume.
 
-### 12.3 Transports
+### 14.3 Transports
 
 - **stdio** for subprocess-based MCP servers.
 - **SSE/HTTP** for remote MCP servers.
 - **In-process** transport for SDK-defined MCP servers (no subprocess).
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 Yes — Mastra tools can be wrapped as an in-process MCP server without spawning a subprocess.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 Credentials are passed via `mcpClients` config at boot or via `requestContext.get(MASTRA_AUTH_TOKEN_KEY)` for runtime token forwarding (the editor uses this to forward the same auth as the Mastra server itself — see `packages/core/src/request-context/index.ts:46-51`). Reconnection + health managed by the client implementation.
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 **40+ providers via Vercel AI SDK adapters** — Anthropic, OpenAI, Gemini, Bedrock, Vertex, Azure, Cerebras, Groq, Cohere, Mistral, etc. README: *"Connect to 40+ providers through one standard interface."*
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 `model: DynamicArgument<MastraModelConfig>` on `Agent` AND per-call `streamOptions.model`. So you can route by task at agent construction (`model: ({ requestContext }) => requestContext.get('tier') === 'premium' ? opus : sonnet`) or per-call.
 
 Sub-agents have their own model — supervisor can run on Opus while workers run on Haiku.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 Models is an *array* in `loop()` (`packages/core/src/loop/loop.ts:13` — `models, ...rest`). If the first model fails, Mastra retries on the next. `MODEL_GENERATION` spans are re-stamped if a fallback served the request (`llm-execution-step.ts:650-660`).
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
-Yes via `processInputStep` returning `{ model: <new model> }` mid-loop. Documented in the processor hooks table (Q5).
+Yes via `processInputStep` returning `{ model: <new model> }` mid-loop. Documented in the processor hooks table (Q7).
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 Yes — every sub-agent declares its own `model`. Supervisor Opus + workers on Sonnet/Haiku is the canonical pattern.
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 Yes — `client-sdks/react` ships first-party React hooks. `@mastra/client-js` is the lower-level browser SDK; `@mastra/client-ai-sdk` wraps the Vercel AI SDK v5/v6 useChat-compatible adapter so you can use `useChat` from `ai/react` against Mastra's SSE endpoints.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 The wire chunk format (`tool-call-input-streaming-start/delta/end`, `tool-call`, `tool-result`) gives you everything to render "tool is running with args X, returned Y". `packages/playground-ui` ships reference React components (used by `mastra dev`).
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 Indirectly — Mastra exposes a structured-output API (`structuredOutput: { schema }`) and the wire format has `object` / `object-result` chunks. UI generation is therefore "ask the agent to emit a typed object, render it in your UI".
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
-For non-React or non-`useChat` consumers: parse the SSE stream, route chunks by `type`, maintain a `Map<toolCallId, ToolCallState>` (Q6.10), render `text-delta`s into the assistant message bubble. The playground source under `packages/playground-ui` is the reference implementation.
+For non-React or non-`useChat` consumers: parse the SSE stream, route chunks by `type`, maintain a `Map<toolCallId, ToolCallState>` (Q8.10), render `text-delta`s into the assistant message bubble. The playground source under `packages/playground-ui` is the reference implementation.
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 Yes — `@mastra/memory` provides:
 
@@ -1566,19 +1576,19 @@ Yes — `@mastra/memory` provides:
 
 `packages/memory/src/index.ts`, with vector store adapters under `stores/pinecone`, `qdrant`, `chroma`, `astra`, `lance`, `elasticsearch`.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 Yes — `@mastra/rag` ships retrievers, chunkers (`recursiveChunker`, etc.), and citation support. Integrates with the vector store adapters above.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 Memory is naturally scoped per `resourceId` (in the `memory: { thread, resource }` tuple). The reserved `MASTRA_RESOURCE_ID_KEY` makes it server-controlled so a client cannot read another tenant's memory. For cross-tenant separation at the vector level, prefix index names with tenant id.
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 Built-in processors under `packages/core/src/processors/processors/`:
 
@@ -1591,26 +1601,26 @@ Built-in processors under `packages/core/src/processors/processors/`:
 
 Each can `ctx.abort('reason', { retry?: true, metadata? })` to halt + (optionally) auto-retry with feedback.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
-- `activeTools` per-call whitelist (Q4.5).
+- `activeTools` per-call whitelist (Q6.5).
 - `requireApproval: boolean` per tool, or `needsApprovalFn(args)` for per-arg decisions.
-- RBAC + FGA at the HTTP layer (Q6.5) — `agents:execute`, `agents:read` derived permissions; explicit `requiresPermission` overrides.
+- RBAC + FGA at the HTTP layer (Q8.5) — `agents:execute`, `agents:read` derived permissions; explicit `requiresPermission` overrides.
 - No `canUseTool` callback à la Claude Agent SDK — but `processInputStep` returning `{ activeTools }` is functionally equivalent.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 Not first-party. You bring your own (E2B, Daytona, Modal) and wrap in a `createTool`.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 **Default-deny for HTTP routes when `server.auth` is configured** (`packages/server/CLAUDE.md`). **Default-allow for tools** unless `requireApproval` or `activeTools` whitelist is set.
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 Yes — `packages/core/src/datasets/` defines `Dataset` types; `storage/domains/datasets/` persists them. `runEvals(...)` (`packages/core/src/evals/run/index.ts:57-119`) is the orchestrator.
 
@@ -1624,17 +1634,17 @@ export function runEvals<TAgent extends Agent>(config: {
 }): Promise<EvalRunResult>;
 ```
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 Yes — `createScorer({ id, description }).generateScore(async ({ run }) => { ... })` is the API. Scorers can be code-based (predicate over `run.output`) or LLM-based (call another model with a rubric and return a score). Built-in scorer types under `packages/core/src/evals/`.
 
 Scorers can be wired into the loop (`isTaskComplete: { scorers, strategy: 'all' }`) so the agent re-iterates with feedback until passing — a unique feature in this benchmark.
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 `runEvals` runs cleanly inside Vitest `it()`. There is no separate "ScoredTest" macro, but the pattern is documented and the eval results land in the configured storage backend for trend dashboards.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 - The Mastra Studio (under `packages/playground`) ships a trace inspector.
 - `_llm-recorder` (`packages/_llm-recorder`) records and replays LLM calls for deterministic eval.
@@ -1642,21 +1652,21 @@ Scorers can be wired into the loop (`isTaskComplete: { scorers, strategy: 'all' 
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 Yes — `mastra dev` boots a local server + the **Mastra Studio** (Playground) at http://localhost:3000. Run agents, inspect traces, run evals, iterate on skills, view memory. `packages/playground` + `packages/playground-ui` (React).
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 The Studio has a built-in trace inspector. Spans + metrics from `observability/` are queryable. Langfuse / OTel exporters available.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 Studio supports switching auth sessions (impersonation flows for testing) and request-context overrides on a per-run basis. RBAC impersonation UI is documented for `agent-builder` (see internal builder-smoke-test skill).
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 Yes — `mastra dev` watches source files and reloads agents/skills/tools without restart. Skills auto-refresh every 5 s; `mastracode/` (a separate CLI app) provides a TUI iteration loop.
 

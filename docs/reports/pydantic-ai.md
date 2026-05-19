@@ -1,17 +1,17 @@
-# Pydantic AI — Benchmark Study
+# Pydantic AI — Benchmark Analysis
 
 > **Repo**: https://github.com/pydantic/pydantic-ai
-> **Commit studied**: 206453a0c6c10ff90f1f8ec881458b38ca7e4b36
+> **Commit analysed**: 206453a0c6c10ff90f1f8ec881458b38ca7e4b36
 > **Branch**: main
 > **Framework path**: frameworks/pydantic-ai
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
 - ⭐ **What is this stack architecturally?** A **provider-agnostic Python agent library** — the agent run-loop is built as a typed `pydantic_graph` state machine that runs **in your process**. It is library-first; HTTP exposure is opt-in via `agent.to_web()` (Starlette web UI) or UI-event-stream adapters (`AGUIAdapter`, `VercelAIAdapter`) sitting on top of `Agent.run_stream_events()`.
+- **Ecosystem**: Python (3.10–3.14).
 - Open-source under **MIT**, maintained by the **Pydantic team** (Samuel Colvin, Marcelo Trylesinski, David Montague, Alex Hall, Douwe Maan). Commercial backing via **Pydantic Logfire** observability + **Pydantic AI Gateway** (managed multi-provider key, cost limits) — but the framework itself works fully standalone.
 - Maturity: **v1 reached September 2025**, classified `Development Status :: 5 - Production/Stable` (`pyproject.toml:30`). Active release cadence (latest visible commit 2026-05-15, `#5426`). API stability commitment until v2 (`docs/changelog.md:3`).
-- Python 3.10–3.14, `uv` workspace of four packages: `pydantic-ai-slim` (core), `pydantic-graph` (typed graph engine that powers the loop), `pydantic-evals` (first-party eval framework), `clai` (CLI/web UI).
 - Run loop is **`Agent.iter()` → `AgentRun`** wrapping a `pydantic_graph.GraphRun` over three nodes: `UserPromptNode → ModelRequestNode → CallToolsNode` (cycles back) → `End[FinalResult]` (`pydantic_ai_slim/pydantic_ai/_agent_graph.py:230`, `:572`, `:1041`).
 - Hooks are **first-class, ~40 lifecycle points** via the `Hooks` capability or `AbstractCapability` subclass (`capabilities/hooks.py:341+`, `capabilities/abstract.py:347+`): `before/after/wrap/on_error` flavors for run, node, model-request, tool-validate, tool-execute, output-validate, output-process, plus `prepare_tools`, `wrap_run_event_stream`, `handle_deferred_tool_calls`. ⭐ This is the strongest extensibility surface in the field reviewed so far.
 - Sessions/persistence: **Not provided — BYO**. There is a `conversation_id` and `run_id` (UUID7) on every message and on `RunContext`, but no built-in session store. Multi-turn = host persists `result.all_messages()` and re-passes via `message_history`. Mid-run durability comes from **Temporal / DBOS / Prefect / Restate** integrations (`pydantic_ai_slim/pydantic_ai/durable_exec/`).
@@ -24,7 +24,55 @@
 - Surprising-bad finding: **No built-in session/checkpoint store and no API server.** For a multi-tenant long-running agent you assemble your own FastAPI + session DB; durable execution requires opting into Temporal/DBOS/Prefect.
 - Verdicts: sessions/persistence: **BYO** • skills: **BYO (third-party plugin or coding-agent plugin)** • resource manager: **BYO** • sub-agents: **agent-as-tool, no primitive** • multi-tenancy: **strong primitives (deps, hooks, prepare) but BYO field** • hooks: **excellent (~40 hooks, typed)** • API: **BYO + UI adapters** • observability: **excellent OTel-native** • production-readiness for multi-tenant server-side: **library is solid, host platform is BYO**.
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
+
+### 0.1 What is this stack?
+A **provider-agnostic Python agent library** (`README.md:13`) implemented as a typed `pydantic_graph` state machine executing entirely in your Python process. Library-first; ships first-party adapters (`to_web()`, `to_a2a()` deprecated, `to_cli()`, AG-UI/Vercel-AI `UIAdapter`s) to put HTTP/SSE in front of it, but you bring the host.
+
+### 0.2 Ecosystem
+**Python** (3.10–3.14). Single-language project; no second runtime.
+
+### 0.3 Project status & governance
+- **License**: MIT (`pyproject.toml:23` / `LICENSE`).
+- **Owner**: Pydantic Services Inc. (commercial steward of Pydantic Validation / Logfire). Maintainers listed: Samuel Colvin, Marcelo Trylesinski, David Montague, Alex Hall, Douwe Maan (`pyproject.toml:17-22`).
+- **Commercial support**: Pydantic Logfire (observability, hosted) and Pydantic AI Gateway (managed multi-provider router with cost caps — `docs/gateway.md`). Open-source library is fully usable without either.
+
+### 0.4 Project maturity / age
+- v1.0.0 shipped 2025-09-04 (`docs/changelog.md:15`); committed API stability until v2 (`README` and changelog).
+- Classifier: `Development Status :: 5 - Production/Stable` (`pyproject.toml:30`).
+- Pre-1.0 history was active throughout 2025 with monthly minor releases (v0.6/0.7/0.8 in Aug 2025) covering hooks/streaming refinements.
+- Latest commit in this submodule: 2026-05-15 (`#5426` — A2A bridge migration).
+
+### 0.5 Adoption & community signal
+GitHub stars/forks/contributor counts were not captured locally on 2026-05-19; from `README.md` the project shows CI badges, Coverage, PyPI, and a Slack community link via Logfire. Release cadence in the changelog is sub-monthly. Active maintenance is confirmed by the May 2026 commit visible in the submodule.
+
+### 0.6 Ecosystem fit
+- **Primary language**: Python 3.10–3.14.
+- **Workspace** (`pyproject.toml:82-89`):
+  - `pydantic-ai-slim/` — core agent + model providers (slim, dependency-grouped).
+  - `pydantic-graph/` — typed graph engine powering the loop.
+  - `pydantic-evals/` — first-party eval framework.
+  - `clai/` — `clai` CLI (chat + spawn a web UI).
+  - `examples/` — example bundle.
+- **PyPI**: `pydantic-ai` (meta), `pydantic-ai-slim`, `pydantic-evals`, `pydantic-graph`, `clai`.
+- **Examples**: `docs/examples/` (chat-app, RAG, SQL gen, flight booking, AG-UI, etc.) and a hosted examples package.
+- Used predominantly as a **library** (`pip install pydantic-ai` then `from pydantic_ai import Agent`). `clai` is a CLI; `agent.to_web()` is a dev playground; there is no hosted platform.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+**Deep** and code-tested (`tests/test_examples.py` runs every snippet — `AGENTS.md:117`). Topic coverage: agents, capabilities, hooks, agent-spec (YAML), dependencies, output, message history, multi-agent, MCP client/server, durable execution, UI adapters, evals, models/providers. **Non-engineer accessible**: `AgentSpec` YAML lets prompt/domain teams configure agents without Python — `Agent.from_file('agent.yaml')` (`docs/agent-spec.md`).
+
+### 0.8 Documentation entry points ⭐
+- Docs landing: https://ai.pydantic.dev
+- Quickstart: https://ai.pydantic.dev/install + https://ai.pydantic.dev/agent
+- API reference: https://ai.pydantic.dev/api/agent (and sibling pages)
+- Hosting/deployment: https://ai.pydantic.dev/durable_execution/overview and https://ai.pydantic.dev/ui/overview
+- Examples repo: https://github.com/pydantic/pydantic-ai/tree/main/examples
+- Changelog (in-repo): `docs/changelog.md`
+- GitHub Releases: https://github.com/pydantic/pydantic-ai/releases
+- Issues: https://github.com/pydantic/pydantic-ai/issues
+- Community: Pydantic Logfire Slack — https://logfire.pydantic.dev/docs/join-slack/
+
+## 1. High Level Architecture
 
 ```mermaid
 flowchart LR
@@ -44,85 +92,46 @@ flowchart LR
   Starlette --> Agent
 ```
 
-### 0.1 What is this stack?
-A **provider-agnostic Python agent library** (`README.md:13`) implemented as a typed `pydantic_graph` state machine executing entirely in your Python process. Library-first; ships first-party adapters (`to_web()`, `to_a2a()` deprecated, `to_cli()`, AG-UI/Vercel-AI `UIAdapter`s) to put HTTP/SSE in front of it, but you bring the host.
-
-### 0.2 Project status & governance
-- **License**: MIT (`pyproject.toml:23` / `LICENSE`).
-- **Owner**: Pydantic Services Inc. (commercial steward of Pydantic Validation / Logfire). Maintainers listed: Samuel Colvin, Marcelo Trylesinski, David Montague, Alex Hall, Douwe Maan (`pyproject.toml:17-22`).
-- **Commercial support**: Pydantic Logfire (observability, hosted) and Pydantic AI Gateway (managed multi-provider router with cost caps — `docs/gateway.md`). Open-source library is fully usable without either.
-
-### 0.3 Project maturity / age
-- v1.0.0 shipped 2025-09-04 (`docs/changelog.md:15`); committed API stability until v2 (`README` and changelog).
-- Classifier: `Development Status :: 5 - Production/Stable` (`pyproject.toml:30`).
-- Pre-1.0 history was active throughout 2025 with monthly minor releases (v0.6/0.7/0.8 in Aug 2025) covering hooks/streaming refinements.
-- Latest commit in this submodule: 2026-05-15 (`#5426` — A2A bridge migration).
-
-### 0.4 Adoption & community signal
-GitHub stars/forks/contributor counts were not captured locally on 2026-05-16; from `README.md` the project shows CI badges, Coverage, PyPI, and a Slack community link via Logfire. Release cadence in the changelog is sub-monthly. Active maintenance is confirmed by the May 2026 commit visible in the submodule.
-
-### 0.5 Ecosystem fit
-- **Primary language**: Python 3.10–3.14.
-- **Workspace** (`pyproject.toml:82-89`):
-  - `pydantic-ai-slim/` — core agent + model providers (slim, dependency-grouped).
-  - `pydantic-graph/` — typed graph engine powering the loop.
-  - `pydantic-evals/` — first-party eval framework.
-  - `clai/` — `clai` CLI (chat + spawn a web UI).
-  - `examples/` — example bundle.
-- **PyPI**: `pydantic-ai` (meta), `pydantic-ai-slim`, `pydantic-evals`, `pydantic-graph`, `clai`.
-- **Examples**: `docs/examples/` (chat-app, RAG, SQL gen, flight booking, AG-UI, etc.) and a hosted examples package.
-
-### 0.6 Where does the agent loop actually execute?
+### 1.1 Where does the agent loop actually execute?
 **In your Python process.** Concretely:
 - `Agent.run()` (`pydantic_ai_slim/pydantic_ai/agent/abstract.py:276`) opens `self.iter(...)` (`agent/__init__.py:1015`).
 - `iter()` builds the agent graph (`build_agent_graph` in `_agent_graph.py:2070`) and starts a `pydantic_graph.GraphRun`.
 - Iteration walks `UserPromptNode → ModelRequestNode → CallToolsNode → ...` until `End[FinalResult]` (`_agent_graph.py:1380`).
 - Every model call is `model.request(...)` (provider HTTPS) executed by the host process; no bundled binary, no subprocess, no vendor cloud.
 
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 - **Required**: Python 3.10+, `pydantic`, `pydantic-core`, `pydantic-graph`, `genai-prices`, `opentelemetry-*` (NoOp by default), `anyio`.
-- **Optional extras** (`pyproject.toml:46-65`): per-provider SDKs (`openai`, `anthropic`, `google`, `mistral`, `groq`, `cohere`, `bedrock`, `huggingface`, `xai`), `mcp`, `fastmcp`, `cli`, `web`, `ui`, `logfire`, `evals`, `temporal`, `dbos`, `prefect`, `ag-ui`, `retries`, `spec`, `outlines-*`, `sentence-transformers`, `voyageai`.
-- **No required databases/queues**. Durable execution = optional `temporal`, `dbos`, `prefect`, or `restate`.
+- **No bundled external binaries / CLIs** to subprocess.
+- **No required infrastructure services** (Postgres / Redis / vector DB / message queue) — everything is in-process.
+- **Required vendor services**: at minimum one LLM provider API key (OpenAI / Anthropic / Google / ...). Pydantic AI Gateway and Logfire are optional.
+- **Optional extras** (`pyproject.toml:46-65`) — durable execution unlocks via opt-in: `temporal`, `dbos`, `prefect`, `restate` (each pulls its own runtime/service dependencies).
 
-### 0.8 Recommended deployment topology
-Not explicitly opinionated; docs treat `Agent` like a FastAPI app: "Agents are designed for reuse, like FastAPI Apps" (`docs/agent.md`). The UI adapter docs assume one agent instance per ASGI app and one HTTP route per agent endpoint (`docs/ui/overview.md:18-44`). Production durable patterns are documented for Temporal/DBOS/Prefect (`docs/durable_execution/`).
+### 1.3 Recommended deployment topology
+Not explicitly opinionated; docs treat `Agent` like a FastAPI app: "Agents are designed for reuse, like FastAPI Apps" (`docs/agent.md`). The UI adapter docs assume one agent instance per ASGI app and one HTTP route per agent endpoint (`docs/ui/overview.md:18-44`). Production durable patterns are documented for Temporal/DBOS/Prefect (`docs/durable_execution/`). The default model is **one-process-many-tenants** (the same `Agent` instance handling many `run()` calls with per-call `deps`), not container-per-tenant.
 
-### 0.9 Cold-start cost & instance footprint
-Pure-Python import — sub-second once Python interpreter is warm. No bundled binaries, no LLM subprocess. RAM baseline = whatever `pydantic` + the chosen provider SDK brings.
+### 1.4 Cold-start cost & instance footprint
+Pure-Python import — sub-second once Python interpreter is warm. No bundled binaries, no LLM subprocess. RAM baseline = whatever `pydantic` + the chosen provider SDK brings (tens of MB). Startup is dominated by Python interpreter + import graph; no documented 20–30 s startup like Claude Agent SDK.
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 - **LLM provider lock-in**: low. ~14 providers + `FallbackModel` chain (`models/fallback.py:69`) + `pydantic-ai-litellm` direction (`docs/models/`). Custom models implementable via the `Model` abstract base (`docs/models/overview.md`).
 - **Hosting lock-in**: none — library runs anywhere Python runs.
 - **Eval lock-in**: low — `pydantic-evals` is in-repo but optional, third-party (LangSmith, Braintrust) work via OTel.
 - **Observability lock-in**: low — OTel-first; Logfire is one OTel backend among many.
 
-### 0.11 Framework weight / footprint
-**Thin to medium** — `pydantic_ai_slim/pydantic_ai/` is ~50 modules; the `Agent` class is ~2,885 LOC (`agent/__init__.py`), graph engine is ~2,229 LOC (`_agent_graph.py`). Optional `evals`, `graph`, and durable-exec packages are clean separations.
+### 1.6 Framework weight / footprint
+**Thin to medium** — `pydantic_ai_slim/pydantic_ai/` is ~50 modules; the `Agent` class is ~2,885 LOC (`agent/__init__.py`), graph engine is ~2,229 LOC (`_agent_graph.py`). Optional `evals`, `graph`, and durable-exec packages are clean separations. No bundled storage, no dev UI beyond `clai`/`to_web()`, no marketplace.
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 - v0.7.x (Aug 2025) overhauled streaming and added `FinalResultEvent` (`docs/changelog.md:39`).
 - v0.8.0 unified `AgentStreamEvent` (`docs/changelog.md:31`).
 - v1.0.0 (Sep 2025) dropped Python 3.9, made several dataclasses kw-only.
 - Recent: `Agent.to_a2a()` and `fasta2a` extra deprecated → bridge moved to `fasta2a.pydantic_ai` (commit `206453a`, 2026-05-15).
 - Recent themes: hooks/capabilities surface expansion, UI adapter trust model hardening, deferred-tool flow, native-vs-local tool fall-up pattern.
+- GitHub Releases: https://github.com/pydantic/pydantic-ai/releases.
 
-### 0.13 Documentation depth & cross-team contributor accessibility
-**Deep** and code-tested (`tests/test_examples.py` runs every snippet — `AGENTS.md:117`). Topic coverage: agents, capabilities, hooks, agent-spec (YAML), dependencies, output, message history, multi-agent, MCP client/server, durable execution, UI adapters, evals, models/providers. **Non-engineer accessible**: `AgentSpec` YAML lets prompt/domain teams configure agents without Python — `Agent.from_file('agent.yaml')` (`docs/agent-spec.md`).
+## 2. Agent Loop
 
-### 0.14 Documentation entry points
-- Docs landing: https://ai.pydantic.dev
-- Quickstart: https://ai.pydantic.dev/install + https://ai.pydantic.dev/agent
-- API reference: https://ai.pydantic.dev/api/agent (and sibling pages)
-- Hosting/deployment: https://ai.pydantic.dev/durable_execution/overview and https://ai.pydantic.dev/ui/overview
-- Examples repo: https://github.com/pydantic/pydantic-ai/tree/main/examples
-- Changelog (in-repo): `docs/changelog.md`
-- GitHub Releases: https://github.com/pydantic/pydantic-ai/releases
-- Issues: https://github.com/pydantic/pydantic-ai/issues
-- Community: Pydantic Logfire Slack — https://logfire.pydantic.dev/docs/join-slack/
-
-## 1. Agent Harness (Run Loop) & Message Taxonomy
-
-### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 Five public entrypoints on `AbstractAgent` (`agent/abstract.py`):
 
 | Method | Signature (return type) | File:line |
@@ -135,16 +144,16 @@ Five public entrypoints on `AbstractAgent` (`agent/abstract.py`):
 
 All accept: `user_prompt`, `output_type`, `message_history`, `deferred_tool_results`, `conversation_id`, `model`, `instructions`, `deps`, `model_settings`, `usage_limits`, `usage`, `metadata`, `output_retries`, `toolsets`, `event_stream_handler`, `capabilities`, `spec` (`agent/abstract.py:229-274`).
 
-### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 Each iteration is one graph node step (`_agent_graph.py`):
 1. `UserPromptNode` (`:230`) — produces system prompts, packages user prompt into a `ModelRequest`.
 2. `ModelRequestNode` (`:572`) — sends the request to the model (streaming or non-streaming), collects `ModelResponse`.
 3. `CallToolsNode` (`:1041`) — pulls `ToolCallPart`s from the response, dispatches via `ToolManager` (which fires `before_tool_validate → wrap_tool_validate → before_tool_execute → wrap_tool_execute → after_tool_execute`), feeds `ToolReturnPart`s back, decides whether to loop to `ModelRequestNode` or hit `SetFinalResult`/`End`.
 
-### 1.3 ReAct loop
+### 2.3 ReAct loop
 **Yes, built-in** — `CallToolsNode → ModelRequestNode` is the ReAct cycle, terminated by `end_strategy` (`early` / `graceful` / `exhaustive` — `agent/__init__.py:170-175`) and bounded by `UsageLimits` (`usage.py:263`).
 
-### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 `CallToolsNode` calls `ToolManager.handle_call(call)` (`tool_manager.py`, ~936 LOC) which:
 1. Resolves the `ToolsetTool` for the call's `tool_name` from the combined toolset.
 2. Validates the model-generated JSON args via the tool's `args_validator` (`SchemaValidator`).
@@ -152,13 +161,15 @@ Each iteration is one graph node step (`_agent_graph.py`):
 4. Invokes the tool function with `RunContext` + validated args.
 5. Wraps the return as a `ToolReturnPart` (or `RetryPromptPart` on `ModelRetry`) and appends to the next `ModelRequest`.
 
-### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 A "turn" is **one trip around the graph until either another `ModelRequestNode` is queued or `End` fires**. `RunContext.run_step` is incremented per iteration (`_run_context.py:74`).
 
-### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 `Agent.run_stream_events()` returns an `AgentEventStream` async context manager (`result.py:965`) yielding `AgentStreamEvent | AgentRunResultEvent`. Internally each node implements `async def stream(ctx) -> AsyncIterator[AgentStreamEvent]` (`_agent_graph.py:752`, `_build_agent_stream`). The `event` capability hook (`hooks.on.event`) and `run_event_stream` (`wrap_run_event_stream`) let you intercept the stream (`docs/hooks.md:214-239`).
 
-### 1.7 Message layers
+## 3. Message & Event Taxonomy
+
+### 3.1 Message layers
 Three layers, with explicit conversion sites:
 
 ```
@@ -175,7 +186,8 @@ Three layers, with explicit conversion sites:
                                                                 └──────────────────────────┘
 ```
 
-### 1.8 Concrete message types (`pydantic_ai_slim/pydantic_ai/messages.py`)
+### 3.2 Concrete message types
+(`pydantic_ai_slim/pydantic_ai/messages.py`)
 
 | Type | Purpose | Line |
 |---|---|---|
@@ -195,28 +207,30 @@ Three layers, with explicit conversion sites:
 | `ModelResponse` | Container of response parts | `:2077` |
 | `*PartDelta` (Text/Thinking/ToolCall) | Streaming delta | `:2369-2528` |
 
-### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 **Distinct.** Messages persist in history (`ModelMessage = ModelRequest | ModelResponse`); events are transient stream items (`AgentStreamEvent`). The same `iter()` over an `AgentRun` yields graph nodes (a third layer).
 
-### 1.10 Event categories
+### 3.4 Event categories
 
 | Category | Members | Discriminator |
 |---|---|---|
 | Model-response-stream | `PartStartEvent`, `PartDeltaEvent`, `PartEndEvent`, `FinalResultEvent` (`messages.py:2697-2784`) | `event_kind` |
-| Handle-response | `FunctionToolCallEvent`, `FunctionToolResultEvent`, `OutputToolCallEvent`, `OutputToolResultEvent` (`:2817-2901`) | `event_kind` |
+| Handle-response (tool) | `FunctionToolCallEvent`, `FunctionToolResultEvent`, `OutputToolCallEvent`, `OutputToolResultEvent` (`:2817-2901`) | `event_kind` |
 | Run lifecycle | `AgentRunResultEvent` (`run.py:569`) | `event_kind='agent_run_result'` |
 | Deprecated | `BuiltinToolCallEvent`, `BuiltinToolResultEvent` (`:2907-2933`) | — |
 
 Union: `AgentStreamEvent = ModelResponseStreamEvent | HandleResponseEvent` (`messages.py:2947`).
 
-### 1.11 Canonical type-definition file(s)
+There is no first-party "session lifecycle" event (no session abstraction); "hook events" are surfaced by the `event` capability hook rather than as distinct event types; sub-agent events are whatever the parent chooses to re-emit.
+
+### 3.5 Canonical type-definition file(s)
 - `pydantic_ai_slim/pydantic_ai/messages.py` — all parts, deltas, events.
 - `pydantic_ai_slim/pydantic_ai/run.py` — `AgentRun`, `AgentRunResult`, `AgentRunResultEvent`.
 - `pydantic_ai_slim/pydantic_ai/_run_context.py` — `RunContext` (THE context object).
 - `pydantic_ai_slim/pydantic_ai/_agent_graph.py` — graph nodes and state.
 - `pydantic_ai_slim/pydantic_ai/usage.py` — `RequestUsage`, `RunUsage`, `UsageLimits`.
 
-### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 Sample frame shapes (from `messages.py`):
 
 ```python
@@ -229,29 +243,29 @@ FunctionToolResultEvent(part=ToolReturnPart(tool_name='get_weather', content='su
 AgentRunResultEvent(result=AgentRunResult(output='The capital of Mexico is Mexico City.'))
 ```
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 **Not provided — BYO.** There is no Pydantic-AI runtime that hosts many concurrent sessions; an `Agent` instance is **designed to be reused globally** (like a FastAPI router — `docs/agent.md`). You embed it in your own ASGI/worker host (`agent.to_web()`, FastAPI route, Temporal worker).
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 Per-call isolation is via:
 - A **fresh `RunContext`** per `run()` (`_run_context.py:32`) — including `deps`, `usage`, `metadata`, `conversation_id`, `run_id`.
 - A `ContextVar` `_CURRENT_RUN_CONTEXT` (`_run_context.py:122`) scoped via `set_current_run_context` (`:138`) so concurrent `run()` calls in the same process do not bleed.
 - Toolset `for_run` (`toolsets/abstract.py:110`) lets a toolset spawn a fresh instance per run for state isolation.
 
-### 2.3 Horizontal scaling / multi-instance
-Stateless — N Python workers all serve the same logical `Agent` instance; the user owns `message_history` storage (DB/Redis/file) and re-passes per request. Durable execution (Temporal/DBOS/Prefect) provides per-workflow horizontal recovery (`docs/durable_execution/`).
+### 4.3 Horizontal scaling / multi-instance
+Stateless — N Python workers all serve the same logical `Agent` instance; the user owns `message_history` storage (DB/Redis/file) and re-passes per request. Durable execution (Temporal/DBOS/Prefect) provides per-workflow horizontal recovery (`docs/durable_execution/`). No leader election, no shared session pool in-tree.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 **Not provided directly — BYO** via Temporal scheduling, Prefect deployments, DBOS workflows, or any external scheduler. The framework only provides the agent runtime.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 No built-in queue. `pydantic_ai.capabilities.ThreadExecutor` lets you supply your own `concurrent.futures.Executor` for sync tool functions in long-running servers (`docs/capabilities.md:83-95`). Otherwise short-lived HTTP request scope is assumed.
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 There is **no `Session` object**. The closest equivalents:
 - `conversation_id` (`_run_context.py:84-89`) — UUID7 string, set on every `ModelRequest`/`ModelResponse`, propagated via `gen_ai.conversation.id` OTel attribute.
 - `run_id` (`_run_context.py:82`) — per-run UUID.
@@ -259,41 +273,41 @@ There is **no `Session` object**. The closest equivalents:
 - `deps` (`RunContext.deps`) — typed dependencies the caller chooses.
 - `message_history: Sequence[ModelMessage]` — passed in/out of every `run()`.
 
-### 3.2 What's stored on a session
-Caller-owned. `AgentRunResult.all_messages()` returns the full `list[ModelMessage]` for the run (`run.py:464`); `all_messages_json()` serializes to bytes (`run.py:481`). Persist these.
+### 5.2 What's stored on a session
+Caller-owned. `AgentRunResult.all_messages()` returns the full `list[ModelMessage]` for the run (`run.py:464`); `all_messages_json()` serializes to bytes (`run.py:481`). Persist these. No bundled scratchpad files, no embedded memory, no attachment store.
 
-### 3.3 Granularity
-Single conversation per `conversation_id`. Branching = pass an explicit `conversation_id='new'` to fork while keeping prior `message_history` (`docs/message-history.md:246-260`).
+### 5.3 Granularity
+Single conversation per `conversation_id`. Branching = pass an explicit `conversation_id='new'` to fork while keeping prior `message_history` (`docs/message-history.md:246-260`). There is no LangGraph-style first-class fork/checkpoint tree.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 **None ship out-of-box.** BYO Postgres/SQLite/Redis/S3 against `result.all_messages_json()`. Durable execution layers (Temporal/DBOS/Prefect/Restate) provide their own state store under the agent loop — that is the closest first-party option.
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 N/A for messages (no built-in store). For durable execution:
 - Temporal: workflow events are committed by the Temporal Server after each activity (`docs/durable_execution/temporal.md`).
 - DBOS / Prefect: per-step checkpoints in their respective backing stores.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 **Only via Temporal/DBOS/Prefect/Restate.** `Agent` itself has no checkpointer. Inside Temporal, the agent loop runs as a *workflow* and tool calls become *activities* — a crashed worker replays the workflow up to the last committed activity result (`docs/durable_execution/temporal.md:16-22`).
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 UUID7 generated by `_utils.now_utc()`-driven helpers; deterministic ordering for log lookup. Caller can override with any string (`conversation_id='<your-id>'` — `docs/message-history.md:245`).
 
-### 3.8 Pluggable store interface
-**Not provided — BYO.** UI adapters demonstrate the pattern (`docs/ui/overview.md:107`): persist `message_history` keyed by thread/session id server-side and pass it explicitly to the next `run()`.
+### 5.8 Pluggable store interface
+**Not provided — BYO.** UI adapters demonstrate the pattern (`docs/ui/overview.md:107`): persist `message_history` keyed by thread/session id server-side and pass it explicitly to the next `run()`. There is no `SessionStore` / `BaseCheckpointer` interface to subclass.
 
-### 3.9 Schema evolution / migration
-Pydantic-backed: `ModelMessagesTypeAdapter.dump_json(...)` / `validate_python(...)` round-trips messages; cross-version compatibility is committed in the version policy through v2 (`docs/version-policy.md`).
+### 5.9 Schema evolution / migration
+Pydantic-backed: `ModelMessagesTypeAdapter.dump_json(...)` / `validate_python(...)` round-trips messages; cross-version compatibility is committed in the version policy through v2 (`docs/version-policy.md`). No migration helpers ship.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 `AgentRunResult.all_messages_json()` exports the full conversation as JSON bytes (`run.py:481`). Replay = construct a new `Agent.run(..., message_history=...)`.
 
-### 3.11 Cross-session memory
-Not in-tree. Third-party `MemoryTool` (Anthropic native — `native_tools/__init__.py:494`) and capability packages (`pydantic-ai-skills`, etc.) exist; see Q15.
+### 5.11 Cross-session memory
+Not in-tree. Third-party `MemoryTool` (Anthropic native — `native_tools/__init__.py:494`) and capability packages (`pydantic-ai-skills`, etc.) exist; see §17 Memory & Knowledge.
 
-## 4. Multi-tenancy & Arbitrary Context ⭐
+## 6. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 Every field on `Agent.run()` (`agent/abstract.py:276-297`):
 
 ```python
@@ -321,10 +335,10 @@ async def run(
 ) -> AgentRunResult[Any]: ...
 ```
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 `RunContext` (`_run_context.py:33`) is passed to every tool, system-prompt function, hook, and toolset. Includes: `deps`, `model`, `usage`, `agent`, `prompt`, `messages`, `tracer`, `retries`, `tool_call_id`, `tool_name`, `retry`, `max_retries`, `run_step`, `tool_call_approved`, `tool_call_metadata`, `partial_output`, `run_id`, `conversation_id`, `metadata`, `model_settings`, `tool_manager`.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 `@agent.tool` decorator on a function whose first arg is `ctx: RunContext[DepsT]` (`docs/tools.md`, `tools.py:467-487`):
 
 ```python
@@ -335,7 +349,7 @@ async def topic_search(ctx: RunContext[MyDeps], query: str) -> list[str]:
 
 `Tool` carries: `function`, `takes_ctx`, `max_retries`, `name`, `description`, `prepare`, `args_validator`, `docstring_format`, `strict`, `sequential`, `requires_approval`, `metadata`, `timeout`, `defer_loading`, `include_return_schema`, `function_schema` (`tools.py:440-465`).
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 **Yes — three mechanisms:**
 
 1. **`args_validator` on the `Tool`** (`tools.py:64-71`) — receives the already-validated args, can raise `ModelRetry` or overwrite via context. Most type-safe.
@@ -352,20 +366,20 @@ async def topic_search(ctx: RunContext[MyDeps], query: str) -> list[str]:
        return await search(tenant_id=ctx.deps.tenant_id, q=query)
    ```
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 Multiple options, runtime-aware:
 - **`@agent.toolset` decorator** building a toolset from `RunContext` (`docs/toolsets.md:12`).
 - **`PrepareTools` capability / `prepare_tools=` kwarg** returning a filtered `list[ToolDefinition]` per step (`docs/capabilities.md:193-225`).
 - **`.filtered(predicate)` / `.prepared(prepare_func)` / `.renamed({})` / `.prefixed('...')` / `.defer_loading()`** wrappers on any `AbstractToolset` (`toolsets/abstract.py:192-256`).
 - **`activeTools` analog**: per-run `toolsets=[...]` kwarg replaces or supplements agent-level toolsets (`docs/toolsets.md:11`).
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 **No first-class field.** The idiomatic pattern is a typed `deps` dataclass containing `tenant_id`, plus `metadata={'tenant_id': ...}` for OTel/Logfire tagging. Both are accessible from every hook and tool.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 `ctx.deps` flows to every tool by construction. The host code that constructs `deps` (typically from the incoming HTTP request) is the auth termination point.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 Toolsets/capabilities can be scoped per-run (passed to `agent.run(..., toolsets=[...], capabilities=[...])`) or per-agent (constructor). **Dynamic capabilities** can resolve at run time based on `RunContext`:
 
 ```python
@@ -375,7 +389,9 @@ agent = Agent(..., capabilities=[user_skill])
 ```
 (`docs/capabilities.md:990-1024`).
 
-### 4.9 Per-tenant rate limit + budget cap
+Scoping is **runtime-only** (factory inspects `ctx.deps`); there is no registry layer that marks a resource as "tenant X only" at publish time.
+
+### 6.9 Per-tenant rate limit + budget cap
 **`UsageLimits`** caps per-run **tokens, requests, tool calls** (`usage.py:263-295`) — `request_limit=50` is the default. **No USD budget cap in-tree**; for USD, use Pydantic AI Gateway, which adds project/user/key-level daily/weekly/monthly USD caps (`docs/gateway.md:24`). Per-tenant rate limiting is BYO inside a hook (e.g. `before_run`).
 
 ### ⭐ Required light usage example
@@ -419,9 +435,9 @@ result = await agent.run(
 
 All three required behaviors are achievable in-tree.
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 The `AbstractCapability` ABC defines hook methods; the `Hooks` capability gives decorator sugar (`hooks.on.*`). All hook signatures live in `capabilities/hooks.py:98-228`.
 
 | Hook (decorator name) | Fires when | Powers |
@@ -445,10 +461,10 @@ The `AbstractCapability` ABC defines hook methods; the `Hooks` capability gives 
 
 Tool hooks support a `tools=[...]` filter (`capabilities/hooks.py:290-308`) and an optional `timeout=` (raises `HookTimeoutError` — `:64-71`).
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 **Sequential, in registration order.** Multiple hooks for the same event accumulate; `before_*`/`after_*` flavors fold (output of one becomes input of next); `wrap_*` flavors compose as nested handlers; on error, `on_*_error` handlers can recover by returning a replacement result.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 | Capability | Supported? | How |
 |---|---|---|
@@ -459,18 +475,18 @@ Tool hooks support a `tools=[...]` filter (`capabilities/hooks.py:290-308`) and 
 | Mutate tool result before LLM sees it | **Yes** | `after_tool_execute` returns replacement; truncate/redact/summarize as needed |
 | Emit additional tool calls in response to a tool result | **Partial** | No direct `additional_messages` like Claude Agent SDK. Workarounds: `after_tool_execute` can call into another `agent.run(...)` synchronously and return its summary as the tool result; `wrap_node_run` on `CallToolsNode` can inject `ToolCallPart`s into the response before it's sent to `ModelRequestNode` |
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 **Provider-native compaction** via `OpenAICompaction` and `AnthropicCompaction` capabilities (`docs/capabilities.md:74-82`). No provider-agnostic compaction in core; `ProcessHistory` capability lets you plug in a custom summarizer.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 Cache breakpoints are first-class: `CachePoint` message part (`messages.py:688`), `cache_write_tokens` / `cache_read_tokens` on `RequestUsage` (`usage.py:197-201`), provider-specific model-settings flags (e.g. `bedrock_supports_prompt_caching` — see `pydantic_ai_slim/pydantic_ai/CLAUDE.md`). `InstructionPart` is split into static vs dynamic so the stable prefix is cache-friendly (`messages.py:1505`).
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 - `after_tool_execute` hook returns a summary instead of the raw result.
 - **Tool Search** capability (`docs/tools-advanced.md`) defers tool *loading* — tools marked `defer_loading=True` are only included in the model's tool list after the agent calls `search_tools` (a meta-tool). Available native (Anthropic, OpenAI Responses) or local. (`capabilities/_tool_search.py`.)
 - `defer_loading()` on any toolset (`toolsets/abstract.py:244-256`).
 
-### 5.7 Hook fire-points diagram
+### 7.7 Architectural diagram
 
 ```
 Agent.run()
@@ -506,7 +522,7 @@ from pydantic_ai.capabilities import Hooks
 
 hooks = Hooks()
 
-# 1) Inject "tenant=acme, locale=fr-FR, today=2026-05-16" at session start.
+# 1) Inject "tenant=acme, locale=fr-FR, today=2026-05-19" at session start.
 @agent_factory_or_use_below.system_prompt   # via Agent.system_prompt decorator
 async def session_header(ctx: RunContext[TenantDeps]) -> str:
     return f"today={date.today().isoformat()}, tenant={ctx.deps.tenant_id}, locale={ctx.deps.locale}"
@@ -526,25 +542,26 @@ async def summarize_large(ctx, *, call, tool_def, args, result):
 agent = Agent('openai:gpt-5.2', deps_type=TenantDeps, capabilities=[hooks])
 ```
 
-## 6. Agent API Exposition
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 **Yes, optional, two flavors:**
 - `agent.to_web()` — Starlette app with a built-in chat UI for *local dev* (`agent/__init__.py:2668`, `docs/web.md`).
 - `UIAdapter.dispatch_request(request, agent=agent)` — Starlette/FastAPI route handler that streams AG-UI or Vercel-AI events (`pydantic_ai_slim/pydantic_ai/ui/_adapter.py:632`).
-For everything else (custom HTTP shape, auth termination, multi-route REST), you mount the agent inside your own ASGI app.
 
-### 6.2 Streaming transport
-**SSE** for both built-in surfaces (`pydantic_ai_slim/pydantic_ai/ui/_event_stream.py`, `SSE_CONTENT_TYPE`). The agent loop itself is transport-agnostic (`run_stream_events` yields a typed async iterator).
+For everything else (custom HTTP shape, auth termination, multi-route REST), you mount the agent inside your own ASGI app. Pydantic AI is library-first; the adapter ships an **opinionated streaming endpoint**, not a multi-route REST server.
 
-### 6.3 Endpoints that start an agent run
+### 8.2 HTTP streaming transport
+**SSE** for both built-in surfaces (`pydantic_ai_slim/pydantic_ai/ui/_event_stream.py`, `SSE_CONTENT_TYPE`). The agent loop itself is transport-agnostic (`run_stream_events` yields a typed async iterator), so a host could expose it over WebSocket — but no first-party WebSocket adapter ships.
+
+### 8.3 HTTP endpoints that start an agent run
 For `to_web()` (Vercel-AI under the hood): `POST /api/chat` accepts a Vercel-AI request body (`pydantic_ai_slim/pydantic_ai/ui/_web/api.py:42-56`). Body shape:
 ```json
 {"model": "openai:gpt-5.2", "builtinTools": ["web_search"], "messages": [...]}
 ```
 For `dispatch_request`, request shape is determined by the chosen `UIAdapter` (AG-UI uses `RunAgentInput`; Vercel AI uses its data-stream request type).
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 Vercel AI Data Stream / AG-UI native frames. Sample sequence (Vercel AI dialect — pseudo SSE):
 ```
 event: start          data: {"messageId":"..."}
@@ -554,33 +571,35 @@ event: tool-result    data: {"toolCallId":"call_a1","output":"sunny"}
 event: finish         data: {"finishReason":"stop","usage":{...}}
 ```
 
-### 6.5 Auth termination at API boundary
-**Not in the adapter.** The adapter is deliberately not an auth boundary — its docs say "Treat the adapter endpoint as an internal backend service, running it inside your own authenticated route handler" (`docs/ui/overview.md:97-99`). Auth is your route's job.
+### 8.5 Auth termination at the HTTP boundary
+**Not in the adapter.** The adapter is deliberately not an auth boundary — its docs say "Treat the adapter endpoint as an internal backend service, running it inside your own authenticated route handler" (`docs/ui/overview.md:97-99`). Auth is your route's job (the typical pattern: FastAPI dependency validates JWT, builds `TenantDeps`, passes it to `agent.run(..., deps=deps)`).
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 No dedicated endpoint — clients send full `messages` history on each request (Vercel AI / AG-UI design). For server-authoritative history, persist by `conversation_id` and pass `message_history` to the adapter (`docs/ui/overview.md:107`).
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 **`StreamedRunResult.cancel()`** (`result.py:413+`) interrupts streaming and yields `ModelResponseState='interrupted'` (`messages.py:123-134`). HTTP-side: closing the SSE connection cancels the `asyncio` task (Starlette behavior). No explicit DELETE endpoint.
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 **Yes** — `ToolCallPartDelta` (`messages.py:2528`) emits incremental `args_delta` strings/dicts; `PartDeltaEvent` carries them. UI adapters surface these in their respective dialects.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 First-class via **Deferred Tools** (`docs/deferred-tools.md`):
 - `@agent.tool(requires_approval=True)` or `raise ApprovalRequired` from inside a tool returns a `DeferredToolRequests` output OR triggers the `handle_deferred_tool_calls` hook.
 - Client gathers approvals → calls a new run with `deferred_tool_results=DeferredToolResults(approvals={call_id: True}, calls={call_id: ...})`.
 - Or use the `HandleDeferredToolCalls` capability for inline resolution without round-trip.
 
-### 6.10 Tool-call state reconstruction
+### 8.10 Tool-call state reconstruction ⭐
 **Explicit `tool_call_id`** is the linkage everywhere:
 - `ToolCallPart.tool_call_id` (`messages.py:1864`).
 - `ToolReturnPart.tool_call_id` (`messages.py:1326`).
 - `FunctionToolCallEvent.tool_call_id` and `FunctionToolResultEvent.tool_call_id` (`messages.py:2809-2853`).
 - `DeferredToolResults.approvals[tool_call_id]`, `.calls[tool_call_id]` (`tools.py:378+`).
 
-### 6.11 Health checks / graceful shutdown
-**BYO** — `to_web()` is a Starlette app, so add your `/healthz` route. No built-in metrics endpoint; export OTel.
+UI adapters carry the same `toolCallId` field across `tool-call` / `tool-result` SSE frames so the HTTP client can pair them.
+
+### 8.11 Health checks / graceful shutdown
+**BYO** — `to_web()` is a Starlette app, so add your `/healthz` route. No built-in `/readyz`/`/metrics` endpoint; export OTel.
 
 ### ⭐ Required light usage example
 
@@ -611,27 +630,27 @@ curl -X POST http://localhost:8000/api/chat \
 
 (The exact field name for `deferredToolResults` depends on the adapter; the AG-UI adapter surfaces it via `RunAgentInput` extensions.)
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 **"Agent delegation" — agent-as-tool, no first-class primitive** (`docs/multi-agent-applications.md:13-20`). The parent agent has a `@tool` whose body calls `await child_agent.run(...)`. No `Task` or `Swarm` analog in core.
 
-### 7.2 Configuration
+### 9.2 Configuration
 Sub-agents are ordinary `Agent` instances constructed at module scope; the parent's tool calls them at runtime. They can also be loaded from spec files (`Agent.from_file('child.yaml')`).
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 Not directly. A capability factory can synthesize an agent at run time from `ctx`, but there is no built-in "let the parent LLM author a sub-agent spec" primitive — the parent's tools can call `Agent.from_spec(dict)` if you wire it that way.
 
-### 7.4 Output handling
+### 9.4 Output handling
 The child returns an `AgentRunResult[OutputDataT]`; the parent tool returns its `.output` (or a string summary). Linkage to a parent `tool_use_id` is implicit through the parent's `ToolCallPart`/`ToolReturnPart` pair.
 
-### 7.5 Concurrency model
-**Whatever you write.** Parallelism = `asyncio.gather(child_a.run(...), child_b.run(...))` inside the parent tool. There is no built-in `Promise.all` wrapper.
+### 9.5 Concurrency model
+**Whatever you write.** Parallelism = `asyncio.gather(child_a.run(...), child_b.run(...))` inside the parent tool. There is no built-in `Promise.all` wrapper, no `WaitGroup` analog inside the framework.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 By default each `agent.run(...)` gets a fresh `RunContext` and an empty `message_history` — full isolation. To share, pass `message_history=ctx.messages` or pass shared `deps`/`usage`.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 Parent stream does not auto-include child events. To bubble them, the parent's child-calling tool can iterate the child via `child.run_stream_events()` and yield events back (custom code; the framework does not auto-merge streams).
 
 ### ⭐ Required light usage example
@@ -670,12 +689,12 @@ async def ask_all_personas(ctx: RunContext[Deps], topic: str) -> dict[str, str]:
 
 Parent receives the dict in `ToolReturnPart` and decides what to do next.
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 **No.** `coding-agent-skills.md` in-tree only describes the **Pydantic AI plugin** that *coding agents* (Claude Code etc.) load to gain framework knowledge — it is not a runtime skill loader for the agent. For runtime skills, docs point at the third-party **`pydantic-ai-skills` `SkillsCapability`** (`docs/capabilities.md:1240-1244`) implementing the agentskills.io standard with on-demand loading.
 
-### 8.2 File format
+### 10.2 File format
 N/A in-tree. The third-party plugin uses the [agentskills.io](https://agentskills.io) SKILL.md + YAML frontmatter standard. The in-tree analog is **AgentSpec** YAML (`agent-spec.md`):
 
 ```yaml
@@ -688,18 +707,18 @@ capabilities:
   - Thinking:   { effort: high }
 ```
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 - `Agent.from_file('agent.yaml')` (in-tree).
 - `Agent.from_spec({...})` accepts dict.
 - Third-party `SkillsCapability(filesystem='./skills/')` for actual SKILL.md loading.
 
-### 8.4 Invocation
+### 10.4 Invocation
 Third-party `SkillsCapability` reportedly uses progressive disclosure — skill metadata in system prompt; body fetched via a `skill_read`-style tool when the model decides to use one.
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 Lazy (third-party plugin) — metadata-only in prompt, body on demand. For `AgentSpec`, everything is loaded eagerly at agent construction time (it's just config, not a runtime catalog).
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 **Yes — via dynamic capabilities** (`docs/capabilities.md:990-1024`):
 ```python
 def user_skill(ctx: RunContext[str]) -> AbstractCapability[str] | None:
@@ -708,8 +727,8 @@ agent = Agent(TestModel(), deps_type=str, capabilities=[user_skill])
 ```
 The factory runs once per run and returns the resolved capability (or `None` to skip). Works with durable execution caveats (see note at `:1024`).
 
-### 8.7 Skill composition
-Capabilities compose — `CombinedCapability` allows ordering and overlap (`capabilities/abstract.py:135`). A capability can ship its own toolset, hooks, instructions, native tools, model settings.
+### 10.7 Skill composition
+Capabilities compose — `CombinedCapability` allows ordering and overlap (`capabilities/abstract.py:135`). A capability can ship its own toolset, hooks, instructions, native tools, model settings. Skill-to-skill includes / bundled-asset directories are not first-class; an `AgentSpec` file can reference filesystem paths but the framework does not enforce a layout.
 
 ### ⭐ Required light usage example
 
@@ -741,12 +760,12 @@ async def generate_audience_from_brief(ctx, brief: str) -> str:
 
 For SKILL.md-style filesystem discovery with progressive disclosure, install `pydantic-ai-skills` (third-party).
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 **Not provided — BYO** at the platform level. `AgentSpec.from_file()` is a single-source loader; there is no built-in registry, source composition, or publish workflow.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 In-tree:
 - **Local filesystem**: `AgentSpec.from_file(path)` (`docs/agent-spec.md`).
 - **In-memory dict**: `Agent.from_spec({...})`.
@@ -760,27 +779,27 @@ Not in-tree:
 - Vendor managed registry: closest in ecosystem is **Pydantic AI Gateway** (managed provider keys, not skill registry).
 - HTTP fetch with caching: BYO.
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 **Not provided** — BYO. Capabilities compose at the Agent level (`CombinedCapability`), but resource sources do not.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 Per-package via PyPI (semver) and per-spec via your VCS. No content-hash / immutable-ref system in-tree.
 
-### 9.5 Scoping at the registry layer
-Not applicable in-tree. **Dynamic capabilities** provide runtime-only scoping (Q8.6).
+### 11.5 Scoping at the registry layer
+Not applicable in-tree. **Dynamic capabilities** provide runtime-only scoping (§10.6).
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 **Not provided** — capabilities are published as PyPI packages by convention (`docs/extensibility.md`). No staged dev/staging/prod environments.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 None in-tree.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 - `AgentSpec.from_file(path)` / `.from_dict(...)` / `.to_yaml()` (`agent/spec.py:88+`).
 - `Agent.from_spec(spec, custom_capability_types=[...])`.
 - `pydantic_ai.capabilities.AbstractCapability.from_spec(...)` / `.get_serialization_name()` for custom types.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 Not in-tree (BYO).
 
 ### ⭐ Required light usage example
@@ -820,33 +839,33 @@ agent = Agent.from_file(resolve_skill('acme', 'audience'))
 
 A real platform would extend this with content-hash versioning, RBAC, audit logs — none of that is in-tree.
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 - Per request: `ModelResponse.usage: RequestUsage` (`messages.py:2077+`, `usage.py:117`).
 - Per run: `AgentRunResult.usage: RunUsage` (`run.py:541`) and `AgentRun.usage`.
 - In `RunContext.usage` (live, mutated during the run) (`_run_context.py:40`).
 - Via OTel attributes (`gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, etc. — `usage.py:96-105`).
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 - Per-call: `RequestUsage`.
 - Per-run/turn: `RunUsage` (sum).
 - Per-session: caller aggregates across runs sharing `conversation_id`.
 - Per-tenant: BYO via OTel attribute grouping (set `metadata={'tenant_id': ...}`).
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 **Yes** via the `genai-prices` package (Pydantic-maintained — `messages.py:20`, `RequestUsage.extract(...)` uses it — `usage.py:147-178`). Per-call/per-run USD is computable from `RunUsage` + model name + provider.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 Not first-party. Pydantic AI Gateway adds per-project/user/key USD caps with daily/weekly/monthly windows (`docs/gateway.md:24`). In-process, use a `before_run` or `after_run` hook to fold `result.usage` into your billing store keyed by `metadata['tenant_id']`.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 **OpenTelemetry-native.** `Instrumentation` capability (`capabilities/instrumentation.py`) installs spans for the agent run, model requests, tool calls, with OTel-spec attribute names (`_otel_messages.py`). Works with Logfire (first-party) and any other OTel backend.
 
-### 10.6 Audit logging
+### 12.6 Audit logging (who / when / what)
 **Via OTel spans** — Logfire treats every agent/model/tool span as an audit record. No tamper-evident store in-tree; for that, ship spans to a write-once backend.
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 `pydantic_ai_slim/pydantic_ai/result.py:541` (`AgentRunResult.usage` property) → `_state.usage: RunUsage` (`usage.py:182`):
 
 ```python
@@ -891,9 +910,9 @@ async def push_metrics(ctx, *, result):
 agent = Agent('openai:gpt-5.2', capabilities=[hooks])
 ```
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 Two categories:
 
 **Native tools** (`native_tools/__init__.py`) — provider-side, no local execution:
@@ -915,10 +934,10 @@ Two categories:
 
 Plus the **Tool Search** built-in meta-tool for deferred-tool discovery (`capabilities/_tool_search.py`, `native_tools/_tool_search.py`).
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 Provider-adaptive: `WebSearch`, `WebFetch`, `ImageGeneration`, `MCP`, `ToolSearch` capabilities automatically pick native when the active model supports it and fall back to local otherwise (`docs/capabilities.md:121-176`). Constraint fields (e.g. `allowed_domains`) sometimes require native (raises `UserError` on unsupported models). No anchor-matching `Edit`, no line-numbered `Read`, no `Monitor` — Pydantic AI is provider-agnostic and stays out of the coding-agent tool catalog (that's the harness/skills layer).
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 Smallest possible tool:
 
 ```python
@@ -940,41 +959,41 @@ async def search(ctx: RunContext[Deps], q: str) -> list[str]:
 
 JSON-schema is auto-derived from Python type hints + docstrings via `_function_schema.FunctionSchema` (`tools.py:460`); custom generator overridable via `schema_generator=...`.
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 **Pydantic-validated.** `Tool.args_validator: SchemaValidator` (`tools.py:450`, `toolsets/abstract.py:59`). On invalid model-generated args, the framework raises `ModelRetry` (a `RetryPromptPart` to the model) — the model gets to retry with an error message. Per-tool max retries via `max_retries=`.
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 Limited. Tools return a single value (sync or async). For "tool yields progress mid-execution", the recommended pattern is to call back into the parent agent loop via additional `ToolCallPart`/`ToolReturnPart`s, or use deferred external execution (`CallDeferred`).
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 **First-class.** `pydantic_ai.mcp.MCPToolset` (`mcp.py:1643+`) consumes external MCP servers as a toolset. The `MCP` capability (`docs/capabilities.md:142-151`) provides provider-native MCP when supported, local transport otherwise. `MCPServer` is also an `AbstractToolset` (`mcp.py:403`).
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 **Yes** — via FastMCP integration (`fastmcp.py` in toolsets, `_fastmcp_toolset.py` in durable_exec/*). Expose your agent's tools as an MCP server.
 
-### 12.3 Transports
+### 14.3 Transports
 - **stdio** (`MCPServerStdio` — `:1069`)
 - **SSE** (`MCPServerSSE` — `:1402`)
 - **Streamable HTTP** (`MCPServerStreamableHTTP` — `:1515`)
 - **In-process / SDK** via `FastMCP` toolset
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 **Yes** via FastMCP toolset adapter — define a Python function, surface it over the MCP machinery without spawning a subprocess.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 `MCPToolset` carries an `_MCPSessionState` (`mcp.py:365`) with reconnection. HTTP transports support headers / OAuth via `_make_httpx_client_factory` (`:2326`). MCP "sampling" (server-side LLM calls) wired to a Pydantic AI `Model` via `mcp_sampling.py`.
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 **Native, ~14 providers** in `pydantic_ai_slim/pydantic_ai/models/`: `anthropic`, `bedrock`, `cerebras`, `cohere`, `gemini`, `google`, `groq`, `huggingface`, `mistral`, `ollama`, `openai`, `openrouter`, `outlines`, `xai`, plus `function` (test), `test`, `instrumented`, `wrapper`, `mcp_sampling`, `fallback`. Custom models implementable by subclassing `Model` (`models/__init__.py`).
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 `model=` kwarg on every `run*()` overrides the agent-level default. `model_settings` / `AgentModelSettings` (`agent/__init__.py:177`) accept a callable that receives `RunContext` and returns settings — enabling cheap-for-triage / expensive-for-hard-tasks per-step routing inside one agent.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 **`FallbackModel`** (`models/fallback.py:69`) — wraps an ordered list of `Model` instances; on `ResponseRejected` / configured exception types, falls through to the next:
 
 ```python
@@ -991,90 +1010,90 @@ agent = Agent(model)
 
 `Pydantic AI Gateway` adds load-balanced routing groups (`docs/gateway.md`).
 
-### 13.4 Mid-stream model switching
-**Yes** — `before_model_request` hook can set `request_context.model = <other Model>` to swap mid-run (`docs/hooks.md:111-113`).
+### 15.4 Mid-stream model switching
+**Yes** — `before_model_request` hook can set `request_context.model = <other Model>` to swap mid-run (`docs/hooks.md:111-113`). The switch fires at the next turn boundary (start of the next `ModelRequestNode`); switching inside an in-progress stream is not supported.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 Yes — each `Agent` instance carries its own model; agent delegation can mix any models. The doc warns USD computation may be limited if you mix providers (`docs/multi-agent-applications.md:22-23`).
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 **Not first-party React** — Pydantic AI is backend-only. But it ships the **Vercel AI Data Stream** and **AG-UI** protocols (`pydantic_ai_slim/pydantic_ai/ui/vercel_ai/`, `ui/ag_ui/`), so any Vercel AI SDK or AG-UI compatible frontend (React `useChat`, Next.js, Vue, etc.) plugs in unchanged.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 Vercel AI's tool-call and tool-result data parts are emitted by `VercelAIAdapter` (`ui/vercel_ai/_event_stream.py`). AG-UI emits its own tool frames. Both expose `tool_call_id` linkage.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 Via Vercel AI Data Stream "data parts" and AG-UI custom events — both surfaces support arbitrary structured payloads the frontend can render. Pydantic AI exposes them through the adapter's encoder/decoder; the actual React components are the frontend's responsibility.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 For non-Starlette frameworks (Django, Flask): instantiate a `UIAdapter`, call `run_stream()`, encode with `encode_stream()`, write to your framework's response (`docs/ui/overview.md:46-95`). For a local-dev playground, **`agent.to_web()`** ships a Starlette + HTML chat UI out of the box (`docs/web.md`).
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 **`MemoryTool`** (`native_tools/__init__.py:494`) — Anthropic-native, no in-tree local fallback. For provider-agnostic memory, use the third-party `pydantic-ai-memory` / `pydantic-ai-backend` capability packages (`docs/capabilities.md:1236+`).
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 - **Embeddings** package (`pydantic_ai_slim/pydantic_ai/embeddings/`) — providers: OpenAI, Cohere, Google, Bedrock, sentence-transformers, voyageai.
 - Examples: `docs/examples/rag.md`.
 - Vector stores: BYO (Chroma, pgvector, Pinecone — the framework focuses on the embeddings interface).
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 Per-tenant scoping is your responsibility (namespace by `tenant_id` in your vector index).
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 First-party hooks (`before_model_request`, `after_tool_execute`, `wrap_output_validate`) let you plug in PII redaction / injection detection. No bundled detector. Third-party (`pydantic-ai-backend` with `DockerSandbox`) provides isolated execution.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 - **`@agent.tool(requires_approval=True)`** + `HandleDeferredToolCalls` capability → HITL approval.
 - **`canUseTool` equivalent**: `before_tool_execute` hook returning `SkipToolExecution(result)` or raising to deny.
 - **`PrepareTools`** capability for per-step ACL.
 - **Per-tool ACL** via `ApprovalRequiredToolset` (`toolsets/approval_required.py:16`).
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 Third-party: `pydantic-ai-backend` (Docker), various community packages. No E2B/Daytona/Modal integration in core.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 **Default-allow** for declared tools, **default-deny** for unknown tools (the model can only call what you've registered). Approval is opt-in per tool.
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 **`pydantic-evals`** package — first-party (`pydantic_evals/pydantic_evals/`):
 - `dataset.py` — `Dataset` / `Case` types, JSON/YAML serializable.
 - `evaluators/` — built-ins + custom + LLM judge.
 - `online.py` — production traffic sampling.
 - Reports + OTel emission (`reporting/`, `otel/`).
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 `pydantic_evals.evaluators.llm_judge` — built-in (`docs/evals/evaluators/llm-judge.md`).
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 Datasets can run under `pytest`; the framework's own test suite uses `inline-snapshot` + `pytest-recording` + `vcrpy` for replay-based LLM testing (`AGENTS.md:107-115`). Integrate the same in your CI.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 - `pydantic-evals` reports.
 - `pytest-recording` for snapshot-based replay.
 - Logfire UI for trace inspection (`docs/logfire.md`).
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 - **`clai`** CLI: `uvx clai`, `clai --model anthropic:claude-sonnet-4-6`, `clai --agent module:agent` (`docs/cli.md`).
 - **`agent.to_web()`** — Starlette + HTML chat UI for one agent at `http://127.0.0.1:7932` (`docs/web.md`, `agent/__init__.py:2668`).
 - **`agent.to_cli_sync()`** / `to_cli()` — drop an agent into the interactive REPL.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 Logfire UI (`docs/logfire.md`) for hosted; any OTel backend (Jaeger/Tempo/Honeycomb) for self-hosted.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 **Not built into clai/web.** Local switching = run `clai --agent tenant_acme:agent` vs `--agent tenant_globex:agent`. The web UI lets you switch models but not tenants.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 Standard Python module reload via `uvicorn --reload` for `to_web()`. Spec files (`Agent.from_file`) reload on next `from_file` call — no in-process watcher.
 
 ## Architectural diagram

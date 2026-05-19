@@ -1,30 +1,90 @@
-# LangGraph Python — Benchmark Study
+# LangGraph Python — Benchmark Analysis
 
 > **Repo**: https://github.com/langchain-ai/langgraph
-> **Commit studied**: `076e2a3627206f5a1aef573aaca4a01e5af897ca`
+> **Commit analysed**: `076e2a3627206f5a1aef573aaca4a01e5af897ca`
 > **Branch**: `main`
 > **Framework path**: `frameworks/langgraph`
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
-- ⭐ **What is this stack?** A **Python graph runtime** (`libs/langgraph`) plus a small ReAct prebuilt (`libs/prebuilt`), Postgres / SQLite / in-mem checkpointers (`libs/checkpoint*`), an HTTP client SDK (`libs/sdk-py`), and a CLI that shells out to a separate **closed-source HTTP server** (`langgraph_api`, the LangGraph Platform / LangGraph Server). The mental model is "stateful graph" (Pregel-style super-steps), not "ReAct loop"; ReAct is just one wired graph. **The HTTP server is NOT in this repo** — for self-hosted production you either pay for LangGraph Platform or BYO an HTTP layer around the OSS runtime.
+- ⭐ **What is this stack architecturally?** A **Python graph runtime** (`libs/langgraph`) plus a small ReAct prebuilt (`libs/prebuilt`), Postgres / SQLite / in-mem checkpointers (`libs/checkpoint*`), an HTTP client SDK (`libs/sdk-py`), and a CLI that shells out to a separate **closed-source HTTP server** (`langgraph_api`, the LangGraph Platform / LangGraph Server). The mental model is "stateful graph" (Pregel-style super-steps), not "ReAct loop"; ReAct is just one wired graph. **The HTTP server is NOT in this repo** — for self-hosted production you either pay for LangGraph Platform or BYO an HTTP layer around the OSS runtime.
+- **Ecosystem**: Python (this repo). A sibling JS/TS graph runtime lives in a separate repo (`langchain-ai/langgraphjs`).
 - **License & owner**: MIT for everything in this repo (`libs/langgraph/pyproject.toml:11`); maintained by LangChain Inc. (commercial company); LangGraph Platform (server + cloud) is a paid product on top.
-- **Maturity**: v1.x line; `libs/langgraph` is on `1.2.0` (`libs/langgraph/pyproject.toml:7`), `langgraph-prebuilt` on `1.1.0` (`libs/prebuilt/pyproject.toml:7`); status "Production/Stable" (`pyproject.toml:14`). Released January 2024 (LangChain Inc. blog), so ~2 years old at the commit studied.
+- **Maturity**: v1.x line; `libs/langgraph` is on `1.2.0` (`libs/langgraph/pyproject.toml:7`), `langgraph-prebuilt` on `1.1.0` (`libs/prebuilt/pyproject.toml:7`); status "Production/Stable" (`pyproject.toml:14`). Released January 2024 (LangChain Inc. blog), so ~2 years old at the commit analysed.
 - **Where the loop actually executes**: in **your Python process**, inside `PregelLoop.tick()` (`libs/langgraph/langgraph/pregel/_loop.py:583`). Persistence to Postgres/SQLite fires from this same process. No subprocess, no bundled binary.
-- **Mid-run durability is the genuine USP and the architecture earns it.** `BaseCheckpointSaver.put_writes` (`libs/checkpoint/langgraph/checkpoint/base/__init__.py:300`) is called per-task via `_runner.commit()` (`libs/langgraph/langgraph/pregel/_runner.py:574-613`); `_put_checkpoint` (`_loop.py:1055`) fires after every super-step. With `durability="async"` (default), `"sync"` (block), or `"exit"` (only at run end) — `libs/langgraph/langgraph/types.py:87`. A process crash mid-turn resumes from the last persisted task write — **no other stack in this benchmark offers this granularity natively**.
-- **Multi-tenancy** splits across two layers and **only one is in this repo**. (a) `Runtime[ContextT]` (`libs/langgraph/langgraph/runtime.py:124`) carries a typed `context` (e.g. `tenant_id`) into every node and tool; `_inject_tool_args` (`libs/prebuilt/langgraph/prebuilt/tool_node.py:1315-1429`) strips any LLM-supplied values for `InjectedToolArg` keys before re-merging trusted runtime values. (b) `@auth.on.<resource>.<action>` decorators (`libs/sdk-py/langgraph_sdk/auth/__init__.py:13-302`) return `FilterType` dicts the **server** (closed-source) applies to every Postgres query.
-- **Hooks**: `pre_model_hook` / `post_model_hook` at the prebuilt layer (`libs/prebuilt/langgraph/prebuilt/chat_agent_executor.py:296-297`, `876-963`), plus `wrap_tool_call` (`tool_node.py:1014-1067`) that owns the retry loop and can call `execute()` zero, one, or many times. **`wrap_tool_call` is the closest analogue to Claude Agent SDK's PostToolUse-with-additional-messages**.
-- **`create_react_agent` is deprecated in v1.x** (`chat_agent_executor.py:53-117`, `274-277`) — the surface points to `langchain.agents.create_agent` (separate `langchain` package, not in this repo). The behavior we study still ships and works, but the prebuilt is in maintenance mode.
-- **Sub-agents are subgraphs** — no first-class `SubAgent` / `handoff` primitive. Parallel fan-out via `Send` API (`libs/langgraph/langgraph/types.py:654`). No inline runtime-generated configs. Supervisor / swarm patterns ship as separate packages (`langgraph-supervisor`, `langgraph-swarm`).
-- **Skills (à la Claude Code SKILL.md) — Not provided.** The closest analogue is `BaseStore` (`libs/checkpoint/langgraph/store/base/__init__.py`) — a namespaced KV store with optional vector search. The `langgraph-deepagents` template (`libs/cli/langgraph_cli/templates.py:11-14`) lives in a separate repo and is closer to a skill loader but is not in this monorepo.
-- **Resource Manager — Not provided in OSS.** Sources, versioning, publishing workflows, and tenant-scoped registries live exclusively in LangGraph Platform (cloud).
-- **Observability**: token counts piggyback on `AIMessage.usage_metadata` (LangChain). USD cost: **Not provided — BYO** (cost lives in LangSmith, the paid product). No `total_cost_usd`, no `max_budget_usd`.
-- **Per-stack one-liners** — sessions/persistence: **best in benchmark** (Pregel checkpointing). Skills: BYO. Resource manager: BYO (or pay for LangGraph Platform). Sub-agents: subgraphs only. Multi-tenancy: **excellent** in-process, **excellent** at server layer (but server is paid). Hooks: rich (`pre_model_hook`, `post_model_hook`, `wrap_tool_call`). API: not in this repo. Observability: tokens yes, USD no. Production readiness for multi-tenant server-side: **conditional** — easy on Platform, real engineering work for self-host.
+- **Strongest architectural choice for our use case**: **mid-run durability is the genuine USP and the architecture earns it.** `BaseCheckpointSaver.put_writes` (`libs/checkpoint/langgraph/checkpoint/base/__init__.py:300`) is called per-task via `_runner.commit()` (`libs/langgraph/langgraph/pregel/_runner.py:574-613`); `_put_checkpoint` (`_loop.py:1055`) fires after every super-step. With `durability="async"` (default), `"sync"` (block), or `"exit"` (only at run end) — `libs/langgraph/langgraph/types.py:87`. A process crash mid-turn resumes from the last persisted task write — **no other stack in this benchmark offers this granularity natively**.
+- **Weakest / biggest gap**: **no built-in HTTP server in OSS** and **no first-class skills/resource manager.** Production self-host without LangGraph Platform means BYO HTTP + queue + auth + skill registry.
+- **Most surprising finding**: `create_react_agent` is **`@deprecated` in v1.x** (`chat_agent_executor.py:53-117`, `274-277`) — the surface points to `langchain.agents.create_agent` (separate `langchain` package, not in this repo). The behavior we study still ships and works, but the prebuilt is in maintenance mode.
+- **Multi-tenancy splits across two layers and only one is in this repo**. (a) `Runtime[ContextT]` (`libs/langgraph/langgraph/runtime.py:124`) carries a typed `context` (e.g. `tenant_id`) into every node and tool; `_inject_tool_args` (`libs/prebuilt/langgraph/prebuilt/tool_node.py:1315-1429`) strips any LLM-supplied values for `InjectedToolArg` keys before re-merging trusted runtime values. (b) `@auth.on.<resource>.<action>` decorators (`libs/sdk-py/langgraph_sdk/auth/__init__.py:13-302`) return `FilterType` dicts the **server** (closed-source) applies to every Postgres query.
+- **Per-stack one-liners** — sessions/persistence: **best in benchmark** (Pregel checkpointing). Skills: BYO. Resource manager: BYO (or pay for LangGraph Platform). Sub-agents: subgraphs only. Multi-tenancy: **excellent** in-process, **excellent** at server layer (but server is paid). Hooks: rich (`pre_model_hook`, `post_model_hook`, `wrap_tool_call`). API: not in this repo. Observability: tokens yes, USD no.
+- **Production-readiness verdict for multi-tenant server-side deployment**: **conditional** — easy on LangGraph Platform (paid), real engineering work for self-host.
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
 
-### Deployment diagram
+### 0.1 What is this stack?
+
+**A Python graph framework + library + HTTP-client SDK**, with a sibling **closed-source HTTP server** (LangGraph Platform / `langgraph_api`) the CLI loads when you run `langgraph dev` or `langgraph up`. The graph runtime is OSS (MIT). The agent loop is library-style — embedded in your Python process. The HTTP layer, run queue, auth handlers, multi-tenant Postgres mediation, MCP routes, and webhook system are all in the closed-source server.
+
+### 0.2 Ecosystem
+
+**Python** (this repo).
+
+Secondary: a sibling JS/TS SDK (`libs/sdk-js`) ships for HTTP-client purposes, but the JS graph runtime is its own repo (`langchain-ai/langgraphjs`).
+
+### 0.3 Project status & governance
+
+- **Open-source**: yes for everything in `libs/` (MIT). `libs/langgraph/pyproject.toml:11` declares `license = "MIT"`.
+- **Owner / maintainer**: LangChain Inc. (commercial company).
+- **Commercial backing**: LangChain Inc.; the paid layer is **LangGraph Platform** (server + cloud product) and **LangSmith** (observability platform with cost rollups).
+- **Support model**: community via GitHub Issues / Discord; paid support tied to LangGraph Platform.
+
+### 0.4 Project maturity / age
+
+- Initial public release: **January 2024** (per LangChain blog / first GitHub release). ~2 years at the commit analysed.
+- Current major: **v1.x line**. `libs/langgraph` is `1.2.0` (`libs/langgraph/pyproject.toml:7`); `langgraph-prebuilt` is `1.1.0` (`libs/prebuilt/pyproject.toml:7`).
+- Stability: marked `Development Status :: 5 - Production/Stable` (`libs/langgraph/pyproject.toml:14`).
+- **Maintenance-mode signal**: `create_react_agent` and `AgentState` are now `@deprecated` in favor of `langchain.agents.create_agent` (`libs/prebuilt/langgraph/prebuilt/chat_agent_executor.py:53-117`, `274-277`). The prebuilt surface this report benchmarks is being consolidated into the broader `langchain` package.
+
+### 0.5 Adoption & community signal
+
+(GitHub captured **2026-05-19**, approximated from public dashboards.)
+
+- **Stars**: ~30 k+ on `langchain-ai/langgraph`.
+- **Forks**: ~5 k+.
+- **Contributor count**: 200+.
+- **Release cadence**: weekly / bi-weekly on `libs/langgraph`; very active.
+- **Issue volume**: high, with active maintainer responses.
+
+(Exact counts not pulled live; the report analyses the commit, not the GitHub page.)
+
+### 0.6 Ecosystem fit
+
+- **Primary language**: Python (this repo). A sibling JS/TS `libs/sdk-js` ships, but the JS graph runtime lives in a separate repo (`langchain-ai/langgraphjs`).
+- **PyPI packages**: `langgraph`, `langgraph-prebuilt`, `langgraph-checkpoint`, `langgraph-checkpoint-postgres`, `langgraph-checkpoint-sqlite`, `langgraph-sdk`, `langgraph-cli`. Each has its own `pyproject.toml` under `libs/`.
+- **Typical use**: imported as a library. The `langgraph` CLI (`libs/cli/langgraph_cli/cli.py`) bootstraps the closed-source HTTP server.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+Official docs at `docs.langchain.com/oss/python/langgraph/`. Deep on graph mechanics, ReAct, persistence, HITL. Reference docs auto-generated from docstrings (`reference.langchain.com/python/langgraph/`). Non-engineers can read concepts but cannot author content without Python — there is no markdown-driven skill author flow.
+
+### 0.8 Documentation entry points ⭐
+
+- Official docs landing: https://docs.langchain.com/oss/python/langgraph/overview
+- Quickstart / getting-started: https://docs.langchain.com/oss/python/langgraph/quickstart
+- API reference: https://reference.langchain.com/python/langgraph/
+- Hosting / deployment / production: https://docs.langchain.com/oss/python/langgraph/cloud
+- Examples / demos: https://github.com/langchain-ai/langgraph/tree/main/examples
+- Changelog / release notes: https://github.com/langchain-ai/langgraph/releases
+- GitHub Releases: https://github.com/langchain-ai/langgraph/releases
+- GitHub issues: https://github.com/langchain-ai/langgraph/issues
+- Slack / community: https://www.langchain.com/join-community
+- Reddit: https://www.reddit.com/r/LangChain/
+- Deep Agents template (skill-shaped bundle): https://github.com/langchain-ai/deep-agent-template
+
+## 1. High Level Architecture
+
+### Deployment diagram ⭐
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
@@ -68,74 +128,38 @@
                                                    via langchain-* packages)
 ```
 
-### 0.1 What is this stack?
+### 1.1 Where does the agent loop *actually* execute?
 
-**A Python graph framework + library + HTTP-client SDK**, with a sibling **closed-source HTTP server** (LangGraph Platform / `langgraph_api`) the CLI loads when you run `langgraph dev` or `langgraph up`. The graph runtime is OSS (MIT). The agent loop is library-style — embedded in your Python process. The HTTP layer, run queue, auth handlers, multi-tenant Postgres mediation, MCP routes, and webhook system are all in the closed-source server.
+**In your Python process.** `CompiledStateGraph.stream` / `astream` / `invoke` / `ainvoke` (`libs/langgraph/langgraph/pregel/main.py`) drives `PregelLoop.tick()` directly (`libs/langgraph/langgraph/pregel/_loop.py:583`). Tools run in-process. Checkpointer I/O is in-process. The closed-source `langgraph_api` HTTP server wraps the same in-process loop but adds queue + persistence + auth + multitask coordination on top. No subprocess, no bundled binary.
 
-### 0.2 Project status & governance
-
-- **Open-source**: yes for everything in `libs/` (MIT). `libs/langgraph/pyproject.toml:11` declares `license = "MIT"`.
-- **Owner / maintainer**: LangChain Inc. (commercial company).
-- **Commercial backing**: LangChain Inc.; the paid layer is **LangGraph Platform** (server + cloud product) and **LangSmith** (observability platform with cost rollups).
-- **Support model**: community via GitHub Issues / Discord; paid support tied to LangGraph Platform.
-
-### 0.3 Project maturity / age
-
-- Initial public release: **January 2024** (per LangChain blog / first GitHub release). ~2 years at the commit studied.
-- Current major: **v1.x line**. `libs/langgraph` is `1.2.0` (`libs/langgraph/pyproject.toml:7`); `langgraph-prebuilt` is `1.1.0` (`libs/prebuilt/pyproject.toml:7`).
-- Stability: marked `Development Status :: 5 - Production/Stable` (`libs/langgraph/pyproject.toml:14`).
-- **Maintenance-mode signal**: `create_react_agent` and `AgentState` are now `@deprecated` in favor of `langchain.agents.create_agent` (`libs/prebuilt/langgraph/prebuilt/chat_agent_executor.py:53-117`, `274-277`). The prebuilt surface this report benchmarks is being consolidated into the broader `langchain` package.
-
-### 0.4 Adoption & community signal
-
-(GitHub captured **2026-05-16**, approximated from public dashboards.)
-
-- **Stars**: ~30 k+ on `langchain-ai/langgraph`.
-- **Forks**: ~5 k+.
-- **Contributor count**: 200+.
-- **Release cadence**: weekly / bi-weekly on `libs/langgraph`; very active.
-- **Issue volume**: high, with active maintainer responses.
-
-(Exact counts not pulled live; the report studies the commit, not the GitHub page.)
-
-### 0.5 Ecosystem fit
-
-- **Primary language**: Python (this repo). A sibling JS/TS `libs/sdk-js` ships, but the JS graph runtime lives in a separate repo (`langchain-ai/langgraphjs`).
-- **PyPI packages**: `langgraph`, `langgraph-prebuilt`, `langgraph-checkpoint`, `langgraph-checkpoint-postgres`, `langgraph-checkpoint-sqlite`, `langgraph-sdk`, `langgraph-cli`. Each has its own `pyproject.toml` under `libs/`.
-- **Typical use**: imported as a library. The `langgraph` CLI (`libs/cli/langgraph_cli/cli.py`) bootstraps the closed-source HTTP server.
-
-### 0.6 Where does the agent loop actually execute?
-
-**In your Python process.** `CompiledStateGraph.stream` / `astream` / `invoke` / `ainvoke` (`libs/langgraph/langgraph/pregel/main.py`) drives `PregelLoop.tick()` directly (`libs/langgraph/langgraph/pregel/_loop.py:583`). Tools run in-process. Checkpointer I/O is in-process. The closed-source `langgraph_api` HTTP server wraps the same in-process loop but adds queue + persistence + auth + multitask coordination on top.
-
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - **Python ≥ 3.10** (`pyproject.toml:9`, classifiers list 3.10-3.13).
-- Core deps (`libs/langgraph/pyproject.toml:27-33`): `langchain-core>=1.4`, `langgraph-checkpoint>=4.1`, `langgraph-sdk>=0.3`, `langgraph-prebuilt>=1.1`, `xxhash`, `pydantic>=2.7.4`.
 - Optional storage: Postgres (`langgraph-checkpoint-postgres`, uses `psycopg`), SQLite (`langgraph-checkpoint-sqlite`).
 - LLM providers: BYO via `langchain-*` packages (`langchain-anthropic`, `langchain-openai`, `langchain-google-genai`, `langchain-aws`, …).
 - For the HTTP server: `pip install -U "langgraph-cli[inmem]"` pulls in the closed-source `langgraph-runtime-inmem` (dev) or `langgraph-runtime-postgres` (prod).
+- LangGraph Platform deployments also expect a Redis for pub/sub between API and worker pods.
 
-### 0.8 Recommended deployment topology
+### 1.3 Recommended deployment topology
 
 LangGraph Platform docs recommend **one-process-many-tenants** with horizontal scaling: a fleet of API pods sharing a Postgres for state + a Redis for pub/sub between the API and background worker pods. Self-host follows the same pattern (`langgraph up` Docker compose, K8s Helm chart in `langchain-ai/helm`). For pure-OSS deployments without Platform, you embed the graph in your own service and follow your own topology.
 
-### 0.9 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 - Pure-OSS embedding: a few hundred ms to import the package; RAM baseline a few tens of MB beyond your model client.
 - LangGraph Platform / self-host: Starlette+Uvicorn worker pods; multi-tenant Postgres connection pool dominates RAM. (Closed-source server, exact numbers not visible.)
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 
 - **LLM provider lock-in**: low. Any `langchain-*` chat model works; `init_chat_model(...)` for string-identifier routing.
 - **Hosting / platform lock-in**: medium. The HTTP server, auth, run queue, multitask coordination, and `/mcp` routes ship only via LangGraph Platform (closed-source). Going pure-OSS means BYO HTTP + queue + auth.
 - **Eval platform lock-in**: medium. Token counts surface natively; cost USD requires LangSmith (paid).
 
-### 0.11 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 **Heavy.** The graph runtime is ~2k LOC, but ToolNode + prebuilt + checkpointers + SDK add ~10k more, and the `BaseStore` / `BaseCheckpointSaver` interfaces invite significant ecosystem packages.
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 
 No in-repo `CHANGELOG.md`. Releases live on GitHub. Recent changes (visible from grep across the repo):
 - `create_react_agent` and `AgentState` marked `@deprecated` (`chat_agent_executor.py:53-117`, `274-277`).
@@ -145,27 +169,9 @@ No in-repo `CHANGELOG.md`. Releases live on GitHub. Recent changes (visible from
 - `Durability` enum (`types.py:87-93`).
 - `wrap_tool_call` interceptor (`tool_node.py:1014-1067`).
 
-### 0.13 Documentation depth & cross-team contributor accessibility
+## 2. Agent Loop
 
-Official docs at `docs.langchain.com/oss/python/langgraph/`. Deep on graph mechanics, ReAct, persistence, HITL. Reference docs auto-generated from docstrings (`reference.langchain.com/python/langgraph/`). Non-engineers can read concepts but cannot author content without Python — there is no markdown-driven skill author flow.
-
-### 0.14 Documentation entry points
-
-- Official docs landing: https://docs.langchain.com/oss/python/langgraph/overview
-- API reference: https://reference.langchain.com/python/langgraph/
-- Examples / demos: https://github.com/langchain-ai/langgraph/tree/main/examples
-- LangGraph Platform docs (hosting): https://docs.langchain.com/oss/python/langgraph/cloud
-- GitHub Releases (changelog): https://github.com/langchain-ai/langgraph/releases
-- GitHub issues: https://github.com/langchain-ai/langgraph/issues
-- Slack / community: https://www.langchain.com/join-community
-- Reddit: https://www.reddit.com/r/LangChain/
-- Deep Agents template (skill-shaped bundle): https://github.com/langchain-ai/deep-agent-template
-
-## 1. Agent Harness (Run Loop) & Message Taxonomy
-
-### Run loop
-
-#### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 `CompiledStateGraph.stream` / `astream` / `invoke` / `ainvoke` (`libs/langgraph/langgraph/pregel/main.py:2587-3279`):
 
@@ -191,7 +197,7 @@ def stream(
 
 `config` carries `{"configurable": {"thread_id": "...", "checkpoint_ns": "...", "checkpoint_id": "..."}}` and `callbacks`. `context` is the typed `ContextT` declared via `StateGraph(context_schema=Context)`; it resolves into `Runtime.context` and is propagated to every node and tool. `input` can be the initial state OR a `Command(resume=...)` for HITL resumption. `invoke` shells to `stream(stream_mode="values")` and returns the final state.
 
-#### 1.2 Per-iteration behavior (one super-step)
+### 2.2 Per-iteration behavior
 
 `PregelLoop.tick()` (`libs/langgraph/langgraph/pregel/_loop.py:583-665`):
 
@@ -230,25 +236,27 @@ def after_tick(self) -> None:
         raise GraphInterrupt()
 ```
 
-#### 1.3 ReAct loop
+One super-step = (1) `prepare_next_tasks` selects nodes whose input channels have new versions; (2) `PregelRunner.tick()` runs those nodes in parallel; (3) each task `commit()` invokes `put_writes` per-task; (4) `apply_writes` reduces and bumps channel versions; (5) `_put_checkpoint` persists the new snapshot.
+
+### 2.3 ReAct loop
 
 LangGraph ships a built-in ReAct via `create_react_agent` (`libs/prebuilt/langgraph/prebuilt/chat_agent_executor.py:278`) — but **it's `@deprecated` in favor of `langchain.agents.create_agent`** (`chat_agent_executor.py:274-277`). Mechanically `create_react_agent` wires three nodes — `agent` (LLM), `tools` (parallel tool dispatch via `Send` in v2), and optional `pre_model_hook` / `post_model_hook` — into the Pregel loop. **You can roll your own ReAct as a plain `StateGraph`** — there is no special-casing.
 
-#### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 `ToolNode.invoke` (`libs/prebuilt/langgraph/prebuilt/tool_node.py:743`) takes the last `AIMessage` from state, splits its `tool_calls` into separate executions (parallel via `Send` in `create_react_agent v2`), runs each via `_run_one`, and appends one `ToolMessage(tool_call_id=...)` per tool back to the `messages` channel. Linkage is **always explicit via `tool_call_id`** — there is no positional coupling.
 
-#### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 There is **no explicit "turn" object**. The closest first-class boundary is the **super-step**. A ReAct "turn" is roughly: super-step `agent` runs (one LLM call → one `AIMessage`) → super-step `tools` runs (one or more `ToolMessage` results) → repeat.
 
-#### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 A **per-call `SyncQueue` / `asyncio.Queue`** (`libs/langgraph/langgraph/pregel/main.py:2719`). The Pregel loop holds a `StreamProtocol(stream.put, stream_modes)`; nodes / callbacks push frames; the `stream()` generator yields between super-step ticks. Token-level streaming comes from `StreamMessagesHandler.on_llm_new_token` (`libs/langgraph/langgraph/pregel/_messages.py:150-163`) — a LangChain callback handler installed at run start (`pregel/main.py:2782-2798`).
 
-### Message & event taxonomy
+## 3. Message & Event Taxonomy
 
-#### 1.7 Message layers
+### 3.1 Message layers
 
 LangGraph has **three taxonomies layered on top of each other**, and they don't share a vocabulary — this is the biggest cognitive load for a newcomer:
 
@@ -258,7 +266,7 @@ LangGraph has **three taxonomies layered on top of each other**, and they don't 
 
 A **fourth, internal taxonomy** exists for the cloud SSE protocol (`libs/langgraph/langgraph/stream/_types.py`): `ProtocolEvent` envelopes wrap stream parts with monotonic `seq` numbers — but only `langgraph_api` consumers see this.
 
-#### 1.8 Concrete message types
+### 3.2 Concrete message types
 
 | Type | 1-line purpose |
 |---|---|
@@ -270,11 +278,11 @@ A **fourth, internal taxonomy** exists for the cloud SSE protocol (`libs/langgra
 | `ToolMessageChunk` | Streaming variant of ToolMessage |
 | `RemoveMessage` | Sentinel: tells `add_messages` to delete by id |
 
-#### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 **Two separate taxonomies**. Messages live on state channels (durable). Events are stream parts yielded by `graph.stream()` (transient). Token-level streaming bridges them: `StreamMessagesHandler` emits `MessagesStreamPart` (transient) per token, and the assembled final `AIMessage` is written to state by the node.
 
-#### 1.10 Event categories
+### 3.4 Event categories
 
 | Category | Stream-mode | Concrete type |
 |---|---|---|
@@ -303,14 +311,16 @@ class GraphInterruptEvent:
 
 These dispatch to `GraphCallbackHandler` subclasses via `config["callbacks"]` (`callbacks.py:87-112`) — not to the stream.
 
-#### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 - `libs/langgraph/langgraph/types.py` (968 lines) — stream parts, `Interrupt`, `Command`, `Send`, `StateSnapshot`, `RetryPolicy`, `TimeoutPolicy`, `CachePolicy`, `Durability`
 - `libs/langgraph/langgraph/callbacks.py` (394 lines) — `GraphCallbackHandler`, `GraphInterruptEvent`, `GraphResumeEvent`
 - `libs/langgraph/langgraph/graph/message.py` — `add_messages`, `MessagesState`, `REMOVE_ALL_MESSAGES`
 - `libs/checkpoint/langgraph/checkpoint/base/__init__.py` — `Checkpoint`, `CheckpointTuple`, `CheckpointMetadata`, `BaseCheckpointSaver`
 
-#### 1.12 Live agentic event stream taxonomy — sample frames
+### 3.6 Live agentic event stream taxonomy
+
+Sample one frame of each major category:
 
 `stream_mode="values"` after super-step:
 ```python
@@ -332,41 +342,41 @@ These dispatch to `GraphCallbackHandler` subclasses via `config["callbacks"]` (`
 {"id": "...", "name": "tools", "input": {...}, "step": 2}
 ```
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **Two answers, depending on layer.**
 
 - **OSS (this repo) only**: there is **no first-party multi-session host**. You embed `CompiledStateGraph.stream()` in your own server / worker. Each request is one run. Concurrency is whatever Python concurrency you reach for.
 - **LangGraph Platform (closed-source `langgraph_api`)**: ships a full multi-session host — Starlette/Uvicorn workers, a Postgres-backed run queue, a background runner pod, and pub/sub for SSE re-attach. The closed-source server is what `langgraph dev` and `langgraph up` boot.
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 Inside OSS: isolation is **per-run** by `thread_id`. The `PregelLoop` is one Python instance per run; no globals leak across runs unless the engineer introduces them. State lives in the checkpointer keyed on `thread_id`. A `BaseStore` namespace can be tenant-scoped by convention but not enforced.
 
 Inside `langgraph_api`: every Postgres query goes through the `@auth.on.*` filter chain (`libs/sdk-py/langgraph_sdk/auth/__init__.py:13-302`), so resource-scoping (threads, runs, store) is enforced at the data layer.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 **Yes, if you embed a shared checkpointer.** All N workers point to the same Postgres `PostgresSaver` (`libs/checkpoint-postgres`); `thread_id` is the partition key. The Pregel loop on any worker can replay from any persisted checkpoint. **Leader election is not required** — the run queue (in `langgraph_api`) serializes work per thread via "multitask strategy".
 
 For pure-OSS embedding: you BYO the queue (e.g. Celery / arq / Temporal); each worker simply calls `graph.stream(...)` against the shared Postgres.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 - **Pure OSS**: not provided. BYO Celery / arq / Temporal / cron.
 - **LangGraph Platform**: ships **crons** (`libs/sdk-py/langgraph_sdk/_async/cron.py` — `crons.create`, `crons.search`, `crons.delete`) and **webhooks** (run create accepts `webhook: str` URL). The Platform queue persists scheduled runs in Postgres.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 In `langgraph_api`: a Postgres-backed work queue with one logical lane per `thread_id`. Long-running agent work is the default expectation: runs can take minutes / hours and a re-attaching client picks up via `GET /threads/{tid}/runs/{rid}/stream?last_event_id=...` (requires `stream_resumable: true` at creation).
 
 In OSS: no queue. Short-lived HTTP request scope assumed unless the engineer wraps in their own queue.
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 A **thread** is the session primitive. The data model is the **`Checkpoint`** (`libs/checkpoint/langgraph/checkpoint/base/__init__.py`):
 
@@ -393,7 +403,7 @@ class CheckpointMetadata(TypedDict, total=False):
 
 And the on-disk row (`CheckpointTuple`): `config`, `checkpoint`, `metadata`, `parent_config`, `pending_writes`, `pending_sends`.
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 For a `create_react_agent` thread:
 - `messages` (the full conversation, including `ToolMessage` results)
@@ -404,11 +414,11 @@ For a `create_react_agent` thread:
 
 Per `Checkpoint`: not just the latest, but every step's snapshot.
 
-### 3.3 Granularity — single, branch, fork
+### 5.3 Granularity
 
-**Both.** A linear conversation is the default. But **the Pregel checkpointer supports forking**: `graph.get_state_history(config)` returns every step; `graph.update_state(config_at_step_N, values)` creates a new branch from step N. Multiple branches per thread are first-class (`pregel/main.py` — `update_state`).
+**Both linear and branched.** A linear conversation is the default. But **the Pregel checkpointer supports forking**: `graph.get_state_history(config)` returns every step; `graph.update_state(config_at_step_N, values)` creates a new branch from step N. Multiple branches per thread are first-class (`pregel/main.py` — `update_state`).
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 Four shipped:
 - **`InMemorySaver`** (`libs/checkpoint/langgraph/checkpoint/memory/__init__.py`) — dev-only
@@ -418,7 +428,7 @@ Four shipped:
 
 No bundled Redis / S3 / Mongo store.
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 **Two persistence points per super-step, both gated on `Durability`** (`libs/langgraph/langgraph/types.py:87`):
 
@@ -446,7 +456,7 @@ Durability = Literal["sync", "async", "exit"]
 
 Under `durability="async"` (default) the next super-step starts while the previous checkpoint persists in the background; under `"sync"` the stream loop blocks on `loop._put_checkpoint_fut.result()` (`pregel/main.py:2956-2957`) before the next iteration.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 **Yes — and this is the genuine USP.** Per-task `put_writes` makes the granularity sub-super-step. For a ReAct turn under `durability="async"`:
 
@@ -460,11 +470,11 @@ Under `durability="async"` (default) the next super-step starts while the previo
 
 Caveat: mid-tool-call (a single tool's HTTP call mid-flight crashes) is NOT covered; that tool re-executes from scratch on resume.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 `thread_id` is **whatever the caller passes** in `config["configurable"]["thread_id"]`. No format enforcement. Practice: UUID v4 or your own tenant-prefixed ULID. The `langgraph_api` server defaults to `uuid7` for thread IDs it generates.
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 **Yes — `BaseCheckpointSaver`** (`libs/checkpoint/langgraph/checkpoint/base/__init__.py:176`):
 
@@ -478,33 +488,33 @@ class BaseCheckpointSaver(Generic[V]):
 
 Implement the four methods (plus async siblings `aget_tuple` / `alist` / `aput` / `aput_writes`) and your store works. Conformance harness lives in `libs/checkpoint-conformance/`.
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 - `Checkpoint.v` field (`libs/checkpoint/langgraph/checkpoint/base/__init__.py`) — incremented when the checkpoint payload schema changes; serializers handle backward decode.
 - `BaseCheckpointSaver.setup()` and the Postgres saver run migrations on first connect (creates / upgrades the `checkpoints`, `checkpoint_blobs`, `checkpoint_writes` tables).
 - **No first-party migration helpers for your own state schema changes** — if you remove a channel, you BYO replay logic.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 - **Export**: `graph.get_state(config)` returns the current `StateSnapshot`; `graph.get_state_history(config)` returns every step. Both serialize to JSON via `langgraph-checkpoint`'s codec.
 - **Replay**: pass `config["configurable"]["checkpoint_id"]` to `graph.stream(None, config)` and the loop replays from that point. `is_replaying = True` is observable on the loop.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-`BaseStore` (`libs/checkpoint/langgraph/store/base/__init__.py`) — namespaced KV with optional vector search. Cross-references Q15.
+`BaseStore` (`libs/checkpoint/langgraph/store/base/__init__.py`) — namespaced KV with optional vector search. See Q17 (Memory & Knowledge).
 
-## 4. Multi-tenancy & Arbitrary Context ⭐
+## 6. Multi-tenancy & Arbitrary Context ⭐
 
 **LangGraph's story is the strongest in the comparison — but it splits across two layers.**
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 Beyond `messages`:
 1. **`context: ContextT`** — typed dataclass / TypedDict declared on the graph via `StateGraph(state_schema=..., context_schema=Context)` (`libs/langgraph/langgraph/graph/state.py:215-269`). This is the "run dependencies" channel: `tenant_id`, `db_conn`, `user_id`, `feature_flags`. Resolved into `Runtime.context` and frozen for the duration of the run (`runtime.py:198-201`).
 2. **`config["configurable"]`** — untyped dict-shaped escape hatch (`thread_id`, `checkpoint_ns`, custom keys). Still functional but discouraged for typed fields since v0.6 in favor of `context_schema`.
 3. **`config["callbacks"]`** — list of `BaseCallbackHandler` / `GraphCallbackHandler` instances.
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 Two equivalent shapes for tool authors:
 
@@ -528,7 +538,7 @@ class ToolRuntime(_DirectlyInjectedToolArg, Generic[ContextT, StateT]):
 
 In both cases the corresponding parameter is **excluded from the JSON schema sent to the LLM**.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 ```python
 from langchain_core.tools import tool
@@ -542,9 +552,9 @@ def topic_search(query: str, runtime: ToolRuntime) -> str:
 
 Returns: a string, `ToolMessage`, `Command` (for state updates), or a Pydantic model that gets serialized.
 
-### 4.4 Forcing tool arguments from the harness — **YES, with a guarantee**
+### 6.4 Forcing tool arguments from the harness
 
-`ToolNode._inject_tool_args` (`libs/prebuilt/langgraph/prebuilt/tool_node.py:1315-1430`):
+**YES, with a guarantee.** `ToolNode._inject_tool_args` (`libs/prebuilt/langgraph/prebuilt/tool_node.py:1315-1430`):
 
 ```python
 # Strip any caller-supplied values for injected args, then add
@@ -571,7 +581,7 @@ def my_wrapper(request: ToolCallRequest, execute):
 tool_node = ToolNode(tools, wrap_tool_call=my_wrapper)
 ```
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 Three mechanisms:
 
@@ -594,15 +604,15 @@ graph = create_react_agent(select_model, tools=[search_tool, premium_tool])
 
 **C. `wrap_tool_call` short-circuit** — if a tool was shown to the LLM but is forbidden for this tenant, the wrapper returns a synthetic `ToolMessage` without calling `execute()`.
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 **Convention, not first-class field.** Practice: stamp `metadata["owner"] = tenant_id` on thread creation via `@auth.on.threads.create` (server side) AND/OR store `tenant_id` in `Runtime.context`. There is no `Session.tenant_id` column.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 `runtime.context` carries the caller's identity into every tool. Tools execute with whatever DB credentials the engineer wires in `runtime.context.db_conn` — so if you pass a tenant-scoped DB connection in, all tool DB calls run under that scope.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 - **For state**: `BaseStore.put((namespace_tuple,), key, value)` (`libs/checkpoint/langgraph/store/base/__init__.py:700-820`). Namespace is `tuple[str, ...]`, so `("acme", "user-123", "preferences")` is a natural per-tenant-per-user namespace.
 - **For HTTP (LangGraph Server only)** — `@auth.on` decorators (`libs/sdk-py/langgraph_sdk/auth/__init__.py:13-302`):
@@ -627,7 +637,7 @@ async def allow_thread_read(ctx, value) -> Auth.types.FilterType:
 
 `FilterType` (`libs/sdk-py/langgraph_sdk/auth/types.py:58-109`) is a dict shape `{field: value | {"$eq": ...} | {"$contains": ...}}` applied as a SQL filter. Resources: `threads`, `runs`, `assistants`, `crons`, `store`. Actions: `create`, `read`, `update`, `delete`, `search`, `create_run`, plus `put`/`get`/`list_namespaces` for `store`.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 **Not provided — BYO.** No token-budget cap, no USD-cost cap in OSS. LangGraph Platform exposes per-deployment rate limits but not per-tenant USD ceilings.
 
@@ -677,9 +687,9 @@ result = graph.invoke(
 )
 ```
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 **At the prebuilt agent layer (`create_react_agent`)** — `chat_agent_executor.py:296-297`, `876-963`:
 
@@ -712,11 +722,11 @@ ToolCallWrapper = Callable[
 **At the LangChain callbacks layer** (`BaseCallbackHandler`):
 `on_chain_start`, `on_chain_end`, `on_chain_error`, `on_chat_model_start`, `on_llm_new_token`, `on_llm_end`, `on_llm_error`, `on_tool_start`, `on_tool_end`, `on_tool_error`, `on_text`, `on_retry`. All observe-only.
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 `pre_model_hook` / `post_model_hook` are **single nodes**; one execution per super-step, sequentially relative to `agent`. `wrap_tool_call` runs **once per tool call**, in parallel with sibling tool calls (each tool's `Send`-dispatched task in v2). Lifecycle callbacks fan out synchronously to every registered handler.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 | Scenario | Supported? | How |
 |---|---|---|
@@ -727,19 +737,19 @@ ToolCallWrapper = Callable[
 | Mutate tool result before it returns to LLM | YES | `wrap_tool_call` — call `execute()`, modify the resulting `ToolMessage`, return |
 | Emit additional tool calls in response to a tool result | YES | `post_model_hook` appends an `AIMessage` with new `tool_calls`; the router dispatches. Alternatively `wrap_tool_call` returns `Command(goto=Send("tools", ...))` to fan out from inside the wrapper |
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 **Not built into the OSS runtime.** `pre_model_hook` is the place engineers wire summarization / trimming. `langchain-core` ships `trim_messages` and there are community message-summarizer patterns. **`langgraph-deepagents` (third-party)** ships a `compress` tool that summarizes-and-replaces older messages.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 **Provider-aware via `pre_model_hook`.** Engineers wire Anthropic `cache_control` flags into specific `SystemMessage` or `HumanMessage` content blocks; the hook ensures they're at a stable prefix. **No automatic breakpoint placement.**
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 `wrap_tool_call` can rewrite the `ToolMessage` to a summary plus a "full result available via `<resource_id>`" pointer. `BaseStore` is a natural stash. **No first-party "tool result clearing" primitive.**
 
-### 5.7 Architectural diagram — hook fire-points
+### 7.7 Architectural diagram
 
 ```text
 graph.stream(input, config, context)
@@ -829,9 +839,9 @@ graph = create_react_agent(
 )
 ```
 
-## 6. Agent API Exposition
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
 **Not in this repo.** `libs/cli/langgraph_cli/cli.py:746-777` shows the CLI imports `langgraph_api.cli.run_server`, which is a **separate, closed-source / source-available distribution** behind `pip install "langgraph-cli[inmem]"`:
 
@@ -853,7 +863,7 @@ The OSS surface in this repo ships only:
 - The HTTP client SDK (`libs/sdk-py`, `libs/sdk-js`)
 - The CLI that shells out to the closed-source server (`libs/cli`)
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 **Server-Sent Events** (`libs/sdk-py/langgraph_sdk/sse.py`). The client's `SSEDecoder` parses standard SSE: `event:`, `data:`, `id:`, `retry:` fields, decoded into `StreamPart(event, data, id)` NamedTuples (`schema.py:595-603`):
 
@@ -866,7 +876,7 @@ class StreamPart(NamedTuple):
 
 WebSocket: not used. HTTP long-poll: not used.
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
 From `libs/sdk-py/langgraph_sdk/_async/runs.py`:
 
@@ -906,7 +916,7 @@ From `libs/sdk-py/langgraph_sdk/_async/runs.py`:
 - `GET /threads/{thread_id}/state/{checkpoint_id}` — historical
 - `POST /threads/{thread_id}/state` — `update_state` (apply patch as synthetic node)
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
 ```text
 event: metadata
@@ -927,25 +937,25 @@ data: null
 
 Event names per stream mode: `values`, `updates`, `messages`, `messages/partial`, `messages/complete`, `checkpoints`, `tasks`, `tasks/result`, `custom`, `debug`, `error`, `metadata`, `end`, `feedback`.
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 `langgraph_api` calls the `@auth.authenticate` handler on **every request** (`auth/__init__.py:98-99`); if it returns a `MinimalUserDict`, subsequent `@auth.on.*` handlers apply per-resource filters. **Auth is fully terminated at the API boundary** — graph nodes only see the resolved identity via `runtime.context` or `ctx.user.identity`.
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 `GET /threads/{thread_id}/runs/{run_id}/stream?last_event_id=...` (only if `stream_resumable: true` was set at creation). Re-attaching after a client disconnect resumes the SSE stream from the last delivered event id.
 
 For HITL resume: `POST /threads/{thread_id}/runs/stream` with `"command": {"resume": "..."}` instead of `"input"`.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 **`POST /threads/{thread_id}/runs/{run_id}/cancel?action=interrupt|rollback&wait=0|1`** (`runs.py:936-991`). `action=interrupt` halts and persists an interrupt marker; `action=rollback` discards the run and reverts state. Disconnecting the SSE stream does NOT cancel the run unless `on_disconnect: "cancel"` was set at creation (`runs.py:248-249`).
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 `AIMessageChunk` events stream tool arguments as the LLM generates them — visible on `stream_mode="messages"` via the `tool_call_chunks` field on chunks. Final, validated args appear on the assembled `AIMessage.tool_calls[*].args`.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 ```jsonc
 POST /threads/{thread_id}/runs/stream
@@ -963,7 +973,7 @@ For multi-interrupt threads, `resume` can be a `{interrupt_id: value}` mapping. 
 
 Pause state observable to client: yes — the thread's `StateSnapshot.interrupts` is non-empty.
 
-### 6.10 Tool-call state reconstruction ⭐
+### 8.10 Tool-call state reconstruction ⭐
 
 **Explicit and universal — `tool_call_id` is the correlation key.** Stream emits:
 
@@ -972,7 +982,7 @@ Pause state observable to client: yes — the thread's `StateSnapshot.interrupts
 
 The `_validate_chat_history` function (`chat_agent_executor.py:243-271`) raises if any `AIMessage.tool_calls` has no corresponding `ToolMessage` — the contract is enforced.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 `langgraph_api` exposes `/ok` (liveness) and `/info` (deployment metadata). `/mcp` routes are mounted by default (disable with `disable_mcp: true` in `langgraph.json`; see `libs/cli/langgraph_cli/schemas.py:471-472`). SIGTERM draining: `RunControl.request_drain("reason")` (`runtime.py:79-104`) flips a flag the loop checks; in-flight tasks complete; new work returns 503.
 
@@ -1013,9 +1023,9 @@ curl -X POST http://localhost:2024/threads/thread-1/runs/stream \
      }'
 ```
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 **Subgraphs only.** No first-class `SubAgent` / `handoff` primitive. Two patterns:
 
@@ -1023,21 +1033,21 @@ curl -X POST http://localhost:2024/threads/thread-1/runs/stream \
 
 **Pattern B: Subgraph as tool** — wrap the subgraph in a `BaseTool`. The supervisor LLM "calls" sub-agents via tool calls. `langgraph-supervisor` (third-party) packages this.
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 **Statically registered at parent graph compile time.** `parent.add_node("research", research_agent)` is build-time. No inline-per-call config.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 **Not supported.** The parent LLM cannot dynamically construct a "new sub-agent with this system prompt and these tools" mid-run. Closest workaround: dynamic-model selection inside an existing sub-agent (`chat_agent_executor.py:325-356`).
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 For Pattern A: the sub-agent's final state is the node's writes; the reducer on the parent's channels merges them. Shared `messages` channel with `add_messages` → the sub-agent's messages append. Isolated channels → declare a different channel name and write only a summary to the parent's `messages`.
 
-For Pattern B: output is `ToolMessage.content` (string); the sub-agent serializes its result.
+For Pattern B: output is `ToolMessage.content` (string); the sub-agent serializes its result. Linked back to a parent `tool_use_id` via `tool_call_id`.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 **Parallel fan-out via `Send` API** (`libs/langgraph/langgraph/types.py:654-743`):
 
@@ -1050,9 +1060,9 @@ builder.add_conditional_edges(START, continue_to_jokes)
 
 The `tools` node in `create_react_agent v2` uses exactly this pattern (`chat_agent_executor.py:849-859`). Multiple sub-agent tool calls execute in parallel because each `tool_call` becomes its own `Send` to the `tools` node.
 
-Serial sub-agents are the default for `add_edge(...)`-only graphs.
+Serial sub-agents are the default for `add_edge(...)`-only graphs. Parallelism is implemented in `PregelRunner.tick()` (`libs/langgraph/langgraph/pregel/_runner.py`) by submitting each `Send`-dispatched task to the executor and awaiting their futures.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 **Not enforced — depends on state schema design.**
 - Same `state_schema` → subgraph sees parent's full messages (shared scratchpad).
@@ -1060,7 +1070,7 @@ Serial sub-agents are the default for `add_edge(...)`-only graphs.
 
 `Command(graph=Command.PARENT, update={...}, goto=...)` (`types.py:797-798`) lets a subgraph write to its parent's state — used for handoff-style flows.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 Yes via `stream_mode="tasks"`. Each subgraph dispatch emits a `TasksStreamPart` start frame and a `TasksResultStreamPart` finish frame. With `subgraphs=True` on `graph.stream(...)`, the parent stream sees `(ns, mode, data)` triples where `ns` identifies the subgraph.
 
@@ -1116,9 +1126,9 @@ for r in result["persona_results"]:
     print(r["name"], r["result"])
 ```
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 **No.** A grep for `SKILL.md`, `loadSkills`, `class Skill` across the entire `libs/` tree returns zero matches. **Skills (à la Claude Code's `SKILL.md`) are NOT a first-class concept in LangGraph.**
 
@@ -1127,27 +1137,27 @@ Closest analogues:
 2. **The `langgraph-deepagents` template** (referenced in `libs/cli/langgraph_cli/templates.py:11-14`): downloads `langchain-ai/deep-agent-template` (separate repo) which adds skill-shaped bundles, file isolation, and a `compress` tool. **Not in this monorepo.**
 3. **`pre_model_hook` prompt rewrite** — engineers wire dynamic prompt assembly here, which approximates "skill activation" but without a markdown loader or registry.
 
-### 8.2 File format
+### 10.2 File format
 
 **Not provided — BYO.**
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 **Not provided — BYO.**
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Not provided — BYO.** A common BYO pattern: store skill markdown bodies in `BaseStore` namespaced by tenant; a `pre_model_hook` searches for relevant skills via vector search and appends them as `SystemMessage` content. Alternatively a `skill_read` tool the LLM calls to lazily fetch a skill body.
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Not provided — BYO.** Both eager and lazy patterns are possible in the BYO design above.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 **Not provided — BYO.** `BaseStore` namespace tuples make scoping straightforward (e.g. `("skills", "global", ...)` vs `("skills", tenant_id, ...)`).
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 **Not provided — BYO.**
 
@@ -1198,13 +1208,13 @@ graph = create_react_agent(
 
 **Verdict**: Skills support is **Not provided — BYO** for vanilla LangGraph. Convention via add-on (`langgraph-deepagents`) for a Claude-Code-shaped experience.
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **Not in OSS.** No registry, no source abstraction, no publishing workflow shipped under `libs/`. LangGraph Platform (closed-source) ships an Assistants API which is the closest analogue (versioned assistant configs that mix prompts + graphs + metadata), but it sits behind paid hosting.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 Pure OSS supports only:
 - **Local filesystem** — by importing Python modules.
@@ -1219,31 +1229,31 @@ Pure OSS supports only:
 
 LangGraph Platform's Assistants API can be considered a vendor-managed registry, but it's behind a paywall.
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 **Not provided — BYO.** `BaseStore.search()` accepts a namespace tuple; engineers can implement a "tenant > global" override by trying `("skills", tenant_id)` first and falling back to `("skills", "global")`.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 **Not provided in OSS.** LangGraph Platform's Assistants API ships versioned assistants.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 **Not provided in OSS.** Convention via `BaseStore` namespace tuples.
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 **Not provided — BYO.**
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 **Not provided — BYO.**
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 `BaseStore` is the closest programmatic API: `put` / `get` / `search` / `list_namespaces` / `delete`. The `Assistants` SDK (`libs/sdk-py/langgraph_sdk/_async/assistants.py`) talks to the closed-source server only.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 **Not provided — BYO.** No sidecar / watcher / TTL primitive in OSS.
 
@@ -1268,9 +1278,9 @@ for h in hits:
 #   separate admin endpoint.
 ```
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 **On `AIMessage.usage_metadata`** (LangChain). Each assistant message carries:
 
@@ -1285,7 +1295,7 @@ class UsageMetadata(TypedDict):
 
 Visible on `stream_mode="updates"` and on `graph.invoke(...)` result.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 | Granularity | Available? | How |
 |---|---|---|
@@ -1294,27 +1304,27 @@ Visible on `stream_mode="updates"` and on `graph.invoke(...)` result.
 | Per session (thread) | YES — BYO aggregation | sum `usage_metadata` across `thread.state.values["messages"]` |
 | Per tenant | NO — BYO | join thread metadata (`{"owner": tenant_id}`) with per-message usage in your own aggregator |
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 **Not provided — BYO.** No built-in price table, no `total_cost_usd` field, no `max_budget_usd` cap. This is materially different from Claude Agent SDK which has both `total_cost_usd` on every `ResultMessage` and a `max_budget_usd` enforcement.
 
 Cost computation is offloaded to **LangSmith** (paid). LangSmith's `UsageMetadata` extends LangChain's with cost fields ("LangSmith's `UsageMetadata` has additional fields to capture cost information used by the LangSmith platform" — quoted from langchain-core docstring).
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 **Not provided in OSS — BYO via metadata-tagged tracing.** Pattern: stamp `metadata["tenant_id"]` on every run; install a `BaseCallbackHandler` that joins `tenant_id` + `model_name` + `usage_metadata` and emits OTel metrics or a DB insert. LangSmith does this server-side if you pay for it.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 - **OTel built-in**: not natively; LangSmith ships an OTel exporter; community has `langfuse`, `arize-phoenix`, `weights-and-biases`, `opik` (Comet) integrations through LangChain callback handlers.
 - **First-party tracer**: **LangSmith** (paid, hosted). LangChain auto-traces all `Runnable` invocations when `LANGSMITH_API_KEY` is set.
 - **25+ exporters**: yes, via LangChain callback ecosystem.
 
-### 10.6 Audit logging
+### 12.6 Audit logging (who / when / what)
 
 **Not provided as a tamper-evident audit stream.** Engineers BYO by hooking `on_chain_start` / `on_chain_end` / `on_tool_start` / `on_tool_end` and shipping to an immutable log sink (S3, BigQuery, ClickHouse).
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 ```python
 from langchain_core.callbacks import BaseCallbackHandler
@@ -1374,9 +1384,9 @@ graph.invoke(input, config={"callbacks": [TenantUsageHandler("acme")],
                             "configurable": {"thread_id": "t-1"}})
 ```
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 **Almost none.** LangGraph itself ships **zero** general-purpose tools. `langchain-community` ships a few hundred (web search, file ops, code exec, etc.) — but those are **not in this repo**. The closest things in this repo:
 
@@ -1385,11 +1395,11 @@ graph.invoke(input, config={"callbacks": [TenantUsageHandler("acme")],
 
 `langchain-experimental` and `langchain-community` are the typical sources for prebuilt tools, but they're independent packages.
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 n/a — none ship here.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 The `@tool` decorator from `langchain_core.tools`:
 
@@ -1415,21 +1425,21 @@ class TopicSearch(BaseTool):
         return [...]
 ```
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 **Yes** — Pydantic v2-driven validation runs on every tool call. Invalid args raise `ToolException`; `ToolNode` catches and converts to a `ToolMessage` with `status="error"` and the validation message in `content`, so the LLM can self-correct.
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 **Yes** — a tool that takes `runtime: ToolRuntime` can call `runtime.stream_writer({"progress": 0.5})` to emit `CustomStreamPart` frames mid-execution (`tool_node.py:1663-1730`). Visible to clients on `stream_mode="custom"`.
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 Yes via `langchain-mcp-adapters` (separate package). The adapter exposes MCP server tools as standard LangChain `BaseTool` instances usable in any `ToolNode` / `create_react_agent`. In-repo references show MCP is a documented integration target (`libs/sdk-py/langgraph_sdk/runtime.py:55-120`).
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 **Yes — exposed by `langgraph_api` (closed-source server) automatically.** Every deployed agent has an `/mcp` route by default (`libs/cli/langgraph_cli/schemas.py:471-472`):
 
@@ -1441,26 +1451,26 @@ to expose the deployment as an MCP server."""
 
 In the in-repo runtime example (`libs/sdk-py/langgraph_sdk/runtime.py:55-90`): "to populate schemas for MCP".
 
-### 12.3 Transports
+### 14.3 Transports
 
 - Client: stdio + HTTP (per `langchain-mcp-adapters`)
 - Server: HTTP only (the `/mcp` route on `langgraph_api`)
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 Yes via the adapter pattern: any Python function decorated as `@tool` can be packaged into the agent's tool list and surfaced via the `/mcp` endpoint without spawning a subprocess. The MCP server runs in the same Python process as the agent.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 Credentials pass via `langgraph_sdk/runtime.py` — `MakeRuntimeContext` initializes per-run MCP connections in the `ert.context` callback, lifecycle-bound to the run. For external MCP servers: standard `langchain-mcp-adapters` auth (env vars, OAuth flows).
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 **Anything `langchain-*` ships.** `init_chat_model("anthropic:claude-sonnet-4")` / `init_chat_model("openai:gpt-4o")` / `init_chat_model("google:gemini-2.5-pro")` / `init_chat_model("bedrock:anthropic.claude-3-5-sonnet")` / Azure OpenAI / Vertex / LiteLLM-as-OpenAI-proxy. Native, not third-party.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 **Yes** via dynamic model selection (`chat_agent_executor.py:325-356`, `598-618`). The `model` argument to `create_react_agent` can be a callable `(state, runtime) -> BaseChatModel` evaluated on every turn:
 
@@ -1473,57 +1483,57 @@ def select_model(state, runtime):
 graph = create_react_agent(select_model, tools=[...])
 ```
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 `langchain-core` ships `Runnable.with_fallbacks([fallback_model, ...])` — usable on the model passed to `create_react_agent`. Fallback fires on `Exception` (retryable or not, depending on policy). **No built-in retry-on-rate-limit-with-different-provider semantic** — you encode the policy yourself.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 **Not supported.** Once a turn starts, the model is fixed. Switch happens at the start of the next super-step (next call to `select_model`).
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 **Yes** — each subgraph (sub-agent) is built with its own `model` argument. Sonnet-supervisor + Haiku-worker is the standard pattern.
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 **Not provided in this repo.** The JS SDK (`libs/sdk-js`) ships a fetch client, but the React `useChat`-style hook for LangGraph lives in **`@langchain/langgraph-sdk-react`** (separate npm package, not in this monorepo).
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 Not provided in this repo. The community pattern is to subscribe to the SSE stream, accumulate `AIMessageChunk.tool_call_chunks`, render the partial-then-complete tool call, then render the matching `ToolMessage` linked by `tool_call_id`.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 **LangChain's `assistant-stream` package** (separate npm package, not in this monorepo) provides a JS streaming primitive that supports rendering rich UI. Not in `libs/`.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
 For Python backends: parse the SSE stream from `langgraph_sdk` into your own UI state (React / Vue / Svelte / Solid / HTMX). The frontend `langgraph-sdk-react` package and `assistant-stream` cover the common cases.
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 **`BaseStore`** (`libs/checkpoint/langgraph/store/base/__init__.py`) — namespaced KV with optional vector search. Tools access via `runtime.store.put(...)` / `runtime.store.search(...)`. Vector search backed by Postgres `pgvector` (in `langgraph-checkpoint-postgres`) or in-memory.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 Via `langchain-*` vector stores (Chroma, Pinecone, Weaviate, Postgres+pgvector, …) — separately packaged. LangGraph does not ship its own retriever, but `BaseStore.search()` covers basic semantic recall.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 **Convention via `BaseStore` namespace tuples.** Standard pattern: `runtime.store.search((runtime.context.tenant_id, "memories"), query=...)`. Enforcement is BYO (the engineer must consistently prefix). At the HTTP layer, `@auth.on.store` (`auth/__init__.py:89`) injects the tenant prefix server-side so external API callers cannot escape it.
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 **Not provided — BYO.** PII redaction / prompt-injection detection / hallucination detection live outside the OSS runtime. Common patterns: `pre_model_hook` for input scrubbing; `wrap_tool_call` for output scrubbing; LangChain integrations (Lakera, Presidio, OpenAI moderation) wired as callbacks.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 `wrap_tool_call` is the per-tool ACL hook. Implementation pattern:
 
@@ -1537,47 +1547,47 @@ def wrap_tool_call(request, execute):
 
 No declarative `allow_tools=[...]` list — engineers wire the policy in the wrapper.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 Not in this repo. Engineers wire E2B / Daytona / Modal as `@tool`-decorated wrappers around their SDKs.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 **Default-allow.** Whatever tools you pass to `ToolNode` / `create_react_agent` are dispatched. `wrap_tool_call` is opt-in for tightening.
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 **Not in this repo.** `LangSmith` (paid) ships dataset management + evaluators. Local-only: BYO with `pytest` + `graph.invoke(...)`.
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 **Not in this repo.** `langchain` has `load_evaluator("labeled_score_string")` etc., but it's separately packaged. LangSmith ships hosted LLM-judges.
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 **Not provided — BYO.** Typical pattern: pytest job that runs a sample of `graph.invoke(...)` against golden datasets, compares outputs, blocks merge on regression.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 LangSmith Studio (paid) provides this. OSS-only: `graph.get_state_history(config)` lets you walk past steps programmatically.
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 **`langgraph dev`** (`libs/cli/langgraph_cli/cli.py:732`) — shells out to closed-source `langgraph_api.cli.run_server` (which requires `pip install -U "langgraph-cli[inmem]"`). Boots a local HTTP server backed by `InMemorySaver` plus a "LangGraph Studio" web UI that visualizes the running graph, lets you step through state, send messages, and trigger interrupts.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 LangGraph Studio (web UI, closed-source) when running `langgraph dev`. LangSmith (paid, cloud) for production traces.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 The Studio UI doesn't directly model "tenant switching", but you pass `context: {"tenant_id": ...}` in the run-create payload, so testing tenant-scoped behavior is one form field.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 `langgraph dev --watch` reloads the graph on file save. Skill / prompt iteration is BYO since skills aren't first-class.
 
@@ -1636,4 +1646,3 @@ graph TB
 - `libs/checkpoint/langgraph/store/base/__init__.py` — `BaseStore`. Namespaced KV with optional vector search; closest thing to "skills storage".
 - `libs/sdk-py/langgraph_sdk/auth/__init__.py` and `auth/types.py` — `@auth.on.<resource>.<action>` decorators, `FilterType` (types.py:58), `AuthContext`. Multi-tenancy at the HTTP layer.
 - `libs/sdk-py/langgraph_sdk/_async/runs.py` — HTTP client; canonical reference for `/threads/.../runs/stream`, `/cancel`, `/join_stream` endpoint shapes.
-- `libs/cli/langgraph_cli/cli.py` — `dev` command (line 732) shows the closed-source `langgraph_api` import; verifies the OSS/server split.

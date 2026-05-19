@@ -1,14 +1,15 @@
-# Vercel AI SDK TypeScript — Benchmark Study
+# Vercel AI SDK TypeScript — Benchmark Analysis
 
 > **Repo**: https://github.com/vercel/ai
-> **Commit studied**: `aa5a1e539643c2a7162a141502eee63c665a9544`
+> **Commit analysed**: `aa5a1e539643c2a7162a141502eee63c665a9544`
 > **Branch**: `main`
 > **Framework path**: `frameworks/vercel-ai/`
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
 - ⭐ **What is this stack architecturally?** A **TypeScript library** (not a server, not a runtime). The `ai` package (`packages/ai/`) gives you `generateText` / `streamText` / `ToolLoopAgent` that you mount on *your own* HTTP handler (Next.js, Express, Hono, Fastify, Nest, Nuxt, SvelteKit, raw Node). A first-party frontend layer (`@ai-sdk/react`, `@ai-sdk/vue`, `@ai-sdk/svelte`, `@ai-sdk/angular`) consumes the SSE protocol it emits. No agent runs in a vendor cloud or subprocess — everything happens in *your* Node process.
+- **Ecosystem**: TypeScript / JavaScript (ESM-first).
 - **Open-source / governance**: Apache-2.0, maintained by **Vercel** with active staff and community contributors. Commercial side: Vercel's **AI Gateway** (`@ai-sdk/gateway`) and **Vercel hosting** (frontend) are the monetizable layers — the SDK is free.
 - **Maturity / age**: 7.0 line is currently in **canary**; this commit is `ai@7.0.0-canary.142`. The project has shipped 6+ stable majors since 2023. v7 stabilizes `ToolLoopAgent`, `runtimeContext`, `toolsContext`, `experimental_refineToolInput`, `prepareCall` — APIs that did **not** exist in v5/v6.
 - **Adoption**: ~17k+ GitHub stars (captured 2026-05; from public github.com/vercel/ai). The `ai` package is one of the most-downloaded LLM SDKs on npm. Hundreds of contributors, hourly commit cadence.
@@ -26,11 +27,74 @@
   - **Hooks**: Strong. 7 generation-level callbacks + `prepareStep` + `prepareCall` + 4 tool-level hooks + `LanguageModelMiddleware`.
   - **API**: Library-only. SSE-over-HTTP `UIMessageChunk` is a well-specified protocol but you mount it yourself.
   - **Observability**: `Telemetry` interface with 12 lifecycle callbacks, per-step `LanguageModelUsage` (incl. cache read/write). **No USD cost in `ai`** — USD only via `@ai-sdk/gateway.getSpendReport(...)`.
-- **Production-readiness verdict for multi-tenant server-side deployment**: ✅ usable as a *library* if you build sessions, multi-tenancy filtering, durable runtime, skills, resource registry, and observability rollups yourself. Not a "deploy this and you're done" platform.
+- **Production-readiness verdict for multi-tenant server-side deployment**: usable as a *library* if you build sessions, multi-tenancy filtering, durable runtime, skills, resource registry, and observability rollups yourself. Not a "deploy this and you're done" platform.
 
 ---
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
+
+### 0.1 What is this stack?
+
+A **library** — `ai` is published on npm and imported into your application. There is no daemon, no CLI, no managed runtime. The optional **Vercel AI Gateway** is a hosted REST proxy in front of model providers, used as just another `LanguageModel` adapter.
+
+### 0.2 Ecosystem
+
+**TypeScript** (ESM-first; `packages/ai/package.json:6`). The SDK is consumed via npm/yarn/pnpm and runs in Node.js or compatible JS runtimes (Edge, Bun, Deno where supported).
+
+### 0.3 Project status & governance
+
+- **License**: Apache-2.0 (`packages/ai/package.json:7`).
+- **Owner / maintainer**: Vercel Inc., with a sizable community contributor base.
+- **Commercial backing**: Vercel sells the **AI Gateway** (per-token routing, spend reports, key management) and Vercel hosting. The SDK itself is free.
+- **Support model**: GitHub issues, community Discord, Vercel commercial support (for paying customers of the platform).
+
+### 0.4 Project maturity / age
+
+- The repo's first commits date from 2023 (the AI SDK launched in Q2 2023).
+- Current top-level package version on this commit: **`ai@7.0.0-canary.142`** (`packages/ai/package.json:3`). The 7.0 line is **canary** at the time of this study — v6 is the latest stable.
+- The 7.0 line introduced `ToolLoopAgent`, `Agent` interface, `prepareCall`, `runtimeContext` / `toolsContext`, `experimental_refineToolInput`, `toolApproval` flows — none of which existed in earlier v5/v6 stable.
+- Several APIs are still marked `experimental_*` (`experimental_onStart`, `experimental_onStepStart`, `experimental_repairToolCall`, `experimental_refineToolInput`, `experimental_sandbox`, `experimental_createMCPClient`).
+
+### 0.5 Adoption & community signal
+
+- GitHub stars: ~17k+ (captured 2026-05-19 from github.com/vercel/ai).
+- Forks: ~2k+.
+- Contributors: hundreds (visible in the repo's `Contributors` tab).
+- Commit activity: multiple commits per day; canary releases are tagged ~daily.
+- Issues: thousands open across feature requests and bugs.
+- npm: `ai` is one of the most-downloaded LLM SDKs (millions of weekly downloads).
+
+### 0.6 Ecosystem fit
+
+- **Languages**: TypeScript / JavaScript. ESM-first (`packages/ai/package.json:6`).
+- **Primary form factor**: library (`import { generateText } from 'ai'`).
+- **Package name**: `ai` on npm (https://www.npmjs.com/package/ai); plus 50+ provider packages `@ai-sdk/<provider>`.
+- **Frontend integration**: first-party adapters for **React**, **Vue**, **Svelte**, **Angular**, **RSC** (`packages/react/`, `packages/vue/`, `packages/svelte/`, `packages/angular/`, `packages/rsc/`).
+- **Examples**: Next.js, Next-Agent, Express, Fastify, Hono, Nest, Nuxt, SvelteKit, node-http, plus many provider-specific examples (`examples/`).
+- **Skill files in this repo** (`skills/`) are *contributor-facing* — they tell Claude/Cursor how to author code with the SDK, e.g. `skills/use-ai-sdk/SKILL.md`. They are not a runtime feature consumers use.
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- Docs are TypeScript-centric. A non-engineer (Product/Data) authoring agent behavior would need engineering help — there's no "drop a markdown file" path.
+- The `ai-sdk.dev/docs` site is deep, with quickstarts and migration guides. Source docs live at `content/` in the repo.
+- ADR pattern is encouraged (`contributing/decisions/README.md`).
+
+### 0.8 Documentation entry points ⭐
+
+- **Official docs**: https://ai-sdk.dev/docs
+- **Quickstart**: https://ai-sdk.dev/docs/getting-started
+- **API reference**: https://ai-sdk.dev/docs/reference
+- **Hosting / deployment**: integrated with Vercel hosting docs (https://vercel.com/docs/ai)
+- **AI Gateway docs**: https://ai-sdk.dev/docs/ai-sdk-gateway
+- **Examples / demos**: in-repo `examples/` and https://ai-sdk.dev/examples
+- **Changelog / release notes**: in-repo `packages/<pkg>/CHANGELOG.md` (e.g. `packages/ai/CHANGELOG.md`)
+- **GitHub Releases**: https://github.com/vercel/ai/releases
+- **GitHub issues**: https://github.com/vercel/ai/issues
+- **Discord / community**: https://vercel.com/discord (`#ai-sdk` channel)
+
+---
+
+## 1. High Level Architecture
 
 ### Deployment diagram
 
@@ -81,42 +145,7 @@ NO process boundaries beyond the LLM provider HTTPS calls.
 NO session store. NO durable runtime. NO sub-agent isolation.
 ```
 
-### 0.1 What is this stack?
-
-A **library** — `ai` is published on npm and imported into your application. There is no daemon, no CLI, no managed runtime. The optional **Vercel AI Gateway** is a hosted REST proxy in front of model providers, used as just another `LanguageModel` adapter.
-
-### 0.2 Project status & governance
-
-- **License**: Apache-2.0 (`packages/ai/package.json:7`).
-- **Owner / maintainer**: Vercel Inc., with a sizable community contributor base.
-- **Commercial backing**: Vercel sells the **AI Gateway** (per-token routing, spend reports, key management) and Vercel hosting. The SDK itself is free.
-- **Support model**: GitHub issues, community Discord, Vercel commercial support (for paying customers of the platform).
-
-### 0.3 Project maturity / age
-
-- The repo's first commits date from 2023 (the AI SDK launched in Q2 2023).
-- Current top-level package version on this commit: **`ai@7.0.0-canary.142`** (`packages/ai/package.json:3`). The 7.0 line is **canary** at the time of this study — v6 is the latest stable.
-- The 7.0 line introduced `ToolLoopAgent`, `Agent` interface, `prepareCall`, `runtimeContext` / `toolsContext`, `experimental_refineToolInput`, `toolApproval` flows — none of which existed in earlier v5/v6 stable.
-- Several APIs are still marked `experimental_*` (`experimental_onStart`, `experimental_onStepStart`, `experimental_repairToolCall`, `experimental_refineToolInput`, `experimental_sandbox`, `experimental_createMCPClient`).
-
-### 0.4 Adoption & community signal
-
-- GitHub stars: ~17k+ (captured 2026-05-16 from github.com/vercel/ai).
-- Forks: ~2k+.
-- Contributors: hundreds (visible in the repo's `Contributors` tab).
-- Commit activity: multiple commits per day; canary releases are tagged ~daily.
-- Issues: thousands open across feature requests and bugs.
-- npm: `ai` is one of the most-downloaded LLM SDKs (millions of weekly downloads).
-
-### 0.5 Ecosystem fit
-
-- **Languages**: TypeScript / JavaScript. ESM-first (`packages/ai/package.json:6`).
-- **Primary form factor**: library (`import { generateText } from 'ai'`).
-- **Frontend integration**: first-party adapters for **React**, **Vue**, **Svelte**, **Angular**, **RSC** (`packages/react/`, `packages/vue/`, `packages/svelte/`, `packages/angular/`, `packages/rsc/`).
-- **Examples**: Next.js, Next-Agent, Express, Fastify, Hono, Nest, Nuxt, SvelteKit, node-http, plus many provider-specific examples (`examples/`).
-- **Skill files in this repo** (`skills/`) are *contributor-facing* — they tell Claude/Cursor how to author code with the SDK, e.g. `skills/use-ai-sdk/SKILL.md`. They are not a runtime feature consumers use.
-
-### 0.6 Where does the agent loop actually execute?
+### 1.1 Where does the agent loop actually execute?
 
 **In your Node.js (or compatible) process.** No vendor cloud, no subprocess, no daemon. The canonical loop is at `packages/ai/src/generate-text/generate-text.ts:653`:
 
@@ -133,35 +162,36 @@ do {
 
 `ToolLoopAgent` (`packages/ai/src/agent/tool-loop-agent.ts:38`) is a 271-line class that wraps `generateText` / `streamText` with `prepareCall` and persisted settings. It is **not** a long-running process; it's a method-call entrypoint.
 
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - **Node**: v18, v20, or v22 (CLAUDE.md/AGENTS.md states v22 recommended).
 - **pnpm**: v10+ for development. End users install `ai` via npm/yarn/pnpm.
 - **Native libs**: none required.
+- **Bundled binaries / CLIs**: none. The SDK does not subprocess any external binary.
 - **Database**: none required by the SDK. You bring your own for session persistence.
-- **Optional**: any LLM provider account (OpenAI, Anthropic, …) and/or a Vercel AI Gateway account.
+- **Required vendor services**: none — the SDK just needs an LLM provider account (OpenAI, Anthropic, …) reachable over HTTPS, or optionally a Vercel AI Gateway account.
 
-### 0.8 Recommended deployment topology
+### 1.3 Recommended deployment topology
 
 The SDK doesn't ship hosting recipes. Vercel docs and `examples/next-agent/` recommend mounting `createAgentUIStreamResponse` inside a Next.js API route (one process per Node instance, many tenants per process). For multi-region, you scale Next.js horizontally — but **all session state lives in your external DB**, because there is no in-process session map.
 
-### 0.9 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 - Cold start of `ai` itself is just a JS import — typically tens of milliseconds.
 - No bundled binaries or large native deps. Footprint is essentially Node's baseline.
 - The first LLM call is dominated by the provider's API latency, not the SDK.
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 
 - **LLM-provider**: low. 50+ provider adapters (`packages/<provider>/`), all behind the `LanguageModel` interface. Swap providers in one line.
 - **Hosting platform**: low. Library-only — runs anywhere Node runs. Vercel hosting and AI Gateway are conveniences, not requirements.
 - **Eval platform**: N/A. The SDK does not ship eval.
 
-### 0.11 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 **Thin SDK**, not a heavy framework. `ai` does generate-text/object/image/speech, telemetry, UI stream protocol, agent loop, and tool authoring. It does **not** ship sessions, durable runtime, RAG, eval, skill loader, resource registry, dev UI, plugin system. Compare: Mastra layers all of those *on top* of essentially the same primitives.
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 
 `packages/ai/CHANGELOG.md` (top, abridged):
 
@@ -183,34 +213,13 @@ The SDK doesn't ship hosting recipes. Vercel docs and `examples/next-agent/` rec
 ## 7.0.0-canary.129  fix(ai): deprecate properties on result that have moved to finalStep
 ```
 
-Active areas: telemetry callback renames, prepareStep features, sandbox graduation, performance metrics. Agent / tool-loop API is settling but **not frozen** — expect breaking renames until 7.0 stable.
-
-### 0.13 Documentation depth & cross-team contributor accessibility
-
-- Docs are TypeScript-centric. A non-engineer (Product/Data) authoring agent behavior would need engineering help — there's no "drop a markdown file" path.
-- The `ai-sdk.dev/docs` site is deep, with quickstarts and migration guides. Source docs live at `content/` in the repo.
-- ADR pattern is encouraged (`contributing/decisions/README.md`).
-
-### 0.14 Documentation entry points
-
-- **Official docs**: https://ai-sdk.dev/docs
-- **Quickstart**: https://ai-sdk.dev/docs/getting-started
-- **API reference**: https://ai-sdk.dev/docs/reference
-- **Hosting / deployment**: integrated with Vercel hosting docs (https://vercel.com/docs/ai)
-- **AI Gateway docs**: https://ai-sdk.dev/docs/ai-sdk-gateway
-- **Examples / demos**: in-repo `examples/` and https://ai-sdk.dev/examples
-- **Changelog / release notes**: in-repo `packages/<pkg>/CHANGELOG.md` (e.g. `packages/ai/CHANGELOG.md`)
-- **GitHub Releases**: https://github.com/vercel/ai/releases
-- **GitHub issues**: https://github.com/vercel/ai/issues
-- **Discord / community**: https://vercel.com/discord (`#ai-sdk` channel)
+Active areas: telemetry callback renames, prepareStep features, sandbox graduation, performance metrics. Agent / tool-loop API is settling but **not frozen** — expect breaking renames until 7.0 stable. Linked release pages: https://github.com/vercel/ai/releases.
 
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### Run loop
-
-#### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 Two surfaces:
 
@@ -233,7 +242,7 @@ export interface Agent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT, OUTPUT> {
 
 `generate(...)` returns once the loop terminates (or hits HITL). `stream(...)` returns immediately with a `StreamTextResult` that exposes `.fullStream`, `.textStream`, `.toUIMessageStream(...)`, `.toUIMessageStreamResponse(...)`, and `.consumeStream(...)`.
 
-#### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 Inside the `do { … } while(…)` at `packages/ai/src/generate-text/generate-text.ts:653`:
 
@@ -248,15 +257,15 @@ Inside the `do { … } while(…)` at `packages/ai/src/generate-text/generate-te
 9. `executeTools(...)` for approved client tool calls — triggers `onToolExecutionStart` → `tool.execute(input, options)` → `onToolExecutionEnd`.
 10. Build `StepResult`, push to `steps[]`, notify `onStepFinish`.
 
-#### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 Yes — the `do { ... } while(...)` *is* the ReAct loop. You don't assemble it; you configure it via `tools`, `stopWhen`, `prepareStep`, callbacks.
 
-#### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 `executeTools(...)` runs all approved client tool calls **in parallel** (`Promise.all` at `packages/ai/src/generate-text/generate-text.ts:1284`). Each tool's output flows into a `tool-result` content part in the next step's user message. `tool.toModelOutput?(...)` (in the tool definition) lets you reshape the raw output before it becomes a model-visible string/JSON.
 
-#### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 A **"step"** = one LLM call + zero-or-more parallel tool executions. `stopWhen` defines termination:
 
@@ -264,16 +273,18 @@ A **"step"** = one LLM call + zero-or-more parallel tool executions. `stopWhen` 
 - `isStepCount(1)` is the default for raw `generateText` (so raw `generateText` is one-shot unless you pass `stopWhen`).
 - Other built-ins: `hasToolCall(name)`, plus user-defined `StopCondition` functions (`packages/ai/src/generate-text/stop-condition.ts`).
 
-#### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 Two parallel mechanisms, both driven by `notify({ event, callbacks })` (`packages/ai/src/util/notify.ts`):
 
 - **Push (callbacks)**: `experimental_onStart`, `experimental_onStepStart`, `experimental_onLanguageModelCallStart`, `experimental_onLanguageModelCallEnd`, `onToolExecutionStart`, `onToolExecutionEnd`, `onStepFinish`, `onFinish`.
 - **Pull (async iterator)**: `streamText(...).fullStream: AsyncIterableStream<TextStreamPart<TOOLS>>` (`packages/ai/src/generate-text/stream-text-result.ts:309`).
 
-### Message & event taxonomy
+---
 
-#### 1.7 Message layers
+## 3. Message & Event Taxonomy
+
+### 3.1 Message layers
 
 Three message vocabularies + one event-stream taxonomy.
 
@@ -286,7 +297,20 @@ Conversions:
 - `UIMessage[] → ModelMessage[]`: `convertToModelMessages()` (`packages/ai/src/ui/convert-to-model-messages.ts:46`).
 - `ModelMessage[] → UIMessageChunk[]`: `streamText().toUIMessageStream({ originalMessages? })`.
 
-#### 1.8 Concrete message types (table)
+```
+   YOUR DB                  HTTP HANDLER                AI SDK LOOP                LLM PROVIDER
+ ┌─────────┐  read    ┌──────────────────────┐    ┌────────────────────┐      ┌──────────────┐
+ │ UIMsg[] │ ───────► │  convertToModel-     │ ─► │   ModelMessage[]   │ ───► │  doStream    │
+ │         │          │  Messages()          │    │   (LLM-wire view)  │      │  doGenerate  │
+ └─────────┘          └──────────────────────┘    └─────────┬──────────┘      └──────┬───────┘
+       ▲                                                    │                        │
+       │   ┌──────────────────────────┐    ┌────────────────▼─────────────┐          │
+       └── │  handleUIMessageStream-  │ ◄─ │  toUIMessageStream(stream)   │ ◄────────┘
+           │  Finish (persist UI fmt) │    │  emits UIMessageChunk wire   │
+           └──────────────────────────┘    └──────────────────────────────┘
+```
+
+### 3.2 Concrete message types
 
 | Type                         | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
@@ -295,27 +319,29 @@ Conversions:
 | `AssistantModelMessage`      | LLM-wire assistant role, possibly with tool-call parts.                |
 | `ToolModelMessage`           | LLM-wire tool role with `tool-result` / `tool-approval-response` parts.|
 | `UIMessage`                  | UI-side message carrying `parts: UIMessagePart[]` + metadata.          |
-| `UIMessagePart` (subtypes)   | Rich UI rendering primitives (see Q1.10 below).                        |
+| `UIMessagePart` (subtypes)   | Rich UI rendering primitives (see 3.4 below).                          |
 | `StepResult<TOOLS, CTX>`     | One step's content, usage, tool-calls/-results, response messages.     |
 | `GenerateTextResult`         | Full run output (steps[], totalUsage, finalStep, text, …).             |
 | `StreamTextResult`           | Streaming variant — `.fullStream`, `.toUIMessageStream(...)`.          |
-| `TextStreamPart<TOOLS>`      | Internal stream chunks (24 variants — see Q1.10).                      |
-| `UIMessageChunk<META, DATA>` | Wire-format SSE chunks (~28 variants — see Q1.12).                     |
+| `TextStreamPart<TOOLS>`      | Internal stream chunks (24 variants — see 3.6).                        |
+| `UIMessageChunk<META, DATA>` | Wire-format SSE chunks (~28 variants — see 3.6).                       |
 
-#### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 They are **separate taxonomies**. Messages are persisted artifacts (`UIMessage[]`, `ModelMessage[]`). Events stream during a run (`TextStreamPart`, `UIMessageChunk`). The state of a tool call is mirrored across both: `ToolUIPart.state: 'input-streaming' | 'input-available' | 'approval-requested' | 'approval-responded' | 'output-available' | 'output-error' | 'output-denied'` (`packages/ai/src/ui/ui-messages.ts:291-377`).
 
-#### 1.10 Event categories
+### 3.4 Event categories
 
 - **Stream-event** (text/reasoning deltas): `text-start/-delta/-end`, `reasoning-start/-delta/-end`.
 - **Tool-event**: `tool-input-start/-delta/-available/-error`, `tool-output-available/-error/-denied`, `tool-approval-request/-response`.
-- **Step-event**: `start-step`, `finish-step`.
+- **Step-event** (turn-event in our vocabulary): `start-step`, `finish-step`.
 - **Session-lifecycle event**: `start`, `finish`, `abort`, `error`.
 - **Source / file / reasoning-file**: rendering primitives for retrieval and binary artifacts.
 - **Data / message-metadata**: extensibility holes for arbitrary host payloads.
+- **Hook event**: no separate category — hook callbacks fire in-process (Q7), not as stream items.
+- **Sub-agent event**: no category — sub-agents are not first-class (Q9).
 
-#### 1.11 Canonical type-definition files
+### 3.5 Canonical type-definition file(s)
 
 - **`packages/ai/src/prompt/message.ts:23-72`** — `ModelMessage` discriminated union.
 - **`packages/ai/src/ui/ui-messages.ts:44-377`** — `UIMessage`, `UIMessagePart`, `ToolUIPart` state machine.
@@ -323,7 +349,7 @@ They are **separate taxonomies**. Messages are persisted artifacts (`UIMessage[]
 - **`packages/ai/src/generate-text/stream-text-result.ts:537-563`** — `TextStreamPart` (in-process iterator).
 - **`packages/ai/src/ui-message-stream/ui-message-chunks.ts:225-396`** — `UIMessageChunk` (wire format).
 
-#### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 `TextStreamPart<TOOLS>` (`packages/ai/src/generate-text/stream-text-result.ts:537`):
 
@@ -342,48 +368,55 @@ export type TextStreamPart<TOOLS extends ToolSet> =
   | TextStreamAbortPart | TextStreamErrorPart | TextStreamRawPart;
 ```
 
-`UIMessageChunk` (`packages/ai/src/ui-message-stream/ui-message-chunks.ts:225`) — sample frames:
+`UIMessageChunk` (`packages/ai/src/ui-message-stream/ui-message-chunks.ts:225`) — sample frames (one per major category):
 
 ```
+# session-lifecycle
 data: {"type":"start","messageId":"msg_xyz"}
+# step / turn-event
 data: {"type":"start-step"}
+# tool-event (input streaming)
 data: {"type":"tool-input-start","toolCallId":"call_001","toolName":"weather","dynamic":false}
 data: {"type":"tool-input-delta","toolCallId":"call_001","inputTextDelta":"{\"city\":\""}
 data: {"type":"tool-input-available","toolCallId":"call_001","toolName":"weather","input":{"city":"Paris"}}
+# tool-event (output)
 data: {"type":"tool-output-available","toolCallId":"call_001","output":{"weather":"sunny"}}
+# stream-event (text delta)
 data: {"type":"text-start","id":"txt_1"}
 data: {"type":"text-delta","id":"txt_1","delta":"It is sunny in Paris."}
 data: {"type":"text-end","id":"txt_1"}
+# step finish
 data: {"type":"finish-step"}
+# session-lifecycle (terminal)
 data: {"type":"finish","finishReason":"stop"}
 data: [DONE]
 ```
 
-Every tool chunk carries an explicit `toolCallId: string` — see Q6.10 for reconstruction.
+Every tool chunk carries an explicit `toolCallId: string` — see 8.10 for reconstruction.
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **Not provided — BYO.** There is no SDK-side multi-session host. Each `agent.generate(...)` or `agent.stream(...)` call is request-scoped. The "runtime" is *your* Node process, and the embedding pattern is "one HTTP request → one agent call".
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 There is no in-process session bag, so isolation is whatever your HTTP handler gives you: each request has its own JS scope, its own `messages: UIMessage[]`, its own `runtimeContext`. There is **no shared mutable state in `ai`** that one tenant could leak to another — provided you pass `messages` from external storage and `runtimeContext` from the request.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 Standard stateless-worker model: spin up N Node processes (Next.js / Fargate / Cloud Run / Vercel Functions), each pulls session state from your shared store (Postgres / Redis / S3 / Blob). The SDK has no leader election, no shared in-memory map.
 
 `examples/next/app/api/chat/[id]/stream/route.ts` and `examples/next/app/api/chat/route.ts` show the canonical durable-stream pattern using the third-party `resumable-stream` package + Redis.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 **Not provided — BYO.** The SDK has no cron, no scheduler, no webhook trigger primitive. Use your host (e.g. Vercel Cron, Cloud Scheduler, Trigger.dev) and *invoke* `agent.generate(...)` from there.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 **Not provided — BYO.** No queue. The SDK assumes the request scope is whatever your host gives you (typically HTTP request scope). For long-running workloads, you need an external queue (BullMQ, AWS SQS) and a worker that calls `agent.generate(...)`.
 
@@ -391,9 +424,9 @@ The new `@ai-sdk/workflow` package (`packages/workflow/src/`) is a recent additi
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 **There is no SDK-provided `Session` / `Thread` type.** What you persist is `UIMessage[]` (or `ModelMessage[]`). The closest "session-shape" in the codebase is the per-call `Chat` state machine on the *client* (`packages/ai/src/ui/chat.ts:237`), which holds messages and transport state in memory.
 
@@ -401,22 +434,22 @@ Per-call inputs that you may treat as session-equivalent (built up by you):
 
 - `id: string` — your session id, passed by you on every request and stored alongside `messages`.
 - `messages: UIMessage[]` — full history.
-- `runtimeContext: RUNTIME_CONTEXT` — your bag of tenant / user / locale (see Q4).
+- `runtimeContext: RUNTIME_CONTEXT` — your bag of tenant / user / locale (see Q6).
 - `toolsContext: InferToolSetContext<TOOLS>` — per-tool per-call context bag.
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
-Whatever you store. The example `examples/next/app/api/chat/route.ts:21` reads `readChat(id)` / `saveChat({ id, messages })` against your DB. The SDK never sees the storage.
+Whatever you store. The example `examples/next/app/api/chat/route.ts:21` reads `readChat(id)` / `saveChat({ id, messages })` against your DB. The SDK never sees the storage. Schema is whatever the host defines — typically `(id, userId|tenantId, messages: jsonb, createdAt, updatedAt)`.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 Single linear conversation per `id`. **No branch / fork model.** No checkpoint graph (cf. LangGraph). If you want branching, you implement it as N sessions in your DB.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
-**None.** No JSONL store, no SQLite, no Postgres adapter, no Redis adapter, no Blob adapter. The SDK has zero opinion on storage.
+**None.** No JSONL store, no SQLite, no Postgres adapter, no Redis adapter, no Blob adapter. The SDK has zero opinion on storage — BYO entirely.
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 Hook into:
 
@@ -424,9 +457,9 @@ Hook into:
 - `onFinish({ ... })` — once when the loop exits.
 - For UI-message streams: `handleUIMessageStreamFinish` (`packages/ai/src/ui-message-stream/handle-ui-message-stream-finish.ts:121-142`) calls a user-supplied `onStepFinish({ responseMessage, messages })` per `finish-step` chunk and `onFinish` once at the end.
 
-There is **no per-token persistence** — you persist at step granularity at the earliest.
+There is **no per-token persistence** — you persist at step granularity at the earliest. All writes are synchronous-in-callback — the SDK doesn't debounce or batch (compare Mastra's debounced writer).
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 **Not provided — BYO.** If your process crashes mid-tool-call, `ai` does not resume from a checkpoint. The closest pattern is the resumable-stream recipe in `examples/next/app/api/chat/route.ts:88` and `examples/next/app/api/chat/[id]/stream/route.ts:18`:
 
@@ -436,33 +469,33 @@ There is **no per-token persistence** — you persist at step granularity at the
 
 This is *resumable stream*, not *durable runtime*.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
-Whatever you choose — `id` is `string`. Examples use UUID-like values.
+Whatever you choose — `id` is `string`. Examples use UUID-like values. No tenant prefixing convention shipped.
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 **No interface to plug.** Persistence is your callback inside `onStepFinish` / `onFinish`. There is no `SessionStore` / `Checkpointer` abstraction.
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 **Not provided — BYO.** Your DB, your migrations. The SDK does ship `validateUIMessages` (`packages/ai/src/ui/`) to validate persisted UIMessages against the current Zod schema — useful for catching schema drift on read.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 You already have the messages — exporting is `JSON.stringify(messages)`. Replay = pass the same `messages` and pin model + seed. Determinism is not a first-party feature.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-**Not provided — BYO.** See Q15.
+**Not provided — BYO.** See Q17 (Memory & Knowledge).
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
+## 6. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
 
 This is the strongest area of the v7-canary API.
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 `ToolLoopAgentSettings` (`packages/ai/src/agent/tool-loop-agent-settings.ts:42-306`) is the constructor side. `AgentCallParameters` (`packages/ai/src/agent/agent.ts:27-113`) layers per-call options. Fields beyond `messages`:
 
@@ -495,7 +528,7 @@ export type ToolLoopAgentSettings<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT, OUTPUT> 
   };
 ```
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 Every tool's `execute(input, options)` receives a `ToolExecutionOptions<CONTEXT>` (`packages/provider-utils/src/types/tool-execute-function.ts:8-44`):
 
@@ -515,7 +548,7 @@ Note: `runtimeContext` (the agent-wide bag) is handed to `prepareStep`, telemetr
 - Close over it in your tool factory (`makeTopicSearchTool({ tenantId })`).
 - Use `prepareStep` to inject it into `toolsContext` per-step.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 `ToolExecuteFunction` (`packages/provider-utils/src/types/tool-execute-function.ts:34-44`):
 
@@ -540,7 +573,7 @@ tool({
 })
 ```
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 **Yes — first-class** via `experimental_refineToolInput` (`packages/ai/src/generate-text/tool-input-refinement.ts:14-19`):
 
@@ -563,7 +596,7 @@ experimental_refineToolInput: {
 
 **Caveat**: must return the same JSON shape. For a true "always pass `tenantId=<X>`" pattern, the cleanest answer is to keep `tenantId` *out of the LLM-visible inputSchema* and pass it via `toolsContext[name]`, so the LLM cannot generate it at all.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 Three coexisting layers:
 
@@ -571,11 +604,11 @@ Three coexisting layers:
 2. **`prepareStep(...) → { activeTools? }`** per step (`packages/ai/src/generate-text/prepare-step.ts:118`). Used by `filterActiveTools` (`packages/ai/src/generate-text/filter-active-tools.ts:21-38`).
 3. **`prepareCall(...) → { tools? }`** per call (`packages/ai/src/agent/tool-loop-agent-settings.ts:230-305`). Lets one `ToolLoopAgent` template generate different toolsets per request based on `CALL_OPTIONS`.
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 There is no session — so there is no first-class tenant scope on a session object. The audience's convention should be: `runtimeContext.tenantId` is the canonical place.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 The caller's identity reaches every tool call **only if you put it there**. Common patterns:
 
@@ -584,15 +617,15 @@ The caller's identity reaches every tool call **only if you put it there**. Comm
 
 No magic. No automatic plumbing.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 - **Per-tool `contextSchema`** (`packages/provider-utils/src/types/tool.ts:95-99`) declares what context each tool expects. `validateToolContext` (`packages/ai/src/generate-text/validate-tool-context.ts`) rejects mismatches at runtime.
 - **Per-call `runtimeContext` typing** via `ToolLoopAgent<CALL_OPTIONS, TOOLS, RUNTIME_CONTEXT, OUTPUT>` compile-time generics.
 - **No global / tenant / user scope on tools or skills directly.** You build that yourself by templating the agent or filtering `activeTools` based on `runtimeContext.tenantId`.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
-**Not provided — BYO.** `stopWhen` accepts step-count and tool-name stop conditions, but **no USD-cost or token-count budget cap** in the SDK. AI Gateway's spend report (Q10) is *observational*, not enforcing.
+**Not provided — BYO.** `stopWhen` accepts step-count and tool-name stop conditions, but **no USD-cost or token-count budget cap** in the SDK. AI Gateway's spend report (Q12) is *observational*, not enforcing.
 
 ### ⭐ Light usage example
 
@@ -639,9 +672,9 @@ All three audience requirements are first-class. The single non-obvious bit is t
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 | Hook                                                             | Fires when                              | Read / mutate / block / branch |
 | ---------------------------------------------------------------- | --------------------------------------- | ------------------------------ |
@@ -666,23 +699,23 @@ All three audience requirements are first-class. The single non-obvious bit is t
 | `onFinish(result)`                                               | After loop exits                        | Read-only                     |
 | `Telemetry` (12 hooks)                                           | Mirrors above + embed/rerank/object     | Read-only                     |
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 All callbacks fire **sequentially** within a step. Tool executions run in **parallel** (`Promise.all` at `packages/ai/src/generate-text/generate-text.ts:1284`), with `onToolExecutionStart` / `onToolExecutionEnd` firing per parallel tool.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
-- **Inject system messages at session start** (e.g. "current date is 2026-05-16, tenant is acme, locale fr-FR")? ✅ Yes — three ways:
-  - Static `instructions: 'You are X. Today is 2026-05-16'` on `ToolLoopAgent`.
+- **Inject system messages at session start** (e.g. "current date is 2026-05-19, tenant is acme, locale fr-FR")? Yes — three ways:
+  - Static `instructions: 'You are X. Today is 2026-05-19'` on `ToolLoopAgent`.
   - Dynamic per call: `prepareCall(opts) => ({ ...opts, instructions: '... ' + opts.runtimeContext.tenantId })`.
   - Dynamic per step: `prepareStep({ runtimeContext, ... }) => ({ instructions: '... ' + runtimeContext.tenantId })`.
-- **Expand the user input** (slash commands, time-stamps, attachments)? ✅ Yes — `prepareCall` lets you rewrite the prompt; `prepareStep({ messages: [...rewritten] })` lets you rewrite the messages array per step.
-- **Mutate the messages list before each LLM call** (cache breakpoints, redaction)? ✅ Yes — `prepareStep` returns a `messages` override, or `LanguageModelMiddleware.transformParams` mutates the provider-level prompt array.
-- **Mutate tool input before dispatch** (inject `tenantId` server-side)? ✅ Yes — `experimental_refineToolInput[name]`.
-- **Mutate tool result before returning to the LLM** (redact, summarize, truncate)? ⚠️ **Partially** — `onToolExecutionEnd` is read-only. The only mutation point is `tool({ toModelOutput: ({ input, output }) => ToolResultOutput })` (`packages/provider-utils/src/types/tool.ts:148`), which is per-tool and lives inside the tool definition, not as a global hook.
-- **Emit additional tool calls in response to a tool result** (Claude Agent SDK's `PostToolUse` `additional_messages`)? ❌ **No.** `onToolExecutionEnd` returns `void | PromiseLike<void>` (`packages/ai/src/generate-text/tool-execution-events.ts:160`). The only workaround is to write a *tool* whose `execute` itself fans out work and returns the combined result.
+- **Expand the user input** (slash commands, time-stamps, attachments)? Yes — `prepareCall` lets you rewrite the prompt; `prepareStep({ messages: [...rewritten] })` lets you rewrite the messages array per step.
+- **Mutate the messages list before each LLM call** (cache breakpoints, redaction)? Yes — `prepareStep` returns a `messages` override, or `LanguageModelMiddleware.transformParams` mutates the provider-level prompt array.
+- **Mutate tool input before dispatch** (inject `tenantId` server-side)? Yes — `experimental_refineToolInput[name]`.
+- **Mutate tool result before returning to the LLM** (redact, summarize, truncate)? **Partially** — `onToolExecutionEnd` is read-only. The only mutation point is `tool({ toModelOutput: ({ input, output }) => ToolResultOutput })` (`packages/provider-utils/src/types/tool.ts:148`), which is per-tool and lives inside the tool definition, not as a global hook.
+- **Emit additional tool calls in response to a tool result** (Claude Agent SDK's `PostToolUse` `additional_messages`)? **No.** `onToolExecutionEnd` returns `void | PromiseLike<void>` (`packages/ai/src/generate-text/tool-execution-events.ts:160`). The only workaround is to write a *tool* whose `execute` itself fans out work and returns the combined result.
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 **Not provided — BYO.** No built-in summarize-and-truncate. You either:
 
@@ -690,15 +723,15 @@ All callbacks fire **sequentially** within a step. Tool executions run in **para
 - Use `LanguageModelMiddleware.transformParams` to compact at the provider level.
 - Compose with `@ai-sdk/langchain` or your own compaction pipeline.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 `LanguageModelUsage` exposes `inputTokenDetails: { noCacheTokens, cacheReadTokens, cacheWriteTokens }` (`packages/ai/src/types/usage.ts:10`) — better visibility than most stacks. But the SDK does **not** automatically place Anthropic-style cache breakpoints. You set provider-specific cache markers via `providerOptions` (e.g. `{ anthropic: { cacheControl: { type: 'ephemeral' } } }` on a system message) or via `LanguageModelMiddleware.transformParams`.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 **Not provided — BYO.** `tool.toModelOutput` lets you summarize at tool-author time, but there's no harness-level "after step N, drop the tool result from history".
 
-### 5.7 Hook fire-points diagram
+### 7.7 Architectural diagram of where hooks fire
 
 ```
 ToolLoopAgent.generate(params)
@@ -759,14 +792,14 @@ import { openai } from '@ai-sdk/openai';
 
 const agent = new ToolLoopAgent({
   model: openai('gpt-5'),
-  tools: { topicSearch /* see Q4 */ },
+  tools: { topicSearch /* see Q6 */ },
 
   // STEP 1: inject session-start "system" via prepareStep on first step.
   prepareStep: async ({ stepNumber, runtimeContext }) => {
     if (stepNumber === 0) {
       return {
         instructions:
-          `tenant=${runtimeContext.tenantId}, locale=${runtimeContext.locale}, today=2026-05-16`,
+          `tenant=${runtimeContext.tenantId}, locale=${runtimeContext.locale}, today=2026-05-19`,
       };
     }
   },
@@ -796,11 +829,11 @@ const agent = new ToolLoopAgent({
 
 ---
 
-## 6. Agent API Exposition
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
-**No.** Library-only. You build the endpoint in your framework of choice. The SDK gives you helpers to return a `Response` or pipe to a Node `ServerResponse`:
+**No — library-only.** You build the endpoint in your framework of choice. The SDK gives you helpers to return a `Response` or pipe to a Node `ServerResponse`:
 
 ```ts
 // examples/next-agent/app/api/chat/route.ts (essentially the full server)
@@ -824,13 +857,13 @@ app.post('/chat', async (request, response) => {
 });
 ```
 
-Three helpers:
+Three helpers exposed from `ai`:
 
 - `createAgentUIStreamResponse({ agent, uiMessages, options, abortSignal, timeout, ... })` → `Promise<Response>` (`packages/ai/src/agent/create-agent-ui-stream-response.ts:36`).
 - `pipeAgentUIStreamToResponse({ agent, uiMessages, response, ... })` → `Promise<void>` (Node `http.ServerResponse`) (`packages/ai/src/agent/pipe-agent-ui-stream-to-response.ts:36`).
 - `createAgentUIStream({ ... })` → `Promise<AsyncIterableStream<UIMessageChunk>>` (for custom transports) (`packages/ai/src/agent/create-agent-ui-stream.ts:38`).
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 **SSE only** (out of the box). `JsonToSseTransformStream` (`packages/ai/src/ui-message-stream/json-to-sse-transform-stream.ts:6`) wraps `ReadableStream<UIMessageChunk>`:
 
@@ -856,9 +889,11 @@ Headers (`packages/ai/src/ui-message-stream/ui-message-stream-headers.ts`):
 - `Connection: keep-alive`
 - `x-vercel-ai-ui-message-stream: v2`
 
-### 6.3 Endpoints that start an agent run
+No WebSocket / long-poll transport ships in the SDK.
 
-You define them. The default client transport is `HttpChatTransport` (`packages/ai/src/ui/http-chat-transport.ts:145-213`):
+### 8.3 HTTP endpoints that start an agent run
+
+You define them. The default client transport is `HttpChatTransport` (`packages/ai/src/ui/http-chat-transport.ts:145-213`), which POSTs to your endpoint with this body shape:
 
 ```ts
 // packages/ai/src/ui/http-chat-transport.ts:178
@@ -872,17 +907,17 @@ body: {
 }
 ```
 
-`prepareSendMessagesRequest` (`packages/ai/src/ui/http-chat-transport.ts:11`) lets the client rewrite this body before send — perfect place to inject a `tenantId` / scoped JWT, or trim `messages`.
+`prepareSendMessagesRequest` (`packages/ai/src/ui/http-chat-transport.ts:11`) lets the client rewrite this body before send — perfect place to inject a `tenantId` / scoped JWT, or trim `messages`. The actual route (`POST /api/chat` is the convention in examples) is whatever you choose.
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
-See Q1.12 above for sample frames. The format is the UI Message Stream Protocol (`x-vercel-ai-ui-message-stream: v2`).
+See 3.6 above for sample frames. The format is the UI Message Stream Protocol (`x-vercel-ai-ui-message-stream: v2`). Start frame is `{"type":"start","messageId":"…"}`; mid-stream frames are tool / text / step events; terminal frame is `{"type":"finish","finishReason":"stop"}` followed by `[DONE]`.
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 **Not terminated by the SDK.** Your HTTP framework (Next.js middleware, Express middleware, Hono auth, …) does JWT validation and tenant scoping *before* it calls `createAgentUIStreamResponse(...)`. The SDK does not parse `Authorization` headers.
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 The recipe in `examples/next/app/api/chat/[id]/stream/route.ts` uses the third-party `resumable-stream` package + Redis:
 
@@ -897,14 +932,14 @@ const resumableStream = await streamContext.resumableStream(streamId, () => stre
 
 This is **not part of `ai`**. It's a recommended add-on.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 Two patterns, both BYO:
 
 - **Same-server**: client calls `chat.stop()` (`packages/ai/src/ui/chat.ts:586`) which aborts the local fetch. Next.js maps that to `request.signal` aborted, which propagates to `streamText({ abortSignal })`.
 - **Multi-server / load-balanced**: client `DELETE /api/chat/:id/stream` (`examples/next/app/api/chat/[id]/stream/route.ts:30`). The DELETE route writes `canceledAt: Date.now()` to your DB. The running POST polls it every 1s via `onChunk` throttled (`examples/next/app/api/chat/route.ts:66-72`) and aborts its own signal.
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 **Yes — first-class.** The wire format includes `tool-input-start`, `tool-input-delta`, `tool-input-available`:
 
@@ -917,7 +952,7 @@ data: {"type":"tool-input-available","toolCallId":"call_001","toolName":"weather
 
 Client-side, `useChat` automatically updates `ToolUIPart.state` from `'input-streaming'` → `'input-available'` so partial UIs work without custom plumbing.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 Protocol = "client receives `tool-approval-request`, re-posts an updated messages list".
 
@@ -927,9 +962,9 @@ Protocol = "client receives `tool-approval-request`, re-posts an updated message
 - If `sendAutomaticallyWhen({ messages }) → true` is configured, the chat re-POSTs `messages` to `/api/chat`.
 - Server's next `agent.generate({ messages })` call sees the approval responses in the tool messages, executes the pre-approved tools at `generate-text.ts:544`, and the loop resumes.
 
-**No dedicated `/approve` endpoint.** Same `POST /api/chat` carries everything.
+**No dedicated `/approve` endpoint.** Same `POST /api/chat` carries everything. Pause state is observable by the client through the `'approval-requested'` UI-part state.
 
-### 6.10 Tool-call state reconstruction
+### 8.10 Tool-call state reconstruction
 
 ⭐ **Explicitly linked via `toolCallId`** in every relevant chunk (`packages/ai/src/ui-message-stream/ui-message-chunks.ts:46-...`):
 
@@ -947,7 +982,7 @@ Protocol = "client receives `tool-approval-request`, re-posts an updated message
 
 `tool-approval-response` correlates by `approvalId`; everything else by `toolCallId`. Positional reconstruction is never required.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 **Not provided — BYO.** Your HTTP framework owns `/healthz` and SIGTERM. The SDK respects `abortSignal` cleanly, so a SIGTERM-driven drain pattern works:
 
@@ -989,33 +1024,33 @@ curl -X POST https://your-app/api/chat \
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 **Not provided — BYO.** No `subAgent`, `handoff`, `delegate`, `Crew`, `Swarm`, or any sub-agent primitive in `packages/ai/src/`. The pattern that the SDK's own examples implicitly endorse is **agents-as-tools**: wrap a child `ToolLoopAgent.generate(...)` inside a `tool({ … execute })`.
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 By you, in code. No markdown sub-agent files. No registry. Each child `ToolLoopAgent` is just a class instance.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 **No native support.** You can write a meta-tool whose `execute` body itself instantiates a `ToolLoopAgent` from arguments the LLM provides — but the SDK has no opinion on this and no telemetry / streaming integration.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
-Whatever the tool returns. To stream sub-agent results back through the parent's UI stream, you use `createUIMessageStream({ execute: ({ writer }) => writer.merge(subAgent.stream(...).toUIMessageStream({ sendStart: false })) })` (see `examples/express/src/server.ts:46`). No automatic `tool_use_id` correlation between parent and child agents — you build that yourself.
+Whatever the tool returns. To stream sub-agent results back through the parent's UI stream, you use `createUIMessageStream({ execute: ({ writer }) => writer.merge(subAgent.stream(...).toUIMessageStream({ sendStart: false })) })` (see `examples/express/src/server.ts:46`). No automatic `tool_use_id` correlation between parent and child agents — you build that yourself. From the parent's perspective the child result is just the return value of the parent's tool's `execute(...)`.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
-Serial if you `await`. Parallel if you `Promise.all`. Inside the parent loop, multiple tool calls within a single step are already parallel (`packages/ai/src/generate-text/generate-text.ts:1284`).
+Serial if you `await`. Parallel if you `Promise.all`. Inside the parent loop, multiple tool calls within a single step are already parallel (`packages/ai/src/generate-text/generate-text.ts:1284`). The "fan-out" line is in your tool body, not in the SDK.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 Each child `ToolLoopAgent.generate({ messages })` starts with whatever messages you give it. **No automatic parent-context inheritance**, no automatic redaction.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 **None.** The parent stream has no "sub-agent started / progress / finished" event category. The child's events live in *its* `streamText` call and are not surfaced to the parent's stream unless you explicitly `writer.merge(...)`.
 
@@ -1031,7 +1066,7 @@ const personas = {
   'persona-young-mom':  new ToolLoopAgent({
     model: openai('gpt-4o-mini'),
     instructions: 'You are a 32-year-old mother of two.',
-    tools: { topicSearch /* see Q4 */ },
+    tools: { topicSearch /* see Q6 */ },
   }),
   'persona-tech-bro':   new ToolLoopAgent({
     model: openai('gpt-4o-mini'),
@@ -1071,9 +1106,9 @@ The parent receives each sub-agent's result as a single element in the `askPerso
 
 ---
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 **No.** "Skill" is **not** a stack-level concept in `ai`. The `packages/ai/src/upload-skill/` package is a thin client around **Anthropic's `/v1/skills` HTTP endpoint** — it uploads a bundle of files (markdown + scripts) so Anthropic can attach skills to a model call:
 
@@ -1097,29 +1132,29 @@ The SDK never reads `SKILL.md` from a local filesystem. There is no SDK-side ski
 
 (The `skills/` folder at the repo root is *contributor-facing* — markdown files telling Claude/Cursor how to author AI-SDK code. Not a runtime feature.)
 
-### 8.2 File format
+### 10.2 File format
 
-N/A — no SDK-side skill loader. Anthropic's API accepts arbitrary multipart files; `ai`'s `uploadSkill` just relays them.
+N/A — no SDK-side skill loader. Anthropic's API accepts arbitrary multipart files; `ai`'s `uploadSkill` just relays them. No frontmatter schema is enforced by the SDK.
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 N/A — no local loader. Use Anthropic's `/v1/skills` upload + `providerOptions.anthropic.skills: [skillId]` to attach.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
-N/A — provider-side (Anthropic). The LLM internally decides when to consult the skill body.
+N/A — provider-side (Anthropic). The LLM internally decides when to consult the skill body. It is *neither* a tool call nor an SDK-side system-prompt injection from the user perspective.
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
-N/A — Anthropic handles loading.
+N/A — Anthropic handles loading. From the AI SDK's point of view it's an opaque `skillId` passed via `providerOptions`.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 **Not provided — BYO.** You'd track `skillId` ↔ tenant mapping in your own DB, and conditionally pass different `providerOptions.anthropic.skills` per `runtimeContext.tenantId`.
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
-N/A.
+N/A — the SDK has no composition rules. Anthropic's skill bundle may include scripts and references but the SDK has no knowledge of them.
 
 ### ⭐ Light usage example
 
@@ -1169,9 +1204,9 @@ None of these exist in `ai`.
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **No.** There is **no** registry / source abstraction / publishing workflow / lifecycle states in `ai`. The closest things are:
 
@@ -1180,43 +1215,43 @@ None of these exist in `ai`.
 
 Both deal with **models**, not skills or sub-agents or prompts. There is no skill source loader, no Git-pull, no S3-pull, no OCI-pull, no DB-row-as-resource, no Hub.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source                  | Status                                                         |
 | ----------------------- | -------------------------------------------------------------- |
-| Local filesystem        | ❌ Not provided — BYO                                          |
-| Git / GitHub            | ❌ Not provided — BYO                                          |
-| OCI / container registry| ❌ Not provided — BYO                                          |
-| Cloud object storage    | ❌ Not provided — BYO                                          |
-| Postgres / DB           | ❌ Not provided — BYO                                          |
-| Vendor cloud / managed  | ❌ Not provided — BYO (Anthropic Skills is Anthropic-side, not Vercel-side) |
-| HTTP fetch              | ❌ Not provided — BYO                                          |
+| Local filesystem        | Not provided — BYO                                             |
+| Git / GitHub            | Not provided — BYO                                             |
+| OCI / container registry| Not provided — BYO                                             |
+| Cloud object storage    | Not provided — BYO                                             |
+| Postgres / DB           | Not provided — BYO                                             |
+| Vendor cloud / managed  | Not provided — BYO (Anthropic Skills is Anthropic-side, not Vercel-side) |
+| HTTP fetch              | Not provided — BYO                                             |
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
-**Not provided — BYO.**
+**Not provided — BYO.** No mechanism to stack sources; you build any priority/override logic in your loader code.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
-**Not provided — BYO.**
+**Not provided — BYO.** No semver, no content-hash, no immutable refs, no rollback.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 **Not provided — BYO.** No publish-time scope.
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
-**Not provided — BYO.**
+**Not provided — BYO.** No draft/review/publish/promote, no multi-environment, no approval gates.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
-**Not provided — BYO.**
+**Not provided — BYO.** No lifecycle states, no RBAC primitives.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 For models: `registry.languageModel('openai:gpt-5')`, `customProvider({ languageModels })`, `customProvider({ fallbackProvider })`. For skills / sub-agents / prompts: nothing.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 **Not provided — BYO** for skills. Per-model: AI Gateway can cache model responses (provider-side).
 
@@ -1238,7 +1273,7 @@ const model = registry.languageModel('gateway:anthropic/claude-sonnet-4-5');
 
 // For skills / sub-agents / prompts you build it yourself, e.g.:
 import { simpleGit } from 'simple-git';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { readFile, readdir } from 'fs/promises';
 const s3 = new S3Client({ region: 'us-east-1' });
 
@@ -1274,9 +1309,9 @@ This is **all BYO**.
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 Per LLM call (parsed inside the loop at `packages/ai/src/generate-text/generate-text.ts:798`), per step on `StepResult.usage`, per run on `GenerateTextResult.totalUsage`. Schema (`packages/ai/src/types/usage.ts:10`):
 
@@ -1300,14 +1335,14 @@ export type LanguageModelUsage = {
 
 Sub-token detail (cache read/write, reasoning) is unusually thorough — better-suited to prompt-cache cost analysis than most stacks.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 - **Per LLM call**: `currentModelResponse.usage`.
 - **Per step**: `StepResult.usage`.
 - **Per run**: `GenerateTextResult.totalUsage` / `result.usage` (`packages/ai/src/generate-text/generate-text.ts:1167-1185`, `:1414-1416`).
 - **Per session / tenant**: **not built-in.** You aggregate yourself via `onFinish` or telemetry.
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 **`ai` does not compute cost in USD.** No pricing tables, no `costUSD` field, no `tokenCost` helper.
 
@@ -1325,13 +1360,13 @@ export interface GatewaySpendReportRow {
 
 Only available when model calls go through Vercel's AI Gateway. Direct OpenAI / Anthropic calls bypass it — you compute cost yourself.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 Through AI Gateway: `gateway.getSpendReport({ groupBy: 'user' | 'tag' | …, tags, userId, model, provider, credentialType })`. You tag each call with `runtimeContext.tenantId` (passed via `providerOptions.gateway.tags` or `metadata`) and group by `tag`.
 
 Without AI Gateway: BYO — derive cost from `LanguageModelUsage` × your pricing table in `onFinish`.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 `Telemetry` interface (`packages/ai/src/telemetry/telemetry.ts:80-218`) has 12 callbacks:
 
@@ -1353,13 +1388,13 @@ executeTool?: <T>(options: {
 }) => PromiseLike<T>;
 ```
 
-`@ai-sdk/otel` (`packages/otel/`) provides an **OpenTelemetry** implementation of this interface — wire it to Datadog / Honeycomb / Tempo / Signoz.
+`@ai-sdk/otel` (`packages/otel/`) provides an **OpenTelemetry** implementation of this interface — wire it to Datadog / Honeycomb / Tempo / Signoz. No first-party LangSmith / LangFuse exporter ships; the OTel layer plugs into the OTel ecosystem.
 
-### 10.6 Audit logging (who / when / what)
+### 12.6 Audit logging (who / when / what)
 
-**Not provided — BYO.** Use `Telemetry` + your structured logger. The SDK does not ship tamper-evident audit log primitives.
+**Not provided — BYO.** Use `Telemetry` + your structured logger. The SDK does not ship tamper-evident audit log primitives. The hook callback surface (Q7) is the natural sink point.
 
-### 10.7 Canonical "where do I read token counts"
+### 12.7 Canonical "where do I read token counts"
 
 `StepResult.usage` and `GenerateTextResult.totalUsage` (both `LanguageModelUsage`). Defined at `packages/ai/src/types/usage.ts:10`. Reduced over `steps` via `addLanguageModelUsage`.
 
@@ -1400,15 +1435,15 @@ console.log(result.totalUsage.inputTokens, result.totalUsage.outputTokens);
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 **Minimal.** The SDK's philosophy is "you bring the tools, we run the loop". Built-ins exist mostly via provider passthrough or auxiliary packages:
 
 | Tool                              | Source                                        | Purpose                                                |
 | --------------------------------- | --------------------------------------------- | ------------------------------------------------------ |
-| `mcp-apps` tools                  | `@ai-sdk/mcp`                                 | Tools exposed by an MCP server (Q12)                   |
+| `mcp-apps` tools                  | `@ai-sdk/mcp`                                 | Tools exposed by an MCP server (Q14)                   |
 | Anthropic "computer use" / web_search / bash | `@ai-sdk/anthropic` provider tools | Provider-side built-ins surfaced via `providerOptions` |
 | OpenAI Assistants tools, code-interpreter | `@ai-sdk/openai` provider tools     | Provider-side tools                                    |
 | Gateway tools                     | `@ai-sdk/gateway` (`packages/gateway/src/gateway-tools.ts`) | Gateway-routed model tools                |
@@ -1416,11 +1451,11 @@ console.log(result.totalUsage.inputTokens, result.totalUsage.outputTokens);
 
 There is **no SDK-shipped** `Read`/`Edit`/`Bash`/`Glob`/`Grep`/`WebFetch`/`Monitor` (compare Claude Agent SDK or `@mastra/tools`). You author them or import from MCP.
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
-N/A — they don't exist. Tools you author are as good as you make them. The MCP ecosystem provides battle-tested ones (Playwright, GitHub, filesystem).
+N/A — they don't exist as native SDK tools. Tools you author are as good as you make them. The MCP ecosystem provides battle-tested ones (Playwright, GitHub, filesystem). Provider-side built-ins (Anthropic web_search etc.) are as good as the provider — the SDK is a thin passthrough.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 `tool(...)` (`packages/provider-utils/src/types/tool.ts:355`):
 
@@ -1440,21 +1475,21 @@ const weather = tool({
 
 Full surface includes `contextSchema`, `onInputStart`, `onInputDelta`, `onInputAvailable`, `toModelOutput`, `needsApproval`, `outputSchema`, etc.
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 - Zod 3 or Zod 4 supported (CLAUDE.md notes both via `zod/v3` and `zod/v4`).
 - Runtime validation via `parseToolCall` (`packages/ai/src/generate-text/parse-tool-call.ts`) against `inputSchema`.
 - On invalid LLM-generated args: `experimental_repairToolCall(toolCall, error)` gets called to potentially repair. If it fails or isn't provided, a `tool-input-error` chunk surfaces and the loop continues.
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 **Yes.** Tool `execute` can return `AsyncIterable<OUTPUT>` (`packages/provider-utils/src/types/tool-execute-function.ts:38`). Each yielded chunk becomes a `tool-output-available` chunk with `preliminary: true`, then a final non-preliminary chunk. Useful for tools that progressively reveal output (e.g. a long-running search).
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 **First-class** via `@ai-sdk/mcp`. `createMCPClient(config)` (`packages/mcp/src/tool/mcp-client.ts:121`) returns an `MCPClient` whose `.tools()` returns a `ToolSet` you can drop into `agent.tools` or `streamText({ tools })`.
 
@@ -1469,30 +1504,30 @@ export async function createMCPClient(config: MCPClientConfig): Promise<MCPClien
 
 (Also exported as `experimental_createMCPClient` for back-compat: `packages/mcp/src/index.ts:46`.)
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 **Not provided.** The SDK does not expose its own tools as an MCP server. You'd build that with the standard `@modelcontextprotocol/sdk`.
 
-### 12.3 Transports
+### 14.3 Transports
 
 - **stdio** (`packages/mcp/src/tool/mcp-stdio/`)
 - **SSE** (`packages/mcp/src/tool/mcp-sse-transport.ts`)
 - **HTTP (streamable HTTP)** (`packages/mcp/src/tool/mcp-http-transport.ts`)
 - **Mock transport** for tests (`packages/mcp/src/tool/mock-mcp-transport.ts`)
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 No first-class "function → MCP tool" wrapper in `ai`. If you want this, you author a standard `tool({...})` (no MCP machinery needed since the SDK already accepts function tools natively).
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
-OAuth support in `packages/mcp/src/tool/oauth.ts`. Standard HTTP auth headers via the HTTP/SSE transports. Reconnection logic in `DefaultMCPClient` (`packages/mcp/src/tool/mcp-client.ts:226-...`).
+OAuth support in `packages/mcp/src/tool/oauth.ts`. Standard HTTP auth headers via the HTTP/SSE transports. Reconnection logic in `DefaultMCPClient` (`packages/mcp/src/tool/mcp-client.ts:226-...`). Version / capability negotiation occurs during handshake.
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 **Yes — 50+ provider packages**:
 
@@ -1503,9 +1538,9 @@ OAuth support in `packages/mcp/src/tool/oauth.ts`. Standard HTTP auth headers vi
 - AI Gateway (Vercel) as a meta-provider
 - Image / audio / speech / video / rerank / embed providers
 
-All implement the `LanguageModelV4` (or relevant) interface in `@ai-sdk/provider`.
+All implement the `LanguageModelV4` (or relevant) interface in `@ai-sdk/provider`. Native first-party, no third-party LiteLLM dependency.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 Two patterns:
 
@@ -1513,7 +1548,7 @@ Two patterns:
 - **`prepareStep` model swap**: return `{ model: anotherModel }` from `prepareStep` to swap mid-loop.
 - **`customProvider({ languageModels })`** (`packages/ai/src/registry/custom-provider.ts`) — aliases like `myProvider('chat-cheap') → gpt-4o-mini` and `myProvider('chat-strong') → gpt-5`.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 Two surfaces:
 
@@ -1522,19 +1557,19 @@ Two surfaces:
 
 There is **no out-of-the-box "if Anthropic errors, retry on Bedrock"** policy primitive. AI Gateway (the hosted product) does have this internally, but it's not configurable from the SDK.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 Only at step boundaries via `prepareStep`. Not mid-token within an LLM call.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 Trivial — since sub-agents are BYO, you just instantiate each `ToolLoopAgent` with whatever `model` you want.
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 **First-party** for React, Vue, Svelte, Angular, RSC:
 
@@ -1547,32 +1582,32 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>({
 
 Returns: `messages`, `sendMessage`, `regenerate`, `stop`, `addToolApprovalResponse`, `status`, `error`. Wraps `AbstractChat` (`packages/ai/src/ui/chat.ts:237`) which is the framework-agnostic state machine.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 The `ToolUIPart.state` discriminant (`'input-streaming' | 'input-available' | 'approval-requested' | 'approval-responded' | 'output-available' | 'output-error' | 'output-denied'`) is the rendering primitive. You write a `switch` in your component.
 
 Strongly-typed via `UIMessage<METADATA, DATA_PARTS, TOOLS>` generic — `ToolUIPart` carries the actual tool's input/output types if you parameterize correctly.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 **Yes**:
 
 - `@ai-sdk/rsc` (`packages/rsc/`) — React Server Components integration. `streamUI(...)` lets the model decide to render a `<form />` or `<chart />` artifact mid-stream.
 - `DataUIPart` (`{ type: 'data-${string}'; data, transient? }` in the chunk taxonomy) is the extensibility hole for arbitrary host-side payloads.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
 If you're not on React/Vue/Svelte/Angular, you parse the SSE stream into your own state. The format is stable, fully spec'd in `packages/ai/src/ui-message-stream/ui-message-chunks.ts:225-396`, and validated via Zod `strictObject` schemas.
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 **Not provided — BYO.** No `Memory` class, no semantic-recall primitive. The SDK has no concept of "cross-session memory". Compare: Mastra and LangGraph ship dedicated `Memory` / `Store` abstractions.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 The SDK ships `embed` / `embedMany` and reranking (`rerank`) but no vector store, no chunker, no retriever, no citation rendering. Use `@ai-sdk/langchain` or `@ai-sdk/llamaindex` for higher-level RAG primitives, or roll your own with a vector DB (Pinecone, pgvector, Turbopuffer).
 
@@ -1581,72 +1616,72 @@ The SDK ships `embed` / `embedMany` and reranking (`rerank`) but no vector store
 - `embed({ model, value })` / `embedMany({ model, values })`
 - `cosineSimilarity`
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 BYO — namespace yourself in your vector DB (prefix keys with `tenantId:`, or use a separate index per tenant).
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 **Not provided — BYO.** No PII redaction, no prompt-injection detection, no hallucination detection. Use `LanguageModelMiddleware.transformParams` or `prepareStep` to do pre-call redaction.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 - **`toolApproval`** (`packages/ai/src/generate-text/tool-approval-configuration.ts:111`) — per-tool or global function returning `'approved' | 'denied' | 'user-approval'`. Approved tools run, denied tools surface a `tool-output-denied` chunk, user-approval pauses for HITL.
-- **`activeTools`** — allowlist filter (Q4.5).
+- **`activeTools`** — allowlist filter (Q6.5).
 - **`tool.needsApproval`** — per-tool boolean / function flag.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 **`Experimental_Sandbox`** interface (`@ai-sdk/provider-utils`) — abstracts the runtime that hosts tool execution. As of canary.139, `Sandbox.runCommand` is the renamed `executeCommand`. You can pass `experimental_sandbox: e2bSandbox` to `agent.generate({...})`; tools receive it via `options.experimental_sandbox` (`packages/provider-utils/src/types/tool-execute-function.ts:8-44`).
 
 Concrete sandbox adapters (E2B, Daytona, Modal) are not first-party — you implement the interface against your sandbox provider.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 **Default-allow** at tool dispatch — if `toolApproval` is not set, tools execute. Setting a global `toolApproval: () => 'user-approval'` flips to default-deny-pending-human.
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 **Not provided — BYO.** There is no SDK-shipped eval dataset format. Use `@ai-sdk/test-server` (`packages/test-server/`) to mock providers for unit tests, but eval / regression harnesses are external (Braintrust, LangSmith, your own).
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 **Not provided — BYO.** Trivial to compose with the SDK's own `generateObject({ model: judgeModel, schema, prompt })`, but no first-party rubric primitive.
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 **Not provided — BYO.** Eval is your CI's responsibility.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 **Not provided — BYO.** No local trace viewer. Use AI Gateway's dashboard (`packages/gateway/`) or pipe `@ai-sdk/otel` → your tracing backend.
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 - **No SDK-shipped CLI / TUI / playground / web dev UI.** Compare: Mastra's `mastra dev` Playground, LangGraph's `langgraph dev` LangGraph Studio.
 - The dev pattern is: write a Next.js example, run `pnpm dev`, hit `http://localhost:3000`. See `examples/next-agent/`.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 BYO. Run `@ai-sdk/otel` → Jaeger / Tempo / Honeycomb locally.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 BYO. You write the dev UI; you switch `runtimeContext` in your form.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 Whatever your framework gives you (Next.js HMR for client, server-side restart for backend). Skills don't exist, so no skill hot-reload primitive.
 

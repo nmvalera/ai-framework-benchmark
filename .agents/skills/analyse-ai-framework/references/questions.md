@@ -42,7 +42,7 @@ Answer:
 
 ---
 
-### Q2 — Agent Harness (Run Loop)
+### Q2 — Agent Loop
 
 The core loop. Runtime concerns (concurrent isolation, scaling) belong in Q4. Sessions & persistence belong in Q5. Network exposure (interrupt, HITL, streaming protocol) belongs in Q8. Built-in tools, MCP, and multi-model routing live in Q13–Q15. Message and event taxonomy lives in Q3.
 

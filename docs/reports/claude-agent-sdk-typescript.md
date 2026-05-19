@@ -1,16 +1,17 @@
-# Claude Agent SDK TypeScript — Benchmark Study
+# Claude Agent SDK TypeScript — Benchmark Analysis
 
 > **Repo**: https://github.com/anthropics/claude-agent-sdk-typescript
-> **Commit studied**: `fa5d004c65b6a173ee3eba3f67336a1e8039576a`
+> **Commit analysed**: `fa5d004c65b6a173ee3eba3f67336a1e8039576a`
 > **Branch**: `main`
 > **Framework path**: `frameworks/claude-agent-sdk-typescript/`
 > **Published SDK studied**: `@anthropic-ai/claude-agent-sdk@0.3.143` (npm)
 > **Bundled Claude Code version**: `2.1.143`
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
 - ⭐ **What this is**: a ~1 MB TypeScript shim (`sdk.mjs` is 862 KB minified) that **subprocesses a native Claude Code binary** shipped via per-platform optional npm dependencies (`@anthropic-ai/claude-agent-sdk-{darwin,linux,win32}-{x64,arm64}`). Each binary is **207–233 MB** of bundled Node + JS code (`manifest.json`). Older versions (≤ 0.2.112) spawned `node cli.js`; **0.2.113 switched to native single-file binaries** (CHANGELOG.md:137). Despite "TypeScript SDK" branding, the agent loop runs in the spawned binary — exactly the same architecture as the Python SDK.
+- **Ecosystem**: TypeScript (Node ≥ 18, Bun, Deno).
 - **Where the agent loop runs**: in the spawned Claude Code subprocess, NOT in your Node/Bun/Deno process. The TS code is a transport (`spawnLocalProcess`, `child_process.spawn`), a typed-message parser, hook callback router over a JSON control protocol on stdio (`--input-format stream-json --output-format stream-json`), and an in-process MCP host. You can swap the executable via `pathToClaudeCodeExecutable` or `spawnClaudeCodeProcess` (custom VM/container spawn).
 - **Strongest fit for our case**: hooks are excellent (29 lifecycle events — `HOOK_EVENTS`, sdk.d.ts:738), tool-arg injection via `PreToolUse.updatedInput` and `canUseTool.updatedInput` is first-class, `maxBudgetUsd` cap is enforced server-side (sdk.d.ts:1473), and three reference `SessionStore` adapters (S3, Redis, Postgres) ship in the repo with a 13-contract conformance suite (examples/session-stores/).
 - **Biggest gap for multi-tenant SaaS**: the subprocess model means **~200 MB binary baked into your Docker image per platform**, a JSON-RPC handshake on every cold start (issue #318 — startup race, issue #122 — concurrent query MCP timeouts), and **no first-class HTTP server** — you wrap `query()` in your own Express/Fastify route. Skills, sub-agents, slash commands, plugins, and CLAUDE.md all load from filesystem paths under `cwd` + `CLAUDE_CONFIG_DIR`; there is no `registerSkill(tenantID, ...)` programmatic API.
@@ -33,9 +34,108 @@
 
 ---
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
 
-### Deployment diagram
+### 0.1 What is this stack?
+
+A **library** — a thin TypeScript shim around the Claude Code CLI binary. The package layout (`package.json`):
+
+```json
+"exports": {
+  ".":           { "default": "./sdk.mjs" },         // Node/Bun/Deno entry
+  "./browser":   { "default": "./browser-sdk.js" },  // browser, talks WebSocket to your server
+  "./bridge":    { "default": "./bridge.mjs" },      // claude.ai SSE bridge (alpha)
+  "./assistant": { "default": "./assistant.mjs" }    // runAssistantWorker (alpha)
+},
+"optionalDependencies": {
+  "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.143",
+  "@anthropic-ai/claude-agent-sdk-darwin-x64":   "0.3.143",
+  "@anthropic-ai/claude-agent-sdk-linux-arm64":  "0.3.143",
+  "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.143",
+  "@anthropic-ai/claude-agent-sdk-linux-x64":    "0.3.143",
+  "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.143",
+  "@anthropic-ai/claude-agent-sdk-win32-x64":    "0.3.143",
+  "@anthropic-ai/claude-agent-sdk-win32-arm64":  "0.3.143"
+}
+```
+
+Not a server, not a managed service. You import `query()` into your own process and embed it in your HTTP server.
+
+### 0.2 Ecosystem
+
+**TypeScript** (primary). Runtime: Node ≥ 18 (per `package.json` `engines.node`), or Bun (auto-detected via `process.versions.bun`), or Deno (set `executable: 'deno'`).
+
+The subprocess binary it spawns is itself a Node application bundled into a single static executable — but as an SDK consumer you only see the TS surface.
+
+### 0.3 Project status & governance
+
+- **License**: MIT (see `LICENSE.md`).
+- **Owner / maintainer**: Anthropic PBC — the same organization that builds Claude Code, the underlying CLI.
+- **Commercial backing**: official Anthropic product. Paid support exists via Anthropic Enterprise; the SDK itself is free / open-source.
+- **Managed cloud**: optional integration with claude.ai via `bridge.mjs` and `assistant.mjs` (alpha) — for workers anchored to a claude.ai session.
+- **Support model**: GitHub issues + Anthropic Discord (`https://anthropic.com/discord` — Claude Developers channel). Maintainers respond on issues; release cadence is multiple per week.
+
+### 0.4 Project maturity / age
+
+- **Original release**: the package was renamed from "Claude Code SDK" to "Claude Agent SDK" in mid-2025; the underlying CLI it wraps dates back to early 2024. The TS repo's first commits are from 2024.
+- **Current version**: `0.3.143` (npm). Still pre-1.0 — the `SessionStore` interface, `assistant.mjs`, and `bridge.mjs` are marked `@alpha` in `sdk.d.ts`.
+- **Stability signal**: very fast release cadence (the 0.3.x line has shipped 100+ patch versions). Breaking changes are frequent but documented in `CHANGELOG.md` (e.g. 0.3.142 removed the v2 session API; 0.3.143 demoted SDK deps to peer deps). APIs marked `@experimental` (`taskBudget`, `criticalSystemReminder_EXPERIMENTAL`, `betas`) signal active iteration.
+- **Bundled CLI version**: `2.1.143` (`manifest.json`) — pinned to the same patch as the SDK package version.
+
+### 0.5 Adoption & community signal
+
+Captured on 2026-05-19 (estimates; GitHub UI not consulted in this restructure pass):
+
+- npm package: `@anthropic-ai/claude-agent-sdk` — actively downloaded by Anthropic's customer base; the TS SDK and the Py SDK are the two official entry points to Claude Code as a programmable runtime.
+- GitHub: `https://github.com/anthropics/claude-agent-sdk-typescript` — first-party Anthropic repo. Issue tracker is active; multiple issues referenced in this report (#122, #268, #293, #308, #316, #318, #319) are open as of the analysis date.
+- Release cadence: multiple releases per week per CHANGELOG.md history.
+- Contributor profile: small core team at Anthropic + community PRs (especially on the session-store examples).
+- Discord: Claude Developers channel on the official Anthropic Discord.
+
+### 0.6 Ecosystem fit
+
+- **Package**: `@anthropic-ai/claude-agent-sdk` on npm.
+- **Per-platform binaries**: `@anthropic-ai/claude-agent-sdk-darwin-arm64`, `-darwin-x64`, `-linux-arm64`, `-linux-arm64-musl`, `-linux-x64`, `-linux-x64-musl`, `-win32-x64`, `-win32-arm64` (all `0.3.143`).
+- **Sibling SDK**: `claude-agent-sdk` (Python) — same architecture, same bundled CLI.
+- **Official examples / templates**: only the three session-store adapters in `examples/session-stores/` of this repo. Anthropic's broader examples (Claude API skill, Claude Code skill) are in sibling repos.
+- **Primary use shape**: imported as a **library** into a Node/Bun/Deno server. Also usable as a **CLI** via the bundled native binary (`claude` from the terminal); also usable as a **browser client** via `@anthropic-ai/claude-agent-sdk/browser` (WebSocket client of your server).
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- Official docs: well-written, deep, English-only.
+- Quickstart: 5 minutes.
+- API reference (`https://code.claude.com/docs/en/agent-sdk/typescript`): autogenerated from the TypeScript types, comprehensive.
+- Hosting / production guide: separate page (`/hosting`), short but covers permissions and multi-tenant gotchas.
+- Examples: only the three session-store adapters in this repo.
+- Non-engineer authoring: a Product manager can author a `SKILL.md` file (markdown with YAML frontmatter). They cannot author hooks, sub-agents, or tools without engineering — those are TypeScript code.
+
+### 0.8 Documentation entry points ⭐
+
+- **Official landing page**: https://code.claude.com/docs/en/agent-sdk/overview
+- **Quickstart**: https://code.claude.com/docs/en/agent-sdk/typescript (same page acts as quickstart + reference)
+- **TypeScript SDK reference**: https://code.claude.com/docs/en/agent-sdk/typescript
+- **Hosting / deployment**: https://code.claude.com/docs/en/agent-sdk/hosting
+- **Migration from Claude Code SDK → Claude Agent SDK**: https://docs.claude.com/en/docs/claude-code/sdk/migration-guide
+- **Examples**: only the three session-store adapters in `examples/session-stores/` of the repo
+- **GitHub**: https://github.com/anthropics/claude-agent-sdk-typescript
+- **Changelog**: https://github.com/anthropics/claude-agent-sdk-typescript/blob/main/CHANGELOG.md
+- **GitHub Releases**: https://github.com/anthropics/claude-agent-sdk-typescript/releases
+- **GitHub issues**: https://github.com/anthropics/claude-agent-sdk-typescript/issues
+  - **#268** — `listSessions()` spawns full CLI process — 900MB+ memory for metadata query (critical for multi-tenant session browsers)
+  - **#122** — SDK MCP servers fail to connect from concurrent `query()` calls — 60s timeout (impacts horizontal scaling)
+  - **#293** — Feature request: per-subagent breakdown in `modelUsage` for cost/token attribution (impacts tenant cost accounting)
+  - **#319** — Should it be possible to set `metadata.user_id` when using the Agent SDK? (impacts tenant trace correlation)
+  - **#316** — Subagents cannot access MCP server resources declared in subagent definitions
+  - **#318** — Uncaught EPIPE from subprocess stdin during startup-crash → fresh-retry race
+  - **#308** — Silent process exit (code 1) when calling `query()` from SDK v0.2.121
+- **Discord**: https://anthropic.com/discord — Claude Developers channel
+- **Managed Agents exit ramp** (same doc as Python): https://platform.claude.com/docs/en/managed-agents/overview
+
+---
+
+## 1. High Level Architecture
+
+### Deployment diagram ⭐
 
 ```mermaid
 flowchart TB
@@ -69,47 +169,7 @@ flowchart TB
   SDK <-. "attachBridgeSession<br/>(remote workers)" .-> CLAUDE_AI
 ```
 
-### 0.1 What is this stack?
-
-A **thin TypeScript shim around the Claude Code CLI binary**. The package layout (`package.json`):
-
-```json
-"exports": {
-  ".":           { "default": "./sdk.mjs" },         // Node/Bun/Deno entry
-  "./browser":   { "default": "./browser-sdk.js" },  // browser, talks WebSocket to your server
-  "./bridge":    { "default": "./bridge.mjs" },      // claude.ai SSE bridge (alpha)
-  "./assistant": { "default": "./assistant.mjs" }    // runAssistantWorker (alpha)
-},
-"optionalDependencies": {
-  "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.143",
-  "@anthropic-ai/claude-agent-sdk-darwin-x64":   "0.3.143",
-  "@anthropic-ai/claude-agent-sdk-linux-arm64":  "0.3.143",
-  "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.143",
-  "@anthropic-ai/claude-agent-sdk-linux-x64":    "0.3.143",
-  "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.143",
-  "@anthropic-ai/claude-agent-sdk-win32-x64":    "0.3.143",
-  "@anthropic-ai/claude-agent-sdk-win32-arm64":  "0.3.143"
-}
-```
-
-`manifest.json` lists the binary sizes:
-
-```json
-"platforms": {
-  "darwin-arm64": { "binary": "claude", "size": 207605280 },
-  "darwin-x64":   { "binary": "claude", "size": 210119440 },
-  "linux-arm64":  { "binary": "claude", "size": 232961672 },
-  "linux-x64":    { "binary": "claude", "size": 233088720 },
-  "linux-arm64-musl": { "binary": "claude", "size": 225816408 },
-  "linux-x64-musl":   { "binary": "claude", "size": 227482672 },
-  "win32-x64":   { "binary": "claude.exe", "size": 228902560 },
-  "win32-arm64": { "binary": "claude.exe", "size": 224866976 }
-}
-```
-
-So a deployment that supports `linux-x64` + `linux-arm64` ships **≈460 MB** of binaries in `node_modules` even if you never run on the other one (npm grabs all matching `optionalDependencies` it can install; pnpm/bun mostly only pulls the host platform).
-
-### 0.2 Where does the agent loop *actually* execute?
+### 1.1 Where does the agent loop *actually* execute?
 
 **In the spawned Claude Code subprocess, not in your Node process.** The TS `query()` function is, internally, a transport + control-protocol shim. The actual model-call → tool-call → tool-result → next-model-call cycle, system prompt assembly, permission evaluation, skill discovery, compaction, and sub-agent dispatch all execute in the CLI binary.
 
@@ -143,17 +203,18 @@ If the resolved path is a native binary (Fx() filter: not `.js/.mjs/.tsx/.ts/.js
 
 **You cannot fork the loop without forking Claude Code.** Hooks and `canUseTool` are the only extension points the bundled CLI exposes.
 
-### 0.3 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - **Node ≥ 18** (`package.json` `engines.node`), or **Bun** (auto-detected via `process.versions.bun`), or **Deno** (you can set `executable: 'deno'`).
-- **`@anthropic-ai/sdk` ≥ 0.93.0** as a `peerDependencies` (was `dependencies` ≤ 0.3.142; switched in 0.3.143 per CHANGELOG.md:5 — yarn classic users now must install it explicitly).
-- **`@modelcontextprotocol/sdk` ^1.29.0** peer dep.
-- **`zod` ^4.0.0** peer dep — required for `tool()` definitions.
 - **One platform binary** (~200 MB) pulled as `optionalDependencies`. Mandatory in practice; the SDK throws on missing binary unless `pathToClaudeCodeExecutable` is set.
-- Optionally: Postgres / Redis / S3 client packages if you adopt one of the example session-store adapters (`pg`, `ioredis`, `@aws-sdk/client-s3`).
-- Optionally: `bubblewrap` on Linux when you turn on `sandbox: { enabled: true }` (sdk.d.ts:1617).
+- **Anthropic API** (or Bedrock / Vertex / Foundry / `anthropicAws` / `mantle` / `gateway`) — required vendor service to actually drive the loop.
+- Optionally: **`bubblewrap`** on Linux when you turn on `sandbox: { enabled: true }` (sdk.d.ts:1617).
+- Optionally: a **Postgres / Redis / S3** instance if you adopt one of the example session-store adapters (the adapter packages `pg`, `ioredis`, `@aws-sdk/client-s3` are the library-level deps; the infra is your responsibility).
+- Optionally: the **claude.ai CCR endpoint** (only for the alpha `bridge.mjs` / `assistant.mjs` flow).
 
-### 0.4 Recommended deployment topology
+A deployment that supports `linux-x64` + `linux-arm64` ships **≈460 MB** of binaries in `node_modules` even if you never run on the other one (npm grabs all matching `optionalDependencies` it can install; pnpm/bun mostly only pulls the host platform).
+
+### 1.3 Recommended deployment topology
 
 The vendor's *hosting* doc (`https://code.claude.com/docs/en/agent-sdk/hosting`) recommends **one CLI subprocess per session**, mediated by your HTTP server. The same `attachBridgeSession` and `runAssistantWorker` exports (alpha, in `bridge.mjs` / `assistant.mjs`) document a **worker-per-session** pattern for the claude.ai bridge:
 
@@ -171,14 +232,28 @@ For a multi-tenant *server-side* deployment (no claude.ai bridge), the practical
 
 There is no first-party queue or scheduler. The `scheduling` field on `AssistantWorkerOptions` polls a local `.claude/scheduled_tasks.json` file — not a distributed cron.
 
-### 0.5 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 - **Binary footprint**: 207–233 MB per platform in `node_modules`. Multi-arch Docker images add up.
+
+```json
+"platforms": {
+  "darwin-arm64": { "binary": "claude", "size": 207605280 },
+  "darwin-x64":   { "binary": "claude", "size": 210119440 },
+  "linux-arm64":  { "binary": "claude", "size": 232961672 },
+  "linux-x64":    { "binary": "claude", "size": 233088720 },
+  "linux-arm64-musl": { "binary": "claude", "size": 225816408 },
+  "linux-x64-musl":   { "binary": "claude", "size": 227482672 },
+  "win32-x64":   { "binary": "claude.exe", "size": 228902560 },
+  "win32-arm64": { "binary": "claude.exe", "size": 224866976 }
+}
+```
+
 - **Cold start per subprocess**: the binary itself is a self-contained Node binary that runs the bundled CLI; my best estimate from CHANGELOG entries and matching Py SDK issue #333 is **5–20 s warm-process resolve + initialize handshake**. The `startup()` / `WarmQuery` API exists explicitly to amortize this (sdk.d.ts:5450) — the subprocess is pre-warmed and the `initialize` handshake done before the first `query()` lands a prompt.
 - **Per-session RAM baseline**: the spawned binary loads Node + the bundled CLI + tool registry + memory recall + skill loader + plugin loader. Open issue #268 reports `listSessions()` (which spawns one CLI just for metadata) using **900 MB+ memory**; an active session is similar to slightly higher. **Plan for ~1 GB resident per concurrent session.**
 - **TS shim runtime footprint**: small (`sdk.mjs` loaded), but the per-call `tool()` and `createSdkMcpServer()` registrations all live in your Node heap.
 
-### 0.6 Vendor lock-in
+### 1.5 Vendor lock-in
 
 | Dimension | Lock-in level | Reason |
 |---|---|---|
@@ -187,7 +262,7 @@ There is no first-party queue or scheduler. The `scheduling` field on `Assistant
 | **Eval / observability** | Low | OTel trace context is forwarded to the subprocess (CHANGELOG.md:143). No first-party eval framework. |
 | **Skill/sub-agent format** | High | `SKILL.md` and `AgentDefinition` are CC-shaped — porting requires rewriting. |
 
-### 0.7 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 - TS shim: **~862 KB** minified `sdk.mjs`, **~1.1 MB** `bridge.mjs`, ~31 KB `assistant.mjs`, ~17 KB `browser-sdk.js`. Total ≤ **2 MB** of pure JS.
 - Bundled native CLI: **207–233 MB per platform**.
@@ -195,43 +270,24 @@ There is no first-party queue or scheduler. The `scheduling` field on `Assistant
 
 This is neither a thin SDK (the bundled binary makes it the *heaviest* of the 11 stacks studied by bytes-on-disk) nor a heavy framework (the TS surface is small and focused).
 
-### 0.8 Documentation depth & cross-team contributor accessibility
+### 1.7 Release-history signal
 
-- Official docs: well-written, deep, English-only.
-- Quickstart: 5 minutes.
-- API reference (`https://code.claude.com/docs/en/agent-sdk/typescript`): autogenerated from the TypeScript types, comprehensive.
-- Hosting / production guide: separate page (`/hosting`), short but covers permissions and multi-tenant gotchas.
-- Examples: only the 3 session-store adapters in this repo. Anthropic's broader examples (Claude API skill, Claude Code skill) are in sibling repos.
-- Non-engineer authoring: a Product manager can author a `SKILL.md` file. They cannot author hooks, sub-agents, or tools without engineering — those are TypeScript code.
+The repo carries `CHANGELOG.md` and GitHub Releases. Recent decision-relevant entries:
 
-### 0.9 Documentation entry points ⭐
+- **0.3.143** (CHANGELOG.md:1-5): `@anthropic-ai/sdk` and `@modelcontextprotocol/sdk` demoted to `peerDependencies`. Yarn classic users must install them explicitly.
+- **0.3.142** (CHANGELOG.md:7-13): **Breaking** — removed the v2 session API (`unstable_v2_*`). **Breaking** — MCP servers now connect in the background by default; sessions start immediately with slow servers reporting `status: "pending"`. **Breaking** — Headless/SDK sessions now use Task tools (`TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList`) instead of `TodoWrite`. Surfaced `request_id`, `subagent_type`, `task_description` on SDK message types.
+- **0.2.141**: TaskCreate/Get/Update/List types exported from `sdk-tools`; aligned `@anthropic-ai/sdk` to ^0.93.0.
+- **0.2.113** (CHANGELOG.md:137): switched from `node cli.js` bundled JS to single-file native per-platform binaries — the architectural shift that produced the 200+ MB binary footprint.
+- **OpenTelemetry trace context forwarding** (CHANGELOG.md:143): caller's active trace context is propagated to the CLI subprocess so spans parent under your distributed trace.
+- **Long-running session MCP reconnect** (CHANGELOG.md:112): SDK sessions now reconnect claude.ai-proxied MCP servers after a transport-stream abort.
 
-- **Official landing page**: https://code.claude.com/docs/en/agent-sdk/overview
-- **Quickstart**: https://code.claude.com/docs/en/agent-sdk/typescript (same page acts as quickstart + reference)
-- **TypeScript SDK reference**: https://code.claude.com/docs/en/agent-sdk/typescript
-- **Hosting / deployment**: https://code.claude.com/docs/en/agent-sdk/hosting
-- **Migration from Claude Code SDK → Claude Agent SDK**: https://docs.claude.com/en/docs/claude-code/sdk/migration-guide
-- **Examples**: only the three session-store adapters in `examples/session-stores/` of the repo
-- **GitHub**: https://github.com/anthropics/claude-agent-sdk-typescript
-- **Changelog**: https://github.com/anthropics/claude-agent-sdk-typescript/blob/main/CHANGELOG.md
-- **GitHub issues**: https://github.com/anthropics/claude-agent-sdk-typescript/issues
-  - **#268** — `listSessions()` spawns full CLI process — 900MB+ memory for metadata query (critical for multi-tenant session browsers)
-  - **#122** — SDK MCP servers fail to connect from concurrent `query()` calls — 60s timeout (impacts horizontal scaling)
-  - **#293** — Feature request: per-subagent breakdown in `modelUsage` for cost/token attribution (impacts tenant cost accounting)
-  - **#319** — Should it be possible to set `metadata.user_id` when using the Agent SDK? (impacts tenant trace correlation)
-  - **#316** — Subagents cannot access MCP server resources declared in subagent definitions
-  - **#318** — Uncaught EPIPE from subprocess stdin during startup-crash → fresh-retry race
-  - **#308** — Silent process exit (code 1) when calling `query()` from SDK v0.2.121
-- **Discord**: https://anthropic.com/discord — Claude Developers channel
-- **Managed Agents exit ramp** (same doc as Python): https://platform.claude.com/docs/en/managed-agents/overview
+Fast-moving areas: hook events (29 and growing), SessionStore (still `@alpha`), task budgets (`@experimental`), claude.ai bridge (`@alpha`). Stable-ish areas: `query()` signature, `Options` shape, `tool()` factory.
 
 ---
 
-## 1. Agent Harness (Run Loop) & Message Taxonomy
+## 2. Agent Loop
 
-### Run loop
-
-#### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 A single primary entrypoint, plus a pre-warm helper:
 
@@ -257,7 +313,7 @@ export declare interface WarmQuery extends AsyncDisposable {
 
 `Query` is an `AsyncGenerator<SDKMessage, void>` extended with control methods (`interrupt()`, `setPermissionMode()`, `setModel()`, `applyFlagSettings()`, `stopTask()`, `backgroundTasks()`, `setMcpServers()`, `streamInput()`, `close()`, `mcpServerStatus()`, `accountInfo()`, `supportedModels()`, `supportedAgents()`, `supportedCommands()`, `getContextUsage()`, `rewindFiles()`, `readFile()`, `reloadPlugins()`, `seedReadState()`, `reconnectMcpServer()`, `toggleMcpServer()`, `initializationResult()`, `setMaxThinkingTokens()`) — sdk.d.ts:2052–2278.
 
-#### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 One trip around the loop (executed entirely in the subprocess):
 
@@ -275,11 +331,11 @@ One trip around the loop (executed entirely in the subprocess):
 8. CLI emits `SDKResultMessage` with `total_cost_usd`, `usage`, `modelUsage`, `permission_denials`, `terminal_reason`, `stop_reason`.
 9. CLI fires `Stop` (or `StopFailure` on error) hook.
 
-#### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 **Built-in** — the CLI runs a ReAct-style loop. You do not author the loop; you only insert hooks and choose tools.
 
-#### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 Dispatch path depends on tool source:
 
@@ -300,11 +356,11 @@ Dispatch path depends on tool source:
 
 Results are folded as `tool_result` blocks on a synthetic `user` turn that the CLI prepends to the next API call.
 
-#### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 A **turn** = one assistant message (with any number of `tool_use` blocks) + the synthetic `user` message containing the matching `tool_result` blocks. A `SDKResultMessage` is emitted **once per request loop terminator** — when the assistant returns no more `tool_use` blocks, or `maxTurns` / `maxBudgetUsd` / hook-stop terminates. `num_turns` is the count of model API round-trips for this `query()` call.
 
-#### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 Async iteration on `Query` (which `extends AsyncGenerator<SDKMessage, void>`). Each yielded value is a discriminated union member of `SDKMessage` (sdk.d.ts:3175).
 
@@ -324,11 +380,13 @@ for await (const msg of q) {
 
 The Node process consumes the CLI's stdout JSONL stream, parses each frame, peels off control-protocol frames (`control_request`, `control_response`, `control_cancel_request`, `transcript_mirror`, `keep_alive`), routes those to internal handlers, and yields the remaining frames as typed `SDKMessage`s.
 
+Network-side streaming (SSE / WebSocket between server and browser) is your responsibility — see §8.
+
 ---
 
-### Message & event taxonomy
+## 3. Message & Event Taxonomy
 
-#### 1.7 Message layers
+### 3.1 Message layers
 
 Three layers:
 
@@ -338,7 +396,7 @@ Three layers:
 
 There is no separate "UI message" layer — the SDK message layer is what your application iterates and what you re-stream to the browser.
 
-#### 1.8 Concrete message types
+### 3.2 Concrete message types
 
 `SDKMessage` union members (sdk.d.ts:3175):
 
@@ -375,11 +433,11 @@ There is no separate "UI message" layer — the SDK message layer is what your a
 | `SDKPromptSuggestionMessage` | `type: 'prompt_suggestion'` | Predicted next user prompt. |
 | `SDKMirrorErrorMessage` | `type: 'system', subtype: 'mirror_error'` | `SessionStore.append()` failed permanently. |
 
-#### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 **Same iterator.** Everything flows on the single `AsyncGenerator<SDKMessage>`. There is no parallel event-emitter, no `on('toolStart')` listener, no separate event bus. This is the same design as the Python SDK and is *deliberately* simpler than Mastra / Vercel AI SDK / LangGraph — the wire format is a JSONL stream out of a subprocess; everything else is just typed accessors over it.
 
-#### 1.10 Event categories
+### 3.4 Event categories
 
 Mapped to the existing message types:
 
@@ -395,14 +453,14 @@ Mapped to the existing message types:
 | **Notification** | `SDKNotificationMessage`, `SDKPromptSuggestionMessage`, `SDKMemoryRecallMessage` |
 | **Error / state** | `SDKMirrorErrorMessage`, `SDKPermissionDeniedMessage`, `SDKRateLimitEvent`, `SDKAPIRetryMessage` |
 
-#### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 - **`sdk.d.ts`** (5722 lines) — the public TS API. The `SDKMessage` union and every related type are declared here.
 - **`agentSdkTypes.d.ts`** — single-line file used as the type-rewrite seed for the `bridge`, `browser`, and `assistant` sub-exports (per the build script comments in `bridge.d.ts:5-10`).
 - **`sdk-tools.d.ts`** (2848 lines) — auto-generated from the CLI's tool JSON-schema. Lists every built-in tool I/O shape.
 - **`assistant.d.ts`**, **`bridge.d.ts`**, **`browser-sdk.d.ts`** — sub-exports for cloud worker / claude.ai bridge / WebSocket browser client respectively.
 
-#### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Sample frames (illustrative — exact bytes vary; structure is from the type defs):
 
@@ -416,9 +474,9 @@ Sample frames (illustrative — exact bytes vary; structure is from the type def
 
 ---
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **Not provided as a turnkey runtime.** The SDK gives you `query()` (one session per call); you embed it in your own server. The closest thing to a runtime is `runAssistantWorker` (`assistant.d.ts:135`, alpha) — but that's a single-session worker scoped to the claude.ai bridge use case. There is **no `Server` class** that hosts N sessions per process; you build that yourself.
 
@@ -439,7 +497,7 @@ app.post('/sessions/:sid/turns', async (req, res) => {
 });
 ```
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 **One subprocess per session is the only safe model.** A single CLI subprocess has one cwd, one settings tree, one MCP server set. State *bleeds* if you reuse a single subprocess across tenants (the in-memory file-checkpoint, the working-directory permission caches, the session JSONL append target, the active model setting are all process-global).
 
@@ -447,7 +505,7 @@ The SDK does not enforce isolation — it's your responsibility to spawn one pro
 
 Open issue **#122** ("SDK MCP servers fail to connect from concurrent query() calls — 60s timeout") is a real concurrency hazard: when multiple `query()` calls in the same Node process share an SDK MCP server name, the SDK's in-process MCP host can race. Workaround: unique SDK MCP server names per session.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 **No leader election, no shared state, no session-coordinator.** N pods can serve different sessions; they cannot serve the same session pool with shared state unless they share an external `SessionStore`.
 
@@ -455,22 +513,22 @@ The `SessionStore` interface (sdk.d.ts:3738) plus a Postgres adapter (`examples/
 
 `forkSession` (sdk.d.ts:622) is also store-aware (`SessionMutationOptions.sessionStore`), so a forked session can be persisted to the same shared store.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 - **Background sub-agents**: `AgentDefinition.background: true` (sdk.d.ts:79) and `AgentInput.run_in_background: true` (sdk-tools.d.ts:301) — the parent's turn completes immediately; the sub-agent runs to completion and emits a `task_notification` event when done.
 - **Background Bash commands**: `BashInput.run_in_background: true` (sdk-tools.d.ts:345) — same fire-and-forget semantics. `TaskOutputInput` polls completion.
 - **Cron-horizon scheduling**: `AssistantWorkerOptions.scheduling.dir` (assistant.d.ts:72) — the worker polls `<dir>/.claude/scheduled_tasks.json` every 10s and spawns the child ~5s before a fire is due. This is **local-only** and tied to the worker's filesystem — not a distributed cron. BYO for distributed scheduling.
 - **Webhook triggers**: BYO. The SDK has no webhook intake.
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 **Not provided — BYO.** The `Query` interface includes `streamInput()` and `stopTask()` (sdk.d.ts:2251, 2256) which give you the primitives for a long-running streaming session, but there is no shipped queue, no `enqueue()` API, no leasing semantics. For a long-running agent that fan-outs persona experiments overnight, you'd build that on top with BullMQ / Cloud Tasks / etc.
 
 ---
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 Session metadata is `SDKSessionInfo` (sdk.d.ts:3383):
 
@@ -503,7 +561,7 @@ export declare type SessionKey = {
 
 Per-message: `SDKAssistantMessage` and `SDKUserMessage` both carry `session_id`, `uuid`, `parent_tool_use_id`, `subagent_type`, `task_description`, plus the Anthropic API message body (`BetaMessage` / `MessageParam`).
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 The JSONL transcript ("session entries") covers:
 
@@ -528,13 +586,13 @@ export declare type SessionStoreEntry = {
 
 Tool-call history is part of the assistant/user messages (`tool_use` and `tool_result` blocks). File checkpoints (`enableFileCheckpointing: true`) are stored separately as on-disk backups (mentioned in `SDKFilesPersistedEvent`); the `rewindFiles(userMessageId)` Query method restores them — not part of `SessionStore`.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 - Single conversation per session.
 - **Forks supported** via `forkSession(sessionId, { upToMessageId?, title?, sessionStore? })` (sdk.d.ts:622). Branches at a specific message UUID with full UUID remapping and `parentUuid` chain preservation. Forked sessions start without file-checkpoint history.
 - No LangGraph-style cyclical graph / multiple parallel branches per session — fork creates a new sessionId.
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 | Backend | Status |
 |---|---|
@@ -546,7 +604,7 @@ Tool-call history is part of the assistant/user messages (`tool_use` and `tool_r
 | **SQLite, MongoDB, Cassandra, DynamoDB, Cloudflare R2, Vercel Blob** | Not provided — BYO. The `SessionStore` interface is small (6 methods) so adapters are short (~120 LOC each). |
 | **Anthropic-hosted / vendor cloud** | Only via `attachBridgeSession` (alpha, `bridge.d.ts:171`) which writes to claude.ai-side CCR storage. Not the same as a server-side primary persistence — it's for sync to claude.ai for human handoff. |
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 Documented in `SessionStore.append()` (sdk.d.ts:3739–3759):
 
@@ -561,7 +619,7 @@ Failure mode: **3 retries with short backoff**, then drop the batch and emit `SD
 
 **Local-disk write IS synchronous to the loop** (the subprocess writes the JSONL line before continuing). External `sessionStore.append()` is **dual-write, post-local, batched** — so durability is local-first and the external store is an eventual mirror. If you set `persistSession: false`, the mirror cannot fire (the docstring explicitly forbids the combination — sdk.d.ts:1378).
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 **The subprocess's local JSONL write is the durability boundary.** Each transcript entry is flushed line-by-line. A crash mid-tool-call resumes from the last flushed JSONL line; the partial tool call is lost (no per-task `commit()` like LangGraph). On resume, the CLI re-reads the JSONL, rebuilds the message chain, and continues.
 
@@ -569,13 +627,13 @@ For an external store, durability is **post-local + batched + eventually consist
 
 This is **not a true durable checkpoint primitive** in the LangGraph sense. The `_runner.commit() → put_writes()` per-task pattern does not exist.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 **UUID v4** (`crypto.randomUUID()` — visible in the bundled mjs). You can override with `Options.sessionId` (must be a valid UUID) — sdk.d.ts:1597. Forking with `forkSession` mints a fresh UUID.
 
 The `projectKey` on `SessionKey` is caller-defined string (default: sanitized cwd). **Multi-tenant deployments should set `projectKey` to a tenant ID or project name** — explicitly recommended in the docstring (sdk.d.ts:3669).
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 Yes — `SessionStore` (sdk.d.ts:3738) is the interface to implement:
 
@@ -594,13 +652,13 @@ The first two are required; the rest are optional (`delete` no-ops for WORM stor
 
 Marked `@alpha`. Conformance suite: `examples/session-stores/shared/conformance.ts` (13 tests across all adapters; vendored so the example dirs are standalone).
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 - `importSessionToStore(sessionId, store, options?)` (sdk.d.ts:779) — copy a local JSONL session into a `SessionStore`. Useful for migrating from local-disk to Postgres.
 - `foldSessionSummary(prev, key, entries, options?)` (sdk.d.ts:604) — pure function that adapters call inside `append()` to keep a `SessionSummaryEntry` sidecar up-to-date without re-reading the transcript. Set-once fields freeze on first sight; last-wins fields overwrite. This is how the Postgres / Redis / S3 adapters maintain the `listSessionSummaries()` view.
 - No automatic migration helpers for schema bumps within the SDK. Bumps to the `SessionStoreEntry` schema are CLI-side and rare; adapters treat entries as opaque pass-through.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 - `getSessionMessages(sessionId, options?)` (sdk.d.ts:681) — read user/assistant messages in chronological order from the JSONL. Optional `includeSystemMessages`.
 - `getSessionInfo(sessionId, options?)` (sdk.d.ts:651) — single-session metadata.
@@ -608,15 +666,15 @@ Marked `@alpha`. Conformance suite: `examples/session-stores/shared/conformance.
 - `listSubagents(sessionId, options?)` (sdk.d.ts:929) — list subagent transcripts under a session.
 - Deterministic replay via `query({ options: { resume: sessionId, sessionStore } })` — re-runs the conversation from the stored transcript. Combined with `resumeSessionAt: messageUuid` you can replay up to a specific point.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-Different from in-session messages — see **§15 (Memory & Knowledge)**. The CLI has a memory recall supervisor that surfaces relevant memories from `~/.claude/agent-memory/<agentType>/` (or `.claude/agent-memory/` per-project / `.claude/agent-memory-local/`) into the turn via `SDKMemoryRecallMessage`. Scoping is by `AgentDefinition.memory: 'user' | 'project' | 'local'` (sdk.d.ts:83). It is *not* tenant-scoped out of the box.
+Different from in-session messages — see **§17 (Memory & Knowledge)**. The CLI has a memory recall supervisor that surfaces relevant memories from `~/.claude/agent-memory/<agentType>/` (or `.claude/agent-memory/` per-project / `.claude/agent-memory-local/`) into the turn via `SDKMemoryRecallMessage`. Scoping is by `AgentDefinition.memory: 'user' | 'project' | 'local'` (sdk.d.ts:83). It is *not* tenant-scoped out of the box.
 
 ---
 
-## 4. Multi-tenancy & Arbitrary Context ⭐
+## 6. Multi-tenancy & Arbitrary Context ⭐
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 `Options` (sdk.d.ts:1158–1836) — ~80 fields. The decision-relevant subset:
 
@@ -709,7 +767,7 @@ export declare type Options = {
 - `sessionStore` instance (which can be tenant-aware)
 - closures inside `canUseTool` / hooks (which capture tenant-shaped state)
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 For **SDK MCP tools** registered with `tool(...)` and surfaced via `createSdkMcpServer(...)`, the handler signature is:
 
@@ -734,7 +792,7 @@ The actual propagation patterns in production:
    }
    ```
 
-2. **`PreToolUse` hook closure.** The hook callback closes over `tenantId` and mutates `tool_input.tenantId` before dispatch (see §4.4).
+2. **`PreToolUse` hook closure.** The hook callback closes over `tenantId` and mutates `tool_input.tenantId` before dispatch (see §6.4).
 
 3. **`canUseTool` closure.** Same — the callback returns `{ behavior: 'allow', updatedInput: { ...input, tenantId } }`.
 
@@ -742,7 +800,7 @@ The actual propagation patterns in production:
 
 There is no `ctx.tenantId` injected for you — you wire it.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 For SDK-MCP tools:
 
@@ -763,7 +821,7 @@ export declare function tool<Schema extends AnyZodRawShape>(
 
 `CallToolResult` is the MCP standard result type (re-exported from `@modelcontextprotocol/sdk/types.js`). It's a `{ content: Array<{ type: 'text', text: string } | { type: 'image', ... } | ...> }` shape.
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 **Yes — two mechanisms, both first-class.**
 
@@ -806,7 +864,7 @@ Same effect — registered under `Options.hooks.PreToolUse`, matched by tool nam
 
 **Both are out-of-band callbacks invoked via the JSON control protocol over stdio.** The TS hook callback runs *in your Node process*; the CLI does not see your tenant-injection logic, only the resulting `updatedInput`.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 Three layered mechanisms:
 
@@ -820,19 +878,19 @@ Three layered mechanisms:
 
 You can change the toolset at session-start (Options); per-turn changes require `setMcpServers` or `applyFlagSettings` (`{ permissions: { ... } }`).
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 **Not first-class.** No `tenantId` field on `Options` or `SDKSessionInfo`. The recommended workaround is `SessionKey.projectKey` for store-side scoping (explicitly documented for multi-tenant deployments — sdk.d.ts:3669). Spec authors and engineers can stash tenant in `env`, `metadata` (none — there is no metadata field on Options), `cwd` (per-tenant working directory), or `Options.title`.
 
 **This is a real gap for long-running agent-style multi-tenant SaaS.** You will be modeling tenant as filesystem-cwd + sessionStore.projectKey + env var.
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 **Not provided — BYO.** The caller's identity does not flow into tool calls automatically. SDK-MCP tools run in your Node process so you can pull identity from your own request context (e.g. via AsyncLocalStorage). The CLI's built-in tools (Bash, WebFetch, etc.) execute under the subprocess's identity (the OS user that spawned the SDK).
 
-For tenant-aware auth, the standard pattern is closure capture (see §4.2) plus `PreToolUse.updatedInput` to inject a per-call signing token.
+For tenant-aware auth, the standard pattern is closure capture (see §6.2) plus `PreToolUse.updatedInput` to inject a per-call signing token.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 Registration-time scoping is **filesystem-based**:
 
@@ -842,7 +900,7 @@ Registration-time scoping is **filesystem-based**:
 
 You **cannot register a resource as "tenant X only" via an API call**. You can only filter at runtime via the various option filters.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 - **`Options.maxBudgetUsd`** (sdk.d.ts:1473): a USD ceiling enforced server-side. On overrun: `SDKResultMessage(subtype: 'error_max_budget_usd')`. **This is the only first-party cost cap among the 11 stacks studied; same as the Py SDK.**
 - **`Options.maxTurns`** (sdk.d.ts:1466): turn ceiling.
@@ -913,9 +971,9 @@ All three steps work. The `tenantId` injection via `PreToolUse.updatedInput` is 
 
 ---
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 `HOOK_EVENTS` (sdk.d.ts:738) — **29 events**:
 
@@ -953,28 +1011,28 @@ All three steps work. The `tenantId` injection via `PreToolUse.updatedInput` is 
 
 This is the **most comprehensive hook surface** in the 11-stack comparison — strictly more than Mastra, LangGraph, Vercel AI, Eino, ADK, OpenAI Agents.
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 Multiple matchers per hook event can be configured. The matchers fire **per call site** (e.g. one `PreToolUse` matcher per tool name). Within a single event firing, matchers are evaluated and their outputs are merged — typically with **last-wins** semantics on `updatedInput`. Asynchronous hooks are supported via `AsyncHookJSONOutput` (sdk.d.ts:118) which signals `async: true, asyncTimeout?: number` so the CLI doesn't block the dispatch beyond a deadline.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 | Capability | Yes/No | How |
 |---|---|---|
-| **Inject system messages at session start** | ✅ | `SessionStart` hook returns `{ additionalContext: 'tenant=acme, locale=fr-FR, today=2026-05-16' }`. Also `Options.systemPrompt: { type: 'preset', preset: 'claude_code', append: '...' }` for static injection. |
+| **Inject system messages at session start** | ✅ | `SessionStart` hook returns `{ additionalContext: 'tenant=acme, locale=fr-FR, today=2026-05-19' }`. Also `Options.systemPrompt: { type: 'preset', preset: 'claude_code', append: '...' }` for static injection. |
 | **Expand user input** | ✅ | `UserPromptSubmit` hook with `additionalContext` (added before model) or `UserPromptExpansion` for slash commands. |
 | **Mutate the messages list before each LLM call** | ⚠️ Partial — the CLI owns the messages list; you cannot directly mutate it. You inject *context* via `additionalContext` and the CLI prepends it as a synthetic user message. For prompt-cache breakpoint control, use `Options.systemPrompt: [..., SYSTEM_PROMPT_DYNAMIC_BOUNDARY, ...]`. |
 | **Mutate / decorate tool input before dispatch** | ✅ | `PreToolUse.updatedInput` or `canUseTool.updatedInput`. |
 | **Mutate / decorate tool result before it returns to the LLM** | ✅ | `PostToolUse.updatedToolOutput` (any tool) / `updatedMCPToolOutput` (MCP only, deprecated). |
 | **Emit additional tool calls in response to a tool result** | ❌ | The TS SDK's `PostToolUseHookSpecificOutput` (sdk.d.ts:2002) does NOT expose an `additional_messages` field. The Py SDK has the same shape. *Both lack this.* The closest workaround: return `additionalContext` so the model is prompted to call another tool, but you cannot force a tool call. |
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 **Built-in.** The CLI auto-compacts when context approaches the model's window. `PreCompact` and `PostCompact` hooks fire. `PreCompact.custom_instructions` lets you steer the summarization prompt. The `SDKCompactBoundaryMessage` (`type: 'system', subtype: 'compact_boundary'`) marks where compaction happened and lists `preserved_segment` / `preserved_messages` for clean resume.
 
 Trigger: implicit threshold (no SDK option). Custom-trigger via slash command `/compact` from the user side; programmatically you can set `Query.applyFlagSettings({ ... })` to nudge.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 **First-class.** Three mechanisms:
 
@@ -984,14 +1042,14 @@ Trigger: implicit threshold (no SDK option). Custom-trigger via slash command `/
 
 Cache hit/miss stats are surfaced on `SDKResultMessage.usage.cache_creation_input_tokens` and `cache_read_input_tokens`.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 - **PostToolUse `updatedToolOutput`**: replace the tool result in-place before it goes to the model. Use this to truncate / summarize / redact. (sdk.d.ts:2008)
 - **File scratchpad pattern**: the built-in `Write` / `Edit` / `Read` tools encode the progressive-disclosure pattern naturally — large outputs go to disk, the model receives a path it can `Read` on demand.
 - **`getContextUsage()` query method** (sdk.d.ts:2152) returns a per-category breakdown (system prompt / tools / messages / MCP / memory / agents / skills / commands) so you can decide when to compact / clear.
 - **MCP tool descriptions deferred** by default (`alwaysLoad: false` is the default) — MCP tool definitions are not included in the prompt until tool-search is invoked, saving tokens.
 
-### 5.7 Architectural diagram — where hooks fire
+### 7.7 Architectural diagram — where hooks fire
 
 ```mermaid
 flowchart TD
@@ -1040,7 +1098,7 @@ const q = query({
           continue: true,
           hookSpecificOutput: {
             hookEventName: 'SessionStart',
-            additionalContext: `tenant=${tenantId}, locale=${locale}, today=2026-05-16`,
+            additionalContext: `tenant=${tenantId}, locale=${locale}, today=2026-05-19`,
           },
         })],
       }],
@@ -1086,9 +1144,9 @@ All three scenarios are first-class. The `additionalContext` from `SessionStart`
 
 ---
 
-## 6. Agent API Exposition (HTTP/network surface)
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
 **No.** The SDK is library-only. You embed `query()` in your own Express / Fastify / Next.js / Bun.serve / Hono route handler.
 
@@ -1096,7 +1154,7 @@ There is a *browser-side* SDK (`@anthropic-ai/claude-agent-sdk/browser`) that ex
 
 The `bridge.mjs` and `assistant.mjs` sub-exports talk to **claude.ai's CCR endpoint** for the hosted-on-Anthropic deployment mode — not a server you can run yourself.
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 In-process: `AsyncGenerator<SDKMessage>`. You decide the wire transport.
 
@@ -1105,7 +1163,9 @@ Common patterns:
 - **Server → browser** alternate: WebSocket (use the `browser-sdk` import on the client).
 - **CLI subprocess ↔ SDK**: line-delimited JSON over stdin/stdout, `--input-format stream-json --output-format stream-json`.
 
-### 6.3 Endpoints that start an agent run
+Not provided — BYO HTTP layer; the SDK does not pick an HTTP transport for you.
+
+### 8.3 HTTP endpoints that start an agent run
 
 Not provided. Sample BYO pattern:
 
@@ -1140,17 +1200,17 @@ app.post('/v1/sessions/:sid/turns', async (req, res) => {
 });
 ```
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
-You define the wire format. The natural SSE encoding is one `SDKMessage` JSON per `data:` frame. See §1.12 for sample frames.
+You define the wire format. The natural SSE encoding is one `SDKMessage` JSON per `data:` frame. See §3.6 for sample frames.
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 **Not provided — BYO.** The SDK does not validate JWTs, OAuth, or anything else. Auth termination happens in your HTTP layer (your `app.post` handler). Once authenticated, you pass tenant context to `query()` via `cwd` / `env` / closure-captured hook callbacks.
 
 For the claude.ai bridge path (`bridge.mjs`), an Anthropic OAuth token is required (`getAccessToken` field on `ConnectRemoteControlOptions`, sdk.d.ts:231).
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 The SDK provides the *logic* (`query({ options: { resume: sessionId } })`); you provide the endpoint.
 
@@ -1166,7 +1226,7 @@ app.post('/v1/sessions/:sid/resume', async (req, res) => {
 
 For replay-from-point: `resumeSessionAt: messageUuid` (sdk.d.ts:1603).
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 In-process: `Query.interrupt()` (sdk.d.ts:2062) or `Query.close()` (sdk.d.ts:2278) — the latter forcefully terminates the subprocess. Both work via the JSON control protocol over stdio (`SDKControlInterruptRequest`, sdk.d.ts:2798).
 
@@ -1174,11 +1234,11 @@ You can also pass `Options.abortController?: AbortController` and call `controll
 
 API: BYO. Pattern is `DELETE /v1/sessions/:sid/turn` → call `q.interrupt()` on the right `Query` handle.
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 **Yes — via `includePartialMessages: true`.** This emits `SDKPartialAssistantMessage` (`type: 'stream_event'`) — wrapping the raw `BetaRawMessageStreamEvent` from `@anthropic-ai/sdk` (sdk.d.ts:3226). The wrapped Anthropic stream events include `input_json_delta` events that progressively reveal the tool's JSON input character-by-character as the model generates it. Consumers parse these to render "topicSearch({ query: 'young'..." in real time.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 The HITL primitive is `canUseTool`. The full flow:
 
@@ -1192,7 +1252,7 @@ The HITL primitive is `canUseTool`. The full flow:
 
 There is **no separate pause-state observable** to the client — the entire HITL flow is mediated by the SDK consumer (your code). For client-visible pause, you'd emit a custom SSE frame from your HTTP handler when `canUseTool` is awaiting human input, and resolve the inner Promise when the client POSTs an `/approve` or `/deny`.
 
-### 6.10 Tool-call state reconstruction ⭐
+### 8.10 Tool-call state reconstruction ⭐
 
 `SDKAssistantMessage.message.content` is a `BetaMessage` content array. Tool calls appear as content blocks of `type: 'tool_use'` with an `id` field (Anthropic API standard).
 
@@ -1216,7 +1276,7 @@ The matching `tool_result` arrives as a `SDKUserMessage.message.content` block o
 
 **Linkage is explicit and stable: `tool_use_id`.** Both `SDKToolProgressMessage` (`tool_use_id` field on the message itself) and the `tool_result` block (`tool_use_id` in the block) carry it. For sub-agent fan-out, `SDKAssistantMessage.parent_tool_use_id` tracks which parent tool call spawned this assistant message.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 **Not provided.** Your HTTP server provides `/healthz`, `/readyz`, `/metrics`. The SDK has:
 
@@ -1273,15 +1333,15 @@ The SSE encoding, the `interrupt()` mechanism, and the HITL pattern are all **pa
 
 ---
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 Sub-agents are dispatched as a **special tool** — the CLI's built-in `Agent` tool (formerly named `Task`, renamed in 0.3.142 — CHANGELOG.md:11). When the parent LLM emits `tool_use` with `name: 'Agent'` and `input: { subagent_type, prompt, ... }`, the CLI spawns a sub-agent with its own model context, runs it to completion (or in the background), and returns the result as a `tool_result` to the parent.
 
 So: agents-as-tools, but first-class in the CLI (you cannot disable the Agent tool's special semantics).
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 Two ways:
 
@@ -1309,11 +1369,11 @@ Two ways:
 }
 ```
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 **No.** Configs must be statically registered at session start (via `Options.agents` or on disk). The parent LLM cannot generate a new sub-agent config on the fly with a custom system prompt — it can only choose `subagent_type` from registered agents. (This is a deliberate Claude Code design — see issue #315 for plugin-loaded agent gotchas.)
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 The parent sees the sub-agent result as a regular `tool_result` block on a `user`-role message, linked by `tool_use_id`. By default only `tool_use` / `tool_result` blocks emit from sub-agents (lightweight). Set **`Options.forwardSubagentText: true`** (sdk.d.ts:1428) to forward sub-agent assistant text and thinking as nested `SDKAssistantMessage`s with `parent_tool_use_id` set — useful for rendering a nested transcript.
 
@@ -1333,7 +1393,7 @@ The `AgentOutput` shape (sdk-tools.d.ts:61) includes:
 }
 ```
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 **Parallel via multiple `tool_use` blocks in one assistant turn.** The CLI runs them concurrently (the assistant message can include 3 `Agent` `tool_use` blocks; the CLI dispatches all 3 in parallel, fires `PostToolBatch` once after all resolve). Each sub-agent runs to completion in its own subprocess-internal context.
 
@@ -1341,13 +1401,13 @@ Background sub-agents: `AgentDefinition.background: true` or per-call `AgentInpu
 
 The exact parallelism implementation is in the bundled CLI binary (not visible TS-side). The `PostToolBatch` event firing semantics (sdk.d.ts:1953) document the "fires exactly once with the full batch" contract.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 **Sub-agent starts fresh.** It does NOT see the parent's context — only its own system prompt, its own `initialPrompt` (if set), and its own tool catalog. The parent only receives the sub-agent's final result (or with `forwardSubagentText: true`, the intermediate text).
 
 Sub-agent transcripts persist separately under `<sessionId>/subagents/agent-<id>.jsonl` on disk, or with `SessionKey.subpath = 'subagents/agent-<id>'` in the store.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 - `SubagentStart` hook (parent stream observes).
 - `SubagentStop` hook.
@@ -1414,13 +1474,13 @@ The supervisor LLM emits three `Agent` tool_use blocks in one turn (parent promp
 
 ---
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 **Yes.** Skills are a first-class feature inherited from Claude Code. They are loaded as part of the session and gated by the `Options.skills` filter or the `Skill` tool (now deprecated in `allowedTools`; use `skills` option instead — CHANGELOG.md:52).
 
-### 8.2 File format
+### 10.2 File format
 
 Markdown file with YAML frontmatter, conventionally `SKILL.md`. Standard Claude Code schema (from observation of the loaded skills set; the SDK doesn't re-document the format since it's CLI-side):
 
@@ -1448,7 +1508,7 @@ trigger: Use when user provides a long-running agent brief and asks for an audie
 
 The frontmatter fields are CLI-validated (the SDK does not parse them itself — it just reads what the CLI surfaces).
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 **Filesystem scan.** The CLI discovers skills from three roots (matching the broader Claude Code convention):
 
@@ -1460,13 +1520,13 @@ Programmatic registration: **none.** You cannot pass a skill body via `Options`.
 
 This is the same as the Python SDK and matches the doc note: "skills … remain on disk and are reachable via Read/Bash. Do not store secrets in skill files." (sdk.d.ts:1710).
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 **Lazy fetch via a `Skill` tool.** The CLI surfaces the skill list as metadata in the system prompt (name + description); the model invokes a skill by emitting `tool_use` with name `Skill` (or per the deprecated path, by including `'Skill'` in `allowedTools`). The body of the `SKILL.md` is fetched on use, not eagerly loaded into the prompt.
 
 The skill list emitted in `SDKSystemMessage.skills` (sdk.d.ts:3488) is the filtered set per `Options.skills`.
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 **Lazy by default** (metadata in system prompt; body fetched on use). The `Options.skills: string[] | 'all'` (sdk.d.ts:1721) controls *which* skills are listed in the prompt:
 
@@ -1474,7 +1534,7 @@ The skill list emitted in `SDKSystemMessage.skills` (sdk.d.ts:3488) is the filte
 - `'all'`: every discovered skill is listed.
 - `string[]`: only listed skills are listed.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 At runtime, `Options.skills` filters per call. Tenant scoping is achieved by either:
 
@@ -1483,7 +1543,7 @@ At runtime, `Options.skills` filters per call. Tenant scoping is achieved by eit
 
 **There is no `tenantId → skills` mapping API.** Same gap as Py SDK.
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 - Can reference other skills via plugin-qualified names (`<plugin>:skill-name` per the comment at sdk.d.ts:1708).
 - Can call sub-agents (skill body is markdown; the LLM reads it and decides to invoke `Agent` tool).
@@ -1545,15 +1605,15 @@ The CLI surfaces "generate-audience-from-brief" in the system prompt's skill cat
 
 ---
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **No first-class Resource Manager.** The SDK does not ship a registry, source abstraction, or publishing workflow. Resources (skills, sub-agents, slash commands, hooks, MCP servers, plugins) are discovered from filesystem paths the CLI knows to scan. There is no `Registry.register(resource, scope)` API.
 
 The `plugins: SdkPluginConfig[]` option (sdk.d.ts:1561) gets *close* — it's a list of paths to install — but the only supported `type` is `'local'`. No Git, no OCI, no S3, no remote registry.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 | Source | Status | How configured |
 |---|---|---|
@@ -1569,7 +1629,7 @@ The `plugins: SdkPluginConfig[]` option (sdk.d.ts:1561) gets *close* — it's a 
 
 **Net**: for skills / sub-agents / slash commands, the SDK is filesystem-only. For tools you can plug HTTP/SSE MCP servers. For sessions you have Postgres/Redis/S3 reference adapters.
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 CLI-side precedence (observable via the Settings cascade):
 
@@ -1581,17 +1641,17 @@ CLI-side precedence (observable via the Settings cascade):
 
 For resources themselves (skills/agents/commands), the layering is **plugin-bundled + project + user + managed**, with project winning over user. Conflict resolution: by name; later-loaded wins for same-name. (No documented explicit precedence diagram, but observable from `reloadPlugins()` semantics.)
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 - **Skills/sub-agents** in plugins: versioned by the plugin's own versioning (whatever Git tag the plugin dir comes from). No semver enforcement by the SDK.
 - **CLI itself**: `claude_code_version` is `'2.1.143'` (manifest.json), pinned to the npm package version (matching `claudeCodeVersion` field in package.json).
 - No content-hash addressing, no immutable refs, no rollback API. To "roll back" a skill: replace the file on disk and call `Query.reloadPlugins()`.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 **Not supported.** You cannot mark a skill "tenant X only" at publish time — there is no publish workflow. The only scoping is filesystem placement (per-tenant cwd) and runtime filter (`Options.skills`).
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 **Not provided — BYO.** There is no draft → review → publish → promote pipeline. You'd build:
 
@@ -1599,11 +1659,11 @@ For resources themselves (skills/agents/commands), the layering is **plugin-bund
 - CI that publishes to a per-tenant S3 bucket.
 - A sync agent on each pod that pulls per-tenant trees on session start.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 **Not provided — BYO.** No lifecycle states, no RBAC on publish/scope/retire. You'd track this in your own DB and enforce via your own UI.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 For the resource types that *are* dynamic:
 
@@ -1619,7 +1679,7 @@ For listing:
 - `Query.mcpServerStatus()` → `McpServerStatus[]`
 - `Query.getContextUsage()` → per-category breakdown (includes `skills.totalSkills`, `skills.includedSkills`, `agents`, `mcpTools`, etc.)
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 - Plugin files: read on session start; refresh with `reloadPlugins()`.
 - Settings: cached per-call; can hot-reload with `applyFlagSettings()`.
@@ -1680,9 +1740,9 @@ q.close();
 
 ---
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 - **Per assistant message**: `SDKAssistantMessage.message.usage` (sdk.d.ts:2492 — `BetaMessage.usage` per Anthropic API: `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `server_tool_use`, `service_tier`, `cache_creation`).
 - **Per result (turn termination)**: `SDKResultMessage.usage` (sdk.d.ts:3368). Same `NonNullableUsage` shape — cumulative for the request loop.
@@ -1690,7 +1750,7 @@ q.close();
 - **Per sub-agent**: `AgentOutput.usage` (sdk-tools.d.ts:72) — cumulative for the sub-agent's lifetime. Open issue **#293** requests per-sub-agent breakdown in `modelUsage` for cost attribution; not currently provided.
 - **Context usage snapshot**: `Query.getContextUsage()` (sdk.d.ts:2152) returns categorized token totals (system prompt, tools, messages, MCP, memory, agents, skills, commands) for the *current state*.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 | Granularity | Surfaced where |
 |---|---|
@@ -1701,30 +1761,30 @@ q.close();
 | **Per sub-agent** | `AgentOutput.usage` |
 | **Per model** | `SDKResultMessage.modelUsage[model]` |
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 **Yes — built-in.**
 
 - `SDKResultMessage.total_cost_usd` (sdk.d.ts:3367) — per result. Computed by the CLI based on model pricing tables it bundles.
 - `Options.maxBudgetUsd` (sdk.d.ts:1473) — server-side enforced ceiling; on overrun `subtype: 'error_max_budget_usd'`.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 `total_cost_usd` is per `SDKResultMessage`. For per-tenant / per-conversation: aggregate by `session_id` and your own `tenantId` mapping. The SDK does not roll these up for you. The `SessionStore` is *not* an aggregation point; entries are opaque pass-through.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 - **OTel trace context auto-propagated** to the CLI subprocess (CHANGELOG.md:143: *"Added OpenTelemetry trace context propagation — the caller's active trace context is forwarded to the CLI subprocess so spans parent under your distributed trace"*).
 - The CLI binary emits OTel spans for LLM calls and tool calls when configured (via settings — see CHANGELOG references to OTel events).
 - No first-party LangSmith / LangFuse exporter. You instrument your own SDK consumer code (around `query()` calls and hook callbacks) using `@opentelemetry/api`.
 
-### 10.6 Audit logging
+### 12.6 Audit logging (who / when / what)
 
 **Not first-class.** The closest thing is the on-disk JSONL transcript (every action of the loop is in there: tool calls, decisions, permission denials, model responses). It is append-only on local disk; with a `SessionStore` mirror you get a tamper-resistant copy.
 
 For a true audit log, hook `PostToolUse` / `PermissionDenied` / `PermissionRequest` and push events to your own audit sink.
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 `SDKResultMessage.usage` (sdk.d.ts:3368) and `SDKResultMessage.total_cost_usd` (sdk.d.ts:3367). The single source of truth per-turn:
 
@@ -1795,9 +1855,9 @@ async function runOneTurn(tenantId: string, sessionId: string, prompt: string) {
 
 ---
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 From `sdk-tools.d.ts:11` (the `ToolInputSchemas` union) — the CLI ships **25+ built-in tools**:
 
@@ -1824,7 +1884,7 @@ From `sdk-tools.d.ts:11` (the `ToolInputSchemas` union) — the CLI ships **25+ 
 | `EnterWorktree` / `ExitWorktree` | Git worktree management for sub-agent isolation |
 | `ExitPlanMode` | Exit plan mode after presenting a plan |
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 These are **the same battle-tested tools from Claude Code interactive mode** — production-grade.
 
@@ -1839,7 +1899,7 @@ These are **the same battle-tested tools from Claude Code interactive mode** —
 
 This is genuinely the strongest built-in tool catalog among the 11 stacks studied — same level as the Py SDK, far ahead of generic adapters like Vercel AI / Mastra / Eino.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 The smallest possible custom tool definition:
 
@@ -1871,11 +1931,11 @@ query({
 
 The tool name **as visible to the LLM** is `mcp__predict__topicSearch` (MCP namespacing: `mcp__{serverName}__{toolName}`).
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 **Yes — Zod (v3 or v4) schemas.** The `tool()` factory uses Zod for both schema generation (sent to the LLM) and runtime validation (of the LLM's tool_use input). On invalid args, the SDK MCP layer returns an error result and the loop sees `is_error: true` on the `tool_result`, prompting the model to correct.
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 **Partial.**
 
@@ -1885,9 +1945,9 @@ The tool name **as visible to the LLM** is `mcp__predict__topicSearch` (MCP name
 
 ---
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 **First-class.** The CLI consumes external MCP servers natively via `Options.mcpServers` (sdk.d.ts:1498). Supported transports:
 
@@ -1902,13 +1962,13 @@ export declare type McpServerConfig =
 
 Plus internal CLI-only types (visible in the bundled mjs but not in the public API): `claudeai-proxy` and `ws`/`ws-ide` for IDE integrations.
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 You can **expose your tools as an SDK MCP server** via `createSdkMcpServer` (sdk.d.ts:428) — but this server is **in-process to your Node process, not externally connectable**. Other agents/clients cannot connect to it from outside your process.
 
 For exposing tools to *other processes* via MCP, you would write a standalone MCP server using `@modelcontextprotocol/sdk` directly and have the consumer connect to it as an external `McpStdioServerConfig`.
 
-### 12.3 Transports
+### 14.3 Transports
 
 - **stdio** ✅
 - **SSE** ✅
@@ -1916,13 +1976,13 @@ For exposing tools to *other processes* via MCP, you would write a standalone MC
 - **WebSocket** ⚠️ (visible in CLI internals but not in public `McpServerConfig` union — for IDE servers like `ws-ide`)
 - **In-process SDK** ✅ via `McpSdkServerConfigWithInstance`
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 **Yes — `createSdkMcpServer` is exactly this.** You define a TypeScript function with `tool(...)`, wrap it in a `createSdkMcpServer({ name, tools })`, pass it via `mcpServers`, and the CLI invokes it via the JSON control protocol over stdio (no subprocess spawn).
 
 This is how Predict tools should be exposed for production — no separate MCP-server-as-subprocess cost.
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 - **stdio servers**: credentials passed as `env`.
 - **HTTP/SSE servers**: `headers` object or **OAuth flow** (DE config: `clientId`, `callbackPort`, `authServerMetadataUrl`, `scopes` — visible in the bundled mjs schema).
@@ -1935,9 +1995,9 @@ This is how Predict tools should be exposed for production — no separate MCP-s
 
 ---
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 Through Anthropic API providers: `'firstParty' | 'bedrock' | 'vertex' | 'foundry' | 'anthropicAws' | 'mantle' | 'gateway'` (sdk.d.ts:32 — `AccountInfo.apiProvider`).
 
@@ -1945,7 +2005,7 @@ Selection is by environment / settings tier — not via a config knob on `Option
 
 **No native OpenAI / Gemini direct support.** OpenAI/Gemini require a gateway (your code translates / runs a LiteLLM-style gateway). This is one of the largest deltas vs. ADK / OpenAI Agents / Eino / Mastra / Vercel AI / LangGraph (all of which natively speak multiple provider APIs).
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 - **Per session**: `Options.model: string` (sdk.d.ts:1502) — e.g. `'claude-sonnet-4-6'`, `'claude-opus-4-7'`, `'sonnet'`, `'opus'`, `'haiku'` aliases.
 - **Per sub-agent**: `AgentDefinition.model` (sdk.d.ts:56) — overrides parent's model.
@@ -1953,7 +2013,7 @@ Selection is by environment / settings tier — not via a config knob on `Option
 
 So: cheap-supervisor + expensive-worker is straightforward, by setting `AgentDefinition.model: 'haiku'` for worker personas and keeping the supervisor on `opus`.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 **Yes — `Options.fallbackModel`** (sdk.d.ts:1301): *"Fallback model to use if the primary model fails or is unavailable."*
 
@@ -1961,19 +2021,19 @@ This is a single-step fallback (not a chain of N models). Triggered by API error
 
 For deeper retry / circuit-breaker logic: open issue **#313** ("Expose retry policy / max retry controls for API retries") — not currently exposed.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 `Query.setModel(model)` is at turn boundary only (sdk.d.ts:2076). You cannot switch mid-stream within a single API response.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 **Yes — `AgentDefinition.model` (sdk.d.ts:56) is exactly this.** Set it to `'haiku'` for cheap workers, leave the parent on `opus`. Required-but-trivial for tenant cost control.
 
 ---
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 **Not first-party.** No `useChat` React hook, no Svelte / Vue / Solid bindings.
 
@@ -1981,15 +2041,15 @@ The `@anthropic-ai/claude-agent-sdk/browser` import provides a `query()` functio
 
 This is a real gap vs. Vercel AI SDK (which is `useChat`-first) and Mastra (which ships a Playground UI).
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 **Not provided — BYO.** The SDK emits typed messages (`SDKAssistantMessage` with `tool_use` blocks, `SDKToolProgressMessage`, `tool_result` blocks) — you write React components that render them. There's no `<ToolCall>` component.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 **Not provided — BYO.** No first-party support for rich UI artifacts. The `AskUserQuestion` tool with `previewFormat: 'html'` (sdk.d.ts:5614) is the closest concept — the model can emit HTML option previews for a choice prompt; you render them in your UI.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
 Standard pattern:
 
@@ -2000,9 +2060,9 @@ Standard pattern:
 
 ---
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 **First-party.** The CLI has a memory recall supervisor that surfaces relevant memory files from disk:
 
@@ -2014,11 +2074,11 @@ Per `AgentDefinition.memory: 'user' | 'project' | 'local'` (sdk.d.ts:83). Surfac
 
 There is no vector index of your own data — it scans on-disk files. For true vector-search RAG, **BYO**: define an `mcp__myrag__search` tool that hits Qdrant/Pinecone/etc.
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 **Not first-party.** No built-in vector store, no chunker, no retriever, no citation primitive. BYO via MCP server.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 **Not natural.** Memory dirs are global-per-machine (`~/.claude/agent-memory/`) or project-scoped (under `cwd`). To scope per-tenant: use the per-tenant cwd pattern (`cwd: /tenants/${tenantId}` → memory lives under `.claude/agent-memory/`).
 
@@ -2026,13 +2086,13 @@ For long-term cross-tenant memory served by a vector DB, BYO an MCP tool.
 
 ---
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 **Not first-party.** No PII redaction, no prompt-injection detection, no hallucination detection out of the box. BYO via `PreToolUse` / `PostToolUse` hooks (e.g. run input through a regex redaction step before tool dispatch).
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 **Excellent.** The full surface:
 
@@ -2045,7 +2105,7 @@ For long-term cross-tenant memory served by a vector DB, BYO an MCP tool.
 - **`Options.disallowedTools`** — hard removal from context.
 - **`Options.tools: []`** — disable all built-in tools.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 **Built-in Linux sandbox via bubblewrap.** `Options.sandbox: SandboxSettings` (sdk.d.ts:1645) configures a bubblewrap-based filesystem / network restriction:
 
@@ -2061,7 +2121,7 @@ Linux-only (requires `bubblewrap`). When unavailable, `failIfUnavailable: true` 
 
 **No E2B / Daytona / Modal integration** — that's the realm of code-interpreter-style tools, not provided.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 **Default-ask.** `permissionMode: 'default'` prompts for "dangerous" operations (file writes, bash, etc.). The list of what counts as dangerous is CLI-defined and exhaustive. `'dontAsk'` flips to default-deny (only pre-approved tools run).
 
@@ -2069,23 +2129,23 @@ For server-side / autonomous deployment, you typically set `permissionMode: 'acc
 
 ---
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 **Not provided — BYO.** No golden-dataset format, no regression harness.
 
 The only test-shaped artifact in the repo is the **`SessionStore` conformance suite** (`examples/session-stores/shared/conformance.ts`, 13 cases) — that's an adapter conformance test, not an agent regression test.
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 **Not provided — BYO.** No first-party LLM-as-judge primitive.
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 **Not provided — BYO.** You'd build this with your own eval harness over `query()`.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 The local JSONL transcripts (`~/.claude/projects/<cwd>/<sid>.jsonl`) are replayable via `query({ options: { resume: sessionId, resumeSessionAt: messageUuid } })`. Combined with `getSessionMessages()`, you can build a step-through tool. **Not a first-party trace viewer.**
 
@@ -2093,23 +2153,23 @@ The Claude Code interactive CLI itself has a UI for viewing transcripts; the SDK
 
 ---
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 The **Claude Code interactive CLI** (the same binary the SDK spawns) is itself a local runner — `claude` from the terminal launches an interactive REPL. That's not what the SDK ships as a dev UI; it's the underlying CLI.
 
 For the **SDK consumer**, there is no playground / TUI / web dev UI. You write a script that calls `query()` and run it with `bun run script.ts` or `node --import tsx script.ts`.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 Local JSONL files in `~/.claude/projects/<cwd-sanitized>/<sessionId>.jsonl`. Inspect with `cat`, `jq`, or build your own viewer. The CLI's interactive `/transcript` and `/usage` commands show formatted versions.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 Per-tenant testing: change `cwd` and `Options.env`. No first-party tenant switcher UI.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 - **Plugins**: `Query.reloadPlugins()` re-scans plugin dirs and refreshes commands/agents/MCP servers.
 - **Settings**: `Query.applyFlagSettings({ ... })` merges new settings into the flag layer mid-session.

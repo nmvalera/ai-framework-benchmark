@@ -1,14 +1,15 @@
-# LlamaIndex Python — Benchmark Study
+# LlamaIndex Python — Benchmark Analysis
 
 > **Repo**: https://github.com/run-llama/llama_index
-> **Commit studied**: 23bd65aaf79ffed587af35f325738b1580b35dea
+> **Commit analysed**: 23bd65aaf79ffed587af35f325738b1580b35dea
 > **Branch**: main
 > **Framework path**: frameworks/llamaindex
-> **Studied on**: 2026-05-16
+> **Analysed on**: 2026-05-19
 
 ## TL;DR
 
 - ⭐ **What is this stack architecturally?** A large Python monorepo (`llama-index-core` + ~300 separately-versioned integration packages on PyPI). The agent piece is `llama-index-core/agent/workflow/`, which is a thin layer of step-decorated classes built on top of the external **`workflows`** package (`pip install llama-index-workflows>=2.14,<3`). Agents are event-driven workflows: `FunctionAgent` / `ReActAgent` / `AgentWorkflow` are subclasses of `Workflow` whose `@step` methods emit/consume events through an in-memory queue. RAG/ingestion is the dominant historical use case but is not relevant for this benchmark.
+- **Ecosystem**: Python (>=3.10).
 - Open-source MIT, owned by LlamaIndex Inc. (Jerry Liu); commercial offerings exist (LlamaCloud/LlamaParse, LlamaAgents managed runtime).
 - Core is v0.14.22 (pyproject.toml:37); the framework dates to late 2022; APIs are stable but the **agent layer was rebuilt in 2025** when workflow primitives were spun out into the `workflows` package — `llama-index-core/llama_index/core/workflow/workflow.py:1` is now a one-line re-export.
 - The agent loop runs **in your Python process** as an asyncio coroutine. No subprocess, no separate runtime.
@@ -26,7 +27,66 @@
   - observability: 1st-party `llama-index-instrumentation` dispatcher + OTel exporter package; ~25 callback integrations (Arize, Langfuse, Opik, Phoenix…).
 - Production-readiness verdict for multi-tenant server-side deployment: **medium**. Core primitives are present and battle-tested, but you build the multi-tenant glue (sessions store, tenant context propagation, skill catalog, HITL endpoints) yourself. `llama_deploy` is an option for the runtime piece but is a separate project and not studied in this report.
 
-## 0. Architectural Overview & Deployment Model
+## 0. General
+
+### 0.1 What is this stack?
+
+A Python library + a constellation of integration packages. The agent layer is built on the **Workflow** abstraction (`Workflow` class + `@step` decorator + `Event`/`Context`/`Handler` primitives). `Workflow` itself was extracted from `llama-index-core` into a separate `llama-index-workflows` PyPI package — `llama-index-core` re-exports it (`llama-index-core/llama_index/core/workflow/workflow.py:1`).
+
+### 0.2 Ecosystem
+
+**Python** (>=3.10, `<4.0`) — `llama-index-core/pyproject.toml:40`. A separate TypeScript port (`LlamaIndex.TS`) exists in a sibling repo but is out of scope here.
+
+### 0.3 Project status & governance
+
+- **License**: MIT (`LICENSE:1`, `pyproject.toml:57`).
+- **Owner/maintainers**: LlamaIndex Inc., founded by Jerry Liu. Maintainers listed in `pyproject.toml:58-65` (Jerry Liu, Logan Markewich, Simon Suo, Andrei Fajardo, Haotian Zhang, Sourabh Desai).
+- **Commercial backing**: Yes — LlamaCloud / LlamaParse / LlamaExtract / LlamaAgents (managed) are paid offerings; the OSS framework remains free.
+- **Support model**: GitHub issues, Discord (https://discord.gg/dGcwcsnxhU), paid LlamaCloud support contracts.
+
+### 0.4 Project maturity / age
+
+- **Initial public release**: November 2022 (originally "GPT Index"). Renamed to LlamaIndex shortly after.
+- **Current major version**: `llama-index-core` 0.14.22 (`llama-index-core/pyproject.toml:37`).
+- **Stability**: Stable. Most APIs are non-experimental. The agent layer was substantially rewritten in 2025 to live on top of `workflows` and the `Memory` API is marked as the replacement for deprecated `ChatMemoryBuffer` / `SimpleComposableMemory` (`llama-index-core/llama_index/core/memory/__init__.py:21-25`).
+
+### 0.5 Adoption & community signal
+
+GitHub numbers captured 2026-05-19:
+- Stars: ~39k+ (one of the largest in the agent/RAG space; exact figure not in-repo).
+- Forks: ~6k+.
+- Contributors: ~1000+ (badge in `README.md:5`).
+- Commit cadence: Multiple commits per day; `CHANGELOG.md:5-30` shows mass version-bump rounds every 1–4 weeks across hundreds of packages.
+- Issue/PR activity: Very high; the `CHANGELOG.md` references PR numbers in the 21,000+ range.
+- Discord: Active (link in README badge row).
+
+### 0.6 Ecosystem fit
+
+- **Packages**: `llama-index` (starter, `pyproject.toml:69`), `llama-index-core` (lean), and ~300 `llama-index-<category>-<provider>` integration packages on PyPI.
+- **LLM integrations**: 104 directories under `llama-index-integrations/llms/` (Anthropic, OpenAI, Bedrock, Vertex, Azure, Cohere, Mistral, Groq, Together, vLLM, Ollama, etc.).
+- **Used mostly as**: A library imported into your own service; not a CLI, not a hosted platform (LlamaCloud is for parsing/ingestion, not for serving your agents).
+
+### 0.7 Documentation depth & cross-team contributor accessibility
+
+- Docs language: Markdown (Starlight static site). Source under `docs/src/content/docs/framework/`.
+- Depth: Extensive — Concepts, Getting Started, Understanding (Agent, RAG, Workflows, Evaluation, Tracing, Deployment), Module Guides per provider, Use Cases. The "Understanding Agent" subdirectory is 1133 lines across 7 files.
+- Non-engineer accessibility: Low. Pages are code-walkthroughs in Python; no GUI or markdown-file authoring model.
+
+### 0.8 Documentation entry points ⭐
+
+- Official docs: https://developers.llamaindex.ai/python/framework/
+- Quickstart: https://developers.llamaindex.ai/python/framework/getting_started/starter_example
+- API reference: https://developers.llamaindex.ai/python/framework/api_reference (generated from docstrings)
+- Hosting / deployment: https://docs.llamaindex.ai (LlamaCloud) + https://github.com/run-llama/llama_deploy (for agent serving)
+- Examples: https://github.com/run-llama/llama_index/tree/main/docs/src/content/docs/framework/examples
+- Changelog: `CHANGELOG.md` at repo root; rendered at https://developers.llamaindex.ai/python/framework/CHANGELOG
+- GitHub Releases: https://github.com/run-llama/llama_index/releases
+- Issues: https://github.com/run-llama/llama_index/issues
+- Discord: https://discord.gg/dGcwcsnxhU
+- LlamaHub (community packs/tools): https://llamahub.ai/
+- Twitter/X: https://x.com/llama_index
+
+## 1. High Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -61,66 +121,34 @@
    For HTTP: BYO (FastAPI/Flask) OR external `llama_deploy` repo.
 ```
 
-### 0.1 What is this stack?
-
-A Python library + a constellation of integration packages. The agent layer is built on the **Workflow** abstraction (`Workflow` class + `@step` decorator + `Event`/`Context`/`Handler` primitives). `Workflow` itself was extracted from `llama-index-core` into a separate `llama-index-workflows` PyPI package — `llama-index-core` re-exports it (`llama-index-core/llama_index/core/workflow/workflow.py:1`).
-
-### 0.2 Project status & governance
-
-- **License**: MIT (`LICENSE:1`, `pyproject.toml:57`).
-- **Owner/maintainers**: LlamaIndex Inc., founded by Jerry Liu. Maintainers listed in `pyproject.toml:58-65` (Jerry Liu, Logan Markewich, Simon Suo, Andrei Fajardo, Haotian Zhang, Sourabh Desai).
-- **Commercial backing**: Yes — LlamaCloud / LlamaParse / LlamaExtract / LlamaAgents (managed) are paid offerings; the OSS framework remains free.
-- **Support model**: GitHub issues, Discord (https://discord.gg/dGcwcsnxhU), paid LlamaCloud support contracts.
-
-### 0.3 Project maturity / age
-
-- **Initial public release**: November 2022 (originally "GPT Index"). Renamed to LlamaIndex shortly after.
-- **Current major version**: `llama-index-core` 0.14.22 (`llama-index-core/pyproject.toml:37`).
-- **Stability**: Stable. Most APIs are non-experimental. The agent layer was substantially rewritten in 2025 to live on top of `workflows` and the `Memory` API is marked as the replacement for deprecated `ChatMemoryBuffer` / `SimpleComposableMemory` (`llama-index-core/llama_index/core/memory/__init__.py:21-25`).
-
-### 0.4 Adoption & community signal
-
-GitHub numbers captured 2026-05-16:
-- Stars: ~39k+ (one of the largest in the agent/RAG space; exact figure not in-repo).
-- Forks: ~6k+.
-- Contributors: ~1000+ (badge in `README.md:5`).
-- Commit cadence: Multiple commits per day; `CHANGELOG.md:5-30` shows mass version-bump rounds every 1–4 weeks across hundreds of packages.
-- Issue/PR activity: Very high; the `CHANGELOG.md` references PR numbers in the 21,000+ range.
-- Discord: Active (link in README badge row).
-
-### 0.5 Ecosystem fit
-
-- **Language**: Python (>=3.10, `<4.0`) — `pyproject.toml:69`. A separate TypeScript port (`LlamaIndex.TS`) exists but is out of scope here.
-- **Packages**: `llama-index` (starter, `pyproject.toml:69`), `llama-index-core` (lean), and ~300 `llama-index-<category>-<provider>` integration packages on PyPI.
-- **LLM integrations**: 104 directories under `llama-index-integrations/llms/` (Anthropic, OpenAI, Bedrock, Vertex, Azure, Cohere, Mistral, Groq, Together, vLLM, Ollama, etc.).
-- **Used mostly as**: A library imported into your own service; not a CLI, not a hosted platform (LlamaCloud is for parsing/ingestion, not for serving your agents).
-
-### 0.6 Where does the agent loop actually execute?
+### 1.1 Where does the agent loop actually execute?
 
 **In your Python process**, as an asyncio coroutine. There is no bundled binary, no subprocess, no vendor cloud round-trip. The `FunctionAgent.run(...)` call resolves into `Workflow.run(...)` which schedules `@step` methods on the running asyncio event loop. See `llama-index-core/llama_index/core/agent/workflow/base_agent.py:382-435` (the `init_run`, `setup_agent`, `run_agent_step` steps) and `llama-index-core/llama_index/core/agent/workflow/base_agent.py:759-813` (the `run()` entrypoint).
 
-### 0.7 Runtime dependencies
+### 1.2 Runtime dependencies
 
 - Python 3.10+ (`llama-index-core/pyproject.toml:40`).
 - Core deps: `SQLAlchemy[asyncio]`, `httpx`, `pydantic>=2.8`, `tiktoken`, `aiohttp`, `nltk`, `tenacity`, `wrapt`, `banks`, `aiosqlite`, **`llama-index-workflows>=2.14,<3`** (`llama-index-core/pyproject.toml:57-87`).
 - No bundled binaries. Tokenizer is `tiktoken`.
+- Required infrastructure services: none for in-process use; only the LLM provider HTTP endpoint. The default `Memory` uses SQLite via `aiosqlite`; production deploys typically swap for Postgres (any SQLAlchemy-supported DB).
+- Required vendor services: none (LlamaCloud is optional and for parsing/ingestion, not agent serving).
 - Optional: each LLM/store/tool integration adds its own provider SDK dependency.
 
-### 0.8 Recommended deployment topology
+### 1.3 Recommended deployment topology
 
 Not opinionated. The official "deployment" tutorial is a single stub: `docs/src/content/docs/framework/understanding/deployment/deployment.md:1-6` literally says `TODO`. The vendor's recommended path for production multi-agent serving is the separate **`llama_deploy`** project (`docs/src/content/docs/framework/module_guides/llama_deploy/README.txt:1-2` — "Documentation content will be pulled from https://github.com/run-llama/llama_deploy"), which provides a microservice / message-queue runtime around `Workflow`. That project is out of this report's scope.
 
-### 0.9 Cold-start cost & instance footprint
+### 1.4 Cold-start cost & instance footprint
 
 Pure-Python import overhead (`llama-index-core` pulls in SQLAlchemy, pydantic, tiktoken, nltk, banks, httpx, aiohttp — non-trivial). No published baseline RAM figure. Cold start is dominated by your LLM SDK warm-up, not the framework.
 
-### 0.10 Vendor lock-in
+### 1.5 Vendor lock-in
 
 - **LLM-provider lock-in**: None — pluggable `LLM` abstraction with 104 implementations. 🟢
 - **Hosting lock-in**: None for the OSS framework. 🟢 (`llama_deploy` is OSS too; LlamaCloud is for parse/ingest, not serving.)
 - **Eval-platform lock-in**: None — bring your own (LangSmith, Arize, Langfuse, Opik, Phoenix all have official integrations under `llama-index-integrations/callbacks/`). 🟢
 
-### 0.11 Framework weight / footprint
+### 1.6 Framework weight / footprint
 
 Heavy ecosystem (300+ integration packages) but core is modular — you install only what you need. The agent layer itself (`llama-index-core/llama_index/core/agent/workflow/`) is ~2000 lines:
 
@@ -136,37 +164,15 @@ Heavy ecosystem (300+ integration packages) but core is modular — you install 
 146  workflow_events.py
 ```
 
-### 0.12 Release-history signal
+### 1.7 Release-history signal
 
 - `CHANGELOG.md` has a single combined log across all packages, regenerated regularly. Recent (`CHANGELOG.md:5-77`): `llama-index-core 0.14.22` (2026-05-14) includes "fix(instrumentation): let SparseEmbeddingStartEvent inherit EmbeddingStartEvent" (#21119), "feat(core): Multimodal synthesis" (#21374), "fix: propagate contextvars in sync_to_async for FunctionTool" (#21558).
 - Earlier in the year (`CHANGELOG.md:3400`): "feat: support custom span processor; refactor: use llama-index-instrumentation instead of llama-index-core" (#20732) — the instrumentation extraction.
 - The agent layer's most decision-relevant breaking change was the move to the external `workflows` package and the deprecation of the older `OpenAIAgent` / `ReActAgent.from_tools` flavour in favour of `FunctionAgent` / `AgentWorkflow`.
 
-### 0.13 Documentation depth & cross-team contributor accessibility
+## 2. Agent Loop
 
-- Docs language: Markdown (Starlight static site). Source under `docs/src/content/docs/framework/`.
-- Depth: Extensive — Concepts, Getting Started, Understanding (Agent, RAG, Workflows, Evaluation, Tracing, Deployment), Module Guides per provider, Use Cases. The "Understanding Agent" subdirectory is 1133 lines across 7 files.
-- Non-engineer accessibility: Low. Pages are code-walkthroughs in Python; no GUI or markdown-file authoring model.
-
-### 0.14 Documentation entry points
-
-- Official docs: https://developers.llamaindex.ai/python/framework/
-- Quickstart: https://developers.llamaindex.ai/python/framework/getting_started/starter_example
-- API reference: https://developers.llamaindex.ai/python/framework/api_reference (generated from docstrings)
-- Hosting / deployment: https://docs.llamaindex.ai (LlamaCloud) + https://github.com/run-llama/llama_deploy (for agent serving)
-- Examples: https://github.com/run-llama/llama_index/tree/main/docs/src/content/docs/framework/examples
-- Changelog: `CHANGELOG.md` at repo root; rendered at https://developers.llamaindex.ai/python/framework/CHANGELOG
-- GitHub Releases: https://github.com/run-llama/llama_index/releases
-- Issues: https://github.com/run-llama/llama_index/issues
-- Discord: https://discord.gg/dGcwcsnxhU
-- LlamaHub (community packs/tools): https://llamahub.ai/
-- Twitter/X: https://x.com/llama_index
-
-## 1. Agent Harness (Run Loop) & Message Taxonomy
-
-### Run loop
-
-#### 1.1 Run loop entrypoint(s)
+### 2.1 Run loop entrypoint(s)
 
 `BaseWorkflowAgent.run(...)` returns a `WorkflowHandler` (an awaitable that's also an async iterator over events):
 
@@ -196,7 +202,7 @@ final = await handler                            # await for terminal result
 
 The "loop" inside is the workflow event graph: `init_run → setup_agent → run_agent_step → parse_agent_output → (call_tool* → aggregate_tool_results) → setup_agent → … → StopEvent`. Each `@step` method emits one event and is dispatched by the upstream `workflows` runtime when its input event type is produced.
 
-#### 1.2 Per-iteration behavior
+### 2.2 Per-iteration behavior
 
 One "iteration" in `AgentWorkflow` is a single LLM call followed by N parallel tool calls. Decoration of the steps (`@step` in `base_agent.py:382, 436, 464, 519, 623, 660`):
 
@@ -207,11 +213,11 @@ One "iteration" in `AgentWorkflow` is a single LLM call followed by N parallel t
 5. `call_tool(ToolCall) -> ToolCallResult` — dispatch a single tool (one of N) in parallel.
 6. `aggregate_tool_results(ToolCallResult) -> {AgentInput | StopEvent | None}` — `ctx.collect_events(ev, expected=[ToolCallResult]*N)` fans-in N parallel calls, writes them to memory, and goes back to `setup_agent`.
 
-#### 1.3 ReAct loop
+### 2.3 ReAct loop
 
 Built in. `ReActAgent` (`llama-index-core/llama_index/core/agent/workflow/react_agent.py:38`) overrides `take_step` to do "Thought / Action / Observation" parsing for LLMs without native tool calling. It uses `ReActChatFormatter` and `ReActOutputParser` from `llama-index-core/llama_index/core/agent/react/`. `FunctionAgent` uses the LLM's native function-calling instead.
 
-#### 1.4 Tool dispatch + result handling
+### 2.4 Tool dispatch + result handling
 
 `parse_agent_output` emits one `ToolCall` event per generated tool call. The workflow runtime fans these out to parallel invocations of `call_tool`:
 
@@ -246,11 +252,11 @@ async def _call_tool(self, ctx, tool, tool_input):
 
 Then `aggregate_tool_results` does the fan-in via `ctx.collect_events(...)` (`base_agent.py:669-671`).
 
-#### 1.5 Explicit turn concept
+### 2.5 Explicit turn concept
 
 A "turn" is "one LLM call → N parallel tool calls → fan-in → next LLM call". The framework caps the count via `max_iterations` (default 20, `base_agent.py:66`) and surfaces an `early_stopping_method` choice of `"force"` (raise `WorkflowRuntimeError`) or `"generate"` (one final LLM call with a stopping prompt) — see `base_agent.py:519-541`.
 
-#### 1.6 Event emission mechanism (in-process)
+### 2.6 Event emission mechanism (in-process)
 
 Two complementary mechanisms inside one workflow:
 
@@ -268,9 +274,9 @@ async for event in handler.stream_events():
 
 The `_get_llm_response` method writes `AgentStream` events as tokens arrive: `base_agent.py:329-339`.
 
-### Message & event taxonomy
+## 3. Message & Event Taxonomy
 
-#### 1.7 Message layers
+### 3.1 Message layers
 
 LlamaIndex distinguishes:
 
@@ -280,7 +286,7 @@ LlamaIndex distinguishes:
 
 There is no separate "UI message" type; consumers consume `Event`s directly (or a sub-selection like `AgentStream`).
 
-#### 1.8 Concrete message/event types
+### 3.2 Concrete message types
 
 | Type | Purpose |
 |---|---|
@@ -298,11 +304,11 @@ There is no separate "UI message" type; consumers consume `Event`s directly (or 
 | `HumanResponseEvent` | HITL — caller's reply to the pause |
 | `StartEvent` / `StopEvent` | Workflow lifecycle endpoints |
 
-#### 1.9 Messages vs. events
+### 3.3 Messages vs. events
 
 Same iterator. The consumer-facing stream is a stream of `Event`s; messages (`ChatMessage`) are carried inside specific events (`AgentInput.input`, `AgentOutput.response`, `ToolCallResult.tool_output`).
 
-#### 1.10 Event categories
+### 3.4 Event categories
 
 - **Stream events**: `AgentStream`, `AgentStreamStructuredOutput` (token deltas).
 - **Turn events**: `AgentInput`, `AgentSetup`, `AgentOutput`.
@@ -312,14 +318,14 @@ Same iterator. The consumer-facing stream is a stream of `Event`s; messages (`Ch
 - **Sub-agent events**: surfaced via `current_agent_name` field on `AgentInput`/`AgentOutput`/`AgentStream`, not a separate type.
 - **Hook events**: Not a separate concept (no hook system).
 
-#### 1.11 Canonical type-definition file(s)
+### 3.5 Canonical type-definition file(s)
 
 - Agent workflow events: `llama-index-core/llama_index/core/agent/workflow/workflow_events.py:1-147`.
 - Generic workflow events (re-exported from `workflows` package): `llama-index-core/llama_index/core/workflow/events.py:1-8`.
 - `ChatMessage` and `ContentBlock`: `llama-index-core/llama_index/core/base/llms/types.py:1159`.
 - `ToolCall` / `ToolOutput` / `ToolMetadata`: `llama-index-core/llama_index/core/tools/types.py:23-114`.
 
-#### 1.12 Live agentic event stream taxonomy
+### 3.6 Live agentic event stream taxonomy
 
 Sample frames consumers receive from `handler.stream_events()`:
 
@@ -354,33 +360,33 @@ AgentOutput(
 )
 ```
 
-## 2. Agent Runtime (Multi-session Host)
+## 4. Agent Runtime (Multi-session Host)
 
-### 2.1 Multi-session host architecture
+### 4.1 Multi-session host architecture
 
 **Not provided in `llama-index-core`** — the framework gives you a `Workflow` you `run()` and you embed N concurrent runs in your own server (FastAPI, etc.). Each `run()` returns its own `WorkflowHandler` with its own `Context`.
 
 The vendor offering is the separate **`llama_deploy`** repo, which provides a control-plane + queue runtime around `Workflow`s (out of scope here).
 
-### 2.2 Concurrent session isolation
+### 4.2 Concurrent session isolation
 
 Each `workflow.run(...)` call creates a new `Context` (unless you pass `ctx=existing_ctx` to resume). Sessions are isolated by construction. The `Context.store` is a per-context KV store with no global sharing.
 
-### 2.3 Horizontal scaling / multi-instance
+### 4.3 Horizontal scaling / multi-instance
 
 In the OSS framework: BYO. You serialize a `Context` (`ctx.to_dict(serializer=JsonSerializer())`, `docs/src/content/docs/framework/understanding/agent/state.md:62-64`), stash it in your store (Postgres/Redis/…), and re-hydrate on the next request from any worker.
 
-### 2.4 Background / async / scheduled tasks
+### 4.4 Background / async / scheduled tasks
 
 Not provided — BYO (Celery, Temporal, RQ, your own asyncio task).
 
-### 2.5 Worker pool / queue model
+### 4.5 Worker pool / queue model
 
 Not provided — BYO. `llama_deploy` provides this in a separate project.
 
-## 3. Sessions & Persistence
+## 5. Sessions & Persistence
 
-### 3.1 Session / chat data model
+### 5.1 Session / chat data model
 
 There's no formal `Session` type. What persists is:
 
@@ -401,23 +407,23 @@ class Memory(BaseMemory):
     session_id: str                  # the conversation key
 ```
 
-### 3.2 What's stored on a session
+### 5.2 What's stored on a session
 
 - Full message history in `SQLAlchemyChatStore` (table per memory instance, rows = messages).
 - Optional "memory blocks" (`StaticMemoryBlock`, `VectorMemoryBlock`, `FactExtractionMemoryBlock`) for cross-session / long-term recall.
 - Workflow `Context.store` if you serialize it: any KV state your tools / steps stashed via `await ctx.store.set(key, value)`.
 
-### 3.3 Granularity
+### 5.3 Granularity
 
 One `session_id` per conversation; no fork/branch primitive in the OSS framework. (Workflow `Context` resume after pause is the closest mechanic.)
 
-### 3.4 Built-in persistence stores
+### 5.4 Built-in persistence stores
 
 - `Memory` uses `SQLAlchemyChatStore` (`llama-index-core/llama_index/core/memory/memory.py:241`) — any SQLAlchemy-supported DB (SQLite default, Postgres, MySQL).
 - `Context` serialization is BYO storage: `ctx.to_dict(serializer=JsonSerializer())` → write to your store.
 - Additional chat stores under `llama-index-core/llama_index/core/storage/chat_store/` (Postgres, Redis, …).
 
-### 3.5 Persistence timing
+### 5.5 Persistence timing
 
 `Memory.aput(...)` is called explicitly at three points in the run loop:
 - After receiving the user message: `init_run` calls `memory.aput(user_msg)` (`base_agent.py:403`).
@@ -426,36 +432,36 @@ One `session_id` per conversation; no fork/branch primitive in the OSS framework
 
 There is no automatic per-token or per-tool checkpoint of the `Context` itself.
 
-### 3.6 Mid-run checkpointing (durable)
+### 5.6 Mid-run checkpointing (durable)
 
 Not automatic. The workflow can be **paused** at `ctx.wait_for_event(...)` (HITL), at which point you can `ctx.to_dict(...)` and resume later — but a crash mid-tool-call loses the in-flight tool result. Compared to LangGraph's `_runner.commit() → put_writes()` per-task, this is weaker.
 
-### 3.7 Session ID format
+### 5.7 Session ID format
 
 A `Memory` `session_id` defaults to `str(uuid.uuid4())` (`llama-index-core/llama_index/core/memory/memory.py:84-86`). You can pass any string. No tenant-prefix convention.
 
-### 3.8 Pluggable store interface
+### 5.8 Pluggable store interface
 
 - `BaseMemory` is the interface (`llama-index-core/llama_index/core/memory/types.py`).
 - `BaseChatStore` is the persistence interface for the message store.
 - `SQLAlchemyChatStore` (`memory.py:241`) is the default; community chat stores include `RedisChatStore`, `PostgresChatStore`, `AzureChatStore`, etc.
 
-### 3.9 Schema evolution / migration
+### 5.9 Schema evolution / migration
 
 Not provided — BYO. SQLAlchemy migrations are your responsibility.
 
-### 3.10 Export / replay
+### 5.10 Export / replay
 
 - `Context.to_dict(serializer=JsonSerializer())` / `Context.from_dict(workflow, ctx_dict, serializer=…)` — the canonical export/import pattern (`docs/src/content/docs/framework/understanding/agent/state.md:62-77`).
 - For deterministic replay, you would re-feed `chat_history` to a new run with mocked LLM responses; no built-in record/replay harness.
 
-### 3.11 Cross-session memory
+### 5.11 Cross-session memory
 
-Yes — `VectorMemoryBlock` and `FactExtractionMemoryBlock` (`llama-index-core/llama_index/core/memory/memory_blocks/`) implement semantic / extracted-facts long-term memory. See Q15.
+Yes — `VectorMemoryBlock` and `FactExtractionMemoryBlock` (`llama-index-core/llama_index/core/memory/memory_blocks/`) implement semantic / extracted-facts long-term memory. See Q17.
 
-## 4. Multi-tenancy & Arbitrary Context
+## 6. Multi-tenancy & Arbitrary Context
 
-### 4.1 Full run-loop input struct
+### 6.1 Full run-loop input struct
 
 `AgentWorkflowStartEvent` fields (`llama-index-core/llama_index/core/agent/workflow/workflow_events.py:116-147`) plus the kwargs threaded into `Workflow.run` (`base_agent.py:740-813`):
 
@@ -472,7 +478,7 @@ AgentWorkflowStartEvent(
 
 There is **no first-class `tenant_id` / `user_id` / `metadata`** field on the start event. You inject these via `ctx.store.set(...)` after construction, or via `**kwargs` that the start event captures.
 
-### 4.2 Context propagation into a tool call
+### 6.2 Context propagation into a tool call
 
 If your tool function declares `ctx: Context` as a parameter, the workflow injects the live `Context`:
 
@@ -489,7 +495,7 @@ async def _call_tool(self, ctx, tool, tool_input):
 
 Inside your tool: `state = await ctx.store.get("state"); tenant_id = state["tenant_id"]`.
 
-### 4.3 Tool call interface
+### 6.3 Tool call interface
 
 `FunctionTool.acall(*args, **kwargs) -> ToolOutput` (`llama-index-core/llama_index/core/tools/function_tool.py:374`):
 
@@ -503,9 +509,9 @@ async def acall(self, *args, **kwargs) -> ToolOutput:
     ...
 ```
 
-Note the merge order: **`partial_params` overrides LLM-provided `kwargs` are applied first, then `kwargs` from the caller (LLM) win** — see line 376. Wait, that's actually the opposite of what we want for "force from harness". Let me re-read… `{**self._field_defaults, **self.partial_params, **kwargs}` means `kwargs` (LLM) wins over `partial_params`. **So `partial_params` is a default, not an override.** This is a critical gotcha for Q4.4.
+Note the merge order: `{**self._field_defaults, **self.partial_params, **kwargs}` means **LLM-provided `kwargs` win over `partial_params`**. So `partial_params` is a default, not an override. This is a critical gotcha for Q6.4.
 
-### 4.4 Forcing tool arguments from the harness
+### 6.4 Forcing tool arguments from the harness
 
 ⚠️ **Partial workaround only.**
 
@@ -530,7 +536,7 @@ To truly force, you have two BYO patterns:
 
 Pattern B is the idiomatic LlamaIndex answer. It's effective but it's still **convention**, not enforcement — a forgetful tool author can read `tenant_id` from the LLM-provided args by accident.
 
-### 4.5 Filtering visible tools
+### 6.5 Filtering visible tools
 
 Done at construction or via `tool_retriever`:
 
@@ -547,23 +553,23 @@ Done at construction or via `tool_retriever`:
       return self._ensure_tools_are_async(cast(List[BaseTool], tools))
   ```
 
-### 4.6 Tenant scope on session
+### 6.6 Tenant scope on session
 
 No first-class `tenant_id` field on session or context. Stuffed in `ctx.store` (a generic KV) or `Memory.session_id` (a single string you can encode `tenant:user:conversation` into).
 
-### 4.7 Per-tool-call auth propagation
+### 6.7 Per-tool-call auth propagation
 
 Auth identity is whatever you stash in `ctx.store` and read inside the tool. There is no built-in identity propagation from an outer HTTP handler.
 
-### 4.8 Resource scoping primitives
+### 6.8 Resource scoping primitives
 
 Not provided — BYO. You either pass tenant-scoped tool lists at agent construction or filter in your `tool_retriever`.
 
-### 4.9 Per-tenant rate limit + budget cap
+### 6.9 Per-tenant rate limit + budget cap
 
 `TokenCountingHandler` has a `token_budget` parameter (`llama-index-core/llama_index/core/callbacks/token_counting.py:153, 167`) that raises `ValueError` if exceeded — but it's per *handler instance*, not per tenant, and it counts tokens (not USD). 🔴 **No USD budget cap.**
 
-### ⭐ Light usage example (Q4)
+### ⭐ Light usage example (Q6)
 
 ```python
 from llama_index.core.agent.workflow import FunctionAgent
@@ -596,9 +602,9 @@ final = await handler
 
 `initial_state` lands in `ctx.store["state"]` (`base_agent.py:292`). Tools read tenant from there. The LLM never sees `tenant_id` in the tool schema because `Context` params are excluded by `function_tool.py:204-247`.
 
-## 5. Hook & Middleware Capabilities (Context Engineering)
+## 7. Hook & Middleware Capabilities (Context Engineering)
 
-### 5.1 Enumerate every hook / middleware / lifecycle callback
+### 7.1 Enumerate every hook / middleware / lifecycle callback
 
 LlamaIndex does not ship a Claude-Code-style hook system. The closest constructs are:
 
@@ -614,11 +620,11 @@ LlamaIndex does not ship a Claude-Code-style hook system. The closest constructs
 | `system_prompt` on the agent | Once per LLM call (prepended) | Inject system context |
 | `state_prompt` template + `initial_state` | Format `{state}` into the last user message before the first LLM call (`base_agent.py:447-457`) | Inject runtime state into the LLM input |
 
-### 5.2 Hook concurrency model
+### 7.2 Hook concurrency model
 
 There's no formal hook fan-out. Workflow `@step` methods run on the asyncio event loop and are scheduled deterministically by the upstream `workflows` runtime. Dispatcher event handlers fire synchronously when an event is dispatched.
 
-### 5.3 Specific capability tests
+### 7.3 Specific capability tests
 
 - **Inject system messages at session start**: ✅ Via `system_prompt=` on the agent (`base_agent.py:98, 441-446`) or by overriding `setup_agent` step.
 - **Expand user input** (slash, timestamp, attachments): ✅ Override `init_run` to mutate `user_msg`.
@@ -627,19 +633,19 @@ There's no formal hook fan-out. Workflow `@step` methods run on the asyncio even
 - **Mutate tool result before it returns to the LLM**: ✅ `FunctionTool(callback=...)` returning a new `ToolOutput` (`function_tool.py:151-169`); or override `aggregate_tool_results`.
 - **Emit additional tool calls from a `PostToolUse` hook**: ❌ Not as a first-class hook — but workflows can `ctx.send_event(ToolCall(...))` from any `@step`, which the runtime will route. You'd subclass `aggregate_tool_results` to do this.
 
-### 5.4 Auto-compaction
+### 7.4 Auto-compaction
 
 `Memory` has a token-budget-driven FIFO flush (`memory.py:196-211`): when the chat history exceeds `chat_history_token_ratio * token_limit`, oldest messages are flushed into the memory blocks. `ChatSummaryMemoryBuffer` (deprecated) does explicit summarization. New `Memory.memory_blocks` model lets you plug in `FactExtractionMemoryBlock` to summarize ejected messages.
 
-### 5.5 Prompt cache optimization
+### 7.5 Prompt cache optimization
 
 Not first-class. `ChatMessage` supports a `CachePoint` content block (`llama-index-core/llama_index/core/base/llms/types.py:28` import + class), which providers like Anthropic / OpenAI honor — but the framework does not auto-place breakpoints; the developer inserts them.
 
-### 5.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing / progressive disclosure
 
 Not provided — BYO. You can return a summary string from a `FunctionTool` `async_callback` and stash the full payload elsewhere.
 
-### 5.7 Architectural diagram of where hooks fire
+### 7.7 Architectural diagram
 
 ```
                   ┌─────────────────────────────────────────────┐
@@ -686,7 +692,7 @@ Not provided — BYO. You can return a summary string from a `FunctionTool` `asy
                               … loop …
 ```
 
-### ⭐ Light usage example (Q5)
+### ⭐ Light usage example (Q7)
 
 ```python
 from llama_index.core.agent.workflow import FunctionAgent, ToolCallResult
@@ -723,41 +729,41 @@ agent = FunctionAgent(
 
 For more elaborate hooks (mutating messages before the LLM call), subclass `FunctionAgent` and override `setup_agent` or `take_step`.
 
-## 6. Agent API Exposition
+## 8. HTTP API
 
-### 6.1 Does the stack ship an HTTP/network server?
+### 8.1 Does the framework ship an HTTP server?
 
 **No.** `llama-index-core` is library-only. The vendor's recommended runtime for production agent serving is the separate `llama_deploy` project. For most teams, the path is: wrap `workflow.run(...)` in a FastAPI route, expose `handler.stream_events()` over SSE.
 
-### 6.2 Streaming transport
+### 8.2 HTTP streaming transport
 
 BYO. Common pattern is FastAPI + SSE (Server-Sent Events) reading `handler.stream_events()`. There is a community helper `llama-index-server` package on PyPI but it's not in this monorepo.
 
-### 6.3 Endpoints that start an agent run
+### 8.3 HTTP endpoints that start an agent run
 
 BYO. No defined API contract.
 
-### 6.4 Live agentic event stream format
+### 8.4 Live agentic event stream format
 
 BYO. The Python event stream is `Event`-typed; you serialize via `event.model_dump_json()` (each `Event` is a Pydantic model).
 
-### 6.5 Auth termination at API boundary
+### 8.5 Auth termination at the HTTP boundary
 
 BYO.
 
-### 6.6 Resume / replay endpoint
+### 8.6 Resume / replay endpoint
 
 Pattern: serialize `Context` to your store keyed by `session_id`, look it up on the next request, pass `ctx=` to `workflow.run(...)`. See `docs/src/content/docs/framework/understanding/agent/state.md:60-77`.
 
-### 6.7 Interrupt / cancel via API
+### 8.7 Interrupt / cancel via HTTP
 
 `WorkflowHandler` (from `workflows` package) exposes a `cancel_run()` method per upstream API. Wired up in the host's API endpoint by you.
 
-### 6.8 Tool-arg streaming (partial JSON)
+### 8.8 Tool-arg streaming (partial JSON)
 
 The LLM's streamed `delta` of a tool call comes through on `AgentStream.tool_calls` as the model emits it. The exact granularity depends on the underlying LLM integration.
 
-### 6.9 HITL approval workflow
+### 8.9 HITL approval workflow over HTTP
 
 First-class via `Context.wait_for_event(...)`:
 
@@ -774,17 +780,17 @@ async def dangerous_task(ctx: Context) -> str:
     return "ok" if response.response.strip().lower() == "yes" else "aborted"
 ```
 
-The client receives the `InputRequiredEvent` on the stream and replies via `handler.ctx.send_event(HumanResponseEvent(response="yes", user_name="Laurie"))`. The tool resumes.
+The client receives the `InputRequiredEvent` on the stream and replies via `handler.ctx.send_event(HumanResponseEvent(response="yes", user_name="Laurie"))`. The tool resumes. Over HTTP the host routes the approval verdict to that `send_event(...)` call.
 
-### 6.10 Tool-call state reconstruction
+### 8.10 Tool-call state reconstruction
 
-Events carry `tool_id`. `ToolCall.tool_id` and `ToolCallResult.tool_id` match. The client links them by ID.
+⭐ Events carry `tool_id`. `ToolCall.tool_id` and `ToolCallResult.tool_id` match (set on `workflow_events.py` `ToolCall` / `ToolCallResult` types). The client links them by explicit `tool_id`; no positional dependency.
 
-### 6.11 Health checks / graceful shutdown
+### 8.11 Health checks / graceful shutdown
 
 BYO.
 
-### ⭐ Light usage example (Q6)
+### ⭐ Light usage example (Q8)
 
 Because the SDK is library-only, this is illustrative of the BYO pattern (FastAPI):
 
@@ -811,13 +817,27 @@ async def start_run(tenant_id: str, user_msg: str):
 
 # curl example:
 # curl -N -H "X-Tenant-Id: acme" -d '{"user_msg":"hi"}' http://host/runs
+#
+# SSE stream sample:
+#   event: AgentStream
+#   data: {"delta":"Looking","response":"Looking", ...}
+#
+#   event: ToolCall
+#   data: {"tool_name":"topicSearch","tool_kwargs":{...},"tool_id":"call_abc"}
+#
+#   event: done
+#   data: {"response":{"role":"assistant","content":"..."}}
+#
+# Cancel: curl -X DELETE http://host/runs/{session_id}   (BYO — wires to handler.cancel_run())
+# HITL verdict: curl -X POST http://host/runs/{session_id}/approve -d '{"approved":true}'
+#               (BYO — wires to handler.ctx.send_event(HumanResponseEvent(...)))
 ```
 
-Cancel and HITL approval endpoints: Not provided — BYO. You'd plumb `handler.cancel_run()` and `handler.ctx.send_event(HumanResponseEvent(...))` into your own routes.
+Cancel and HITL approval endpoints: Not provided — BYO. You plumb `handler.cancel_run()` and `handler.ctx.send_event(HumanResponseEvent(...))` into your own routes.
 
-## 7. Sub-agents
+## 9. Sub-agents
 
-### 7.1 Mechanism
+### 9.1 Mechanism
 
 Both supported:
 
@@ -825,35 +845,35 @@ Both supported:
 
 2. **Agents-as-tools** — each sub-agent's `.run(...)` is wrapped in a function and registered as a `FunctionTool` on a parent (`docs/src/content/docs/framework/understanding/agent/multi_agent.md:86-184`).
 
-### 7.2 Configuration
+### 9.2 Configuration
 
 Python objects only. No markdown manifest. Each agent is a `FunctionAgent` / `ReActAgent` / `CodeActAgent` instance with `name`, `description`, `system_prompt`, `tools`, `can_handoff_to`.
 
-### 7.3 LLM-generated configs
+### 9.3 LLM-generated configs
 
 Not first-class. You can build a `FunctionAgent` dynamically inside a tool, but there's no markdown-loader analogue to Claude's `Task` tool.
 
-### 7.4 Output handling
+### 9.4 Output handling
 
 For `AgentWorkflow`: handoff returns a string from the `handoff` tool, which causes the workflow to switch `current_agent_name` (`multi_agent_workflow.py:86-91`) and re-enter `setup_agent` with the new active agent. The final `StopEvent.result` is an `AgentOutput`.
 
-For agents-as-tools: the sub-agent's `.run(...)` is awaited; its result string is returned to the parent LLM as a normal tool result.
+For agents-as-tools: the sub-agent's `.run(...)` is awaited; its result string is returned to the parent LLM as a normal tool result. The sub-agent's `ToolCallResult` is linked back to the parent via `tool_id`.
 
-### 7.5 Concurrency model
+### 9.5 Concurrency model
 
 `AgentWorkflow` is **serial** — only one agent active at a time (it's a sequential hand-off swarm).
 
 Parallel sub-agents happen with the **agents-as-tools** pattern: the parent LLM emits multiple tool calls, and `parse_agent_output` fans them out via `ctx.send_event(ToolCall(...))` (`base_agent.py:610-619`). The `workflows` runtime executes them in parallel; `ctx.collect_events(...)` fans them back in (`base_agent.py:669-671`). For three persona sub-agents called concurrently, the parallelism point is **`base_agent.py:613` (the for-loop emitting one event per call)** plus the runtime's parallel `@step` execution.
 
-### 7.6 Context isolation
+### 9.6 Context isolation
 
 Each sub-agent invocation via `.run(...)` gets its own `Context` (default) — fresh memory, fresh state. Or you can pass `ctx=parent_ctx` to share state.
 
-### 7.7 Lifecycle events
+### 9.7 Lifecycle events
 
 When `AgentWorkflow` hands off, `AgentInput` / `AgentOutput` / `AgentStream` events tagged with the new `current_agent_name` are emitted on the stream. The parent stream sees each sub-agent's tokens.
 
-### ⭐ Light usage example (Q7)
+### ⭐ Light usage example (Q9)
 
 Three persona sub-agents invoked in parallel via the agents-as-tools pattern:
 
@@ -897,37 +917,37 @@ async for ev in handler.stream_events():
 
 The parent LLM (function-calling-capable, with `allow_parallel_tool_calls=True`, default in `function_agent.py:27-30`) emits three `ToolCall`s; the workflow runtime runs them concurrently; the parent receives three `ToolCallResult` events.
 
-## 8. Skills
+## 10. Skills
 
-### 8.1 First-class concept?
+### 10.1 First-class concept?
 
 **No.** LlamaIndex has no `SKILL.md` analogue. There are "LlamaPacks" — community-shared, pip-installable templates — but those are codebases, not lightweight markdown skills.
 
-### 8.2 File format
+### 10.2 File format
 
 Not provided — BYO.
 
-### 8.3 Loader mechanism
+### 10.3 Loader mechanism
 
 Not provided — BYO. The closest first-party mechanism is `tool_retriever: ObjectRetriever` on a `FunctionAgent` (`base_agent.py:104-107`), which lets you dynamically retrieve tools from a vector store per request — but those are tools, not skills.
 
-### 8.4 Invocation
+### 10.4 Invocation
 
 N/A.
 
-### 8.5 Loading mode
+### 10.5 Loading mode
 
 N/A.
 
-### 8.6 Runtime scoping (global / tenant / user)
+### 10.6 Runtime scoping (global / tenant / user)
 
 N/A — BYO via your own loader feeding into `tool_retriever` or the `tools=[...]` constructor.
 
-### 8.7 Skill composition
+### 10.7 Skill composition
 
 N/A.
 
-### ⭐ Light usage example (Q8)
+### ⭐ Light usage example (Q10)
 
 Since LlamaIndex has no skill concept, here's the *closest BYO pattern* — a markdown loader that turns a `SKILL.md` into a `FunctionTool`:
 
@@ -972,45 +992,45 @@ parent = FunctionAgent(tools=[skill], llm=llm)
 
 This is purely BYO. **Not provided — BYO** for any of: lazy loading, scoping, registry, versioning.
 
-## 9. Resource Manager
+## 11. Resource Manager
 
-### 9.1 First-class Resource Manager?
+### 11.1 First-class Resource Manager?
 
 **No.** Not provided — BYO.
 
-### 9.2 Loading sources
+### 11.2 Loading sources
 
 Not provided — BYO. The framework loads tools from Python imports (or from any retriever you wire in via `tool_retriever`). There is no concept of "load a skill from S3/GCS/Git".
 
-### 9.3 Source composition / priority
+### 11.3 Source composition / priority
 
 Not provided — BYO.
 
-### 9.4 Versioning model
+### 11.4 Versioning model
 
 For *integration packages* (PyPI), each `llama-index-<x>-<y>` has its own semver and is in the `CHANGELOG.md`. For agent resources (skills, sub-agents, tools), no versioning — they live in your codebase.
 
-### 9.5 Scoping at the registry layer
+### 11.5 Scoping at the registry layer
 
 Not provided — BYO.
 
-### 9.6 Publishing workflow
+### 11.6 Publishing workflow
 
 The LlamaHub site (https://llamahub.ai/) is a directory of community LlamaPacks but offers no draft/review/promote workflow.
 
-### 9.7 Lifecycle / governance
+### 11.7 Lifecycle / governance
 
 Not provided — BYO.
 
-### 9.8 Programmatic API
+### 11.8 Programmatic API
 
 Not provided — BYO.
 
-### 9.9 Caching & sync model
+### 11.9 Caching & sync model
 
 Not provided — BYO.
 
-### ⭐ Light usage example (Q9)
+### ⭐ Light usage example (Q11)
 
 Not provided — BYO. Skeleton of a hand-rolled approach:
 
@@ -1033,29 +1053,29 @@ agent = FunctionAgent(tools=tools, llm=llm)
 
 There is no LlamaIndex-shipped `reg.list_active(tenant_id=…)` equivalent; you build it on top of `ObjectRetriever` (`llama-index-core/llama_index/core/objects/`) which can be backed by your own vector store of tool descriptions.
 
-## 10. Observability: Usage, Cost, Tracing, Audit
+## 12. Observability: Usage, Cost, Tracing, Audit
 
-### 10.1 Where tokens are surfaced
+### 12.1 Where tokens are surfaced
 
 - **Per LLM call**: token counts surface on the `ChatResponse.raw` payload (provider-dependent), and the `TokenCountingHandler` accumulates them across the run (`callbacks/token_counting.py:79-140, 143-...`).
 - **Per event**: `AgentStream` carries the per-delta raw payload (`workflow_events.py:38-46`).
 - **Per session**: read `TokenCountingHandler.total_llm_token_count` or query your tracing backend.
 
-### 10.2 Per-call / per-turn / per-session / per-tenant rollups
+### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
 - Per-call: from `ChatResponse.raw`.
 - Per-session: `TokenCountingHandler` accumulates as long as the handler instance lives.
 - Per-tenant: BYO. The `instrument_tags` context manager (`llama-index-instrumentation/src/llama_index_instrumentation/dispatcher.py:36-42`) lets you tag spans with arbitrary key/values — this is the recommended mechanism for per-tenant tagging.
 
-### 10.3 USD cost computation
+### 12.3 USD cost computation
 
 🔴 **Not provided.** Searching the entire core package for `cost_usd`, `cost_in_dollars`, or `usd` returns no results. You compute USD yourself from token counts × a provider price table.
 
-### 10.4 Per-tenant / per-conversation cost
+### 12.4 Per-tenant / per-conversation cost
 
 BYO via metadata-tagged spans.
 
-### 10.5 LLM / tool tracing
+### 12.5 LLM / tool tracing
 
 Two paths:
 
@@ -1063,11 +1083,11 @@ Two paths:
 - **OTel exporter**: `llama-index-observability-otel` (`llama-index-integrations/observability/llama-index-observability-otel/`) — bridges spans to any OTel-compatible backend (Datadog, Honeycomb, Jaeger, etc.).
 - **First-party integrations** (callback packages): Arize Phoenix, Langfuse, Opik, OpenInference, PromptLayer, UpTrain, W&B, HoneyHive, AgentOps, Literal AI, Argilla, AIM — about 20+ in `llama-index-integrations/callbacks/` and `…/observability/`.
 
-### 10.6 Audit logging
+### 12.6 Audit logging (who / when / what)
 
 Not first-class. The instrumentation event stream + your own sink (Postgres / S3) is the recommended approach. Not tamper-evident out of the box.
 
-### 10.7 Canonical "where do I read token counts" code path
+### 12.7 Canonical "where do I read token counts" code path
 
 ```python
 # llama-index-core/llama_index/core/callbacks/token_counting.py:79-140
@@ -1094,7 +1114,7 @@ print(token_counter.total_llm_token_count)
 print(token_counter.prompt_llm_token_count, token_counter.completion_llm_token_count)
 ```
 
-### ⭐ Light usage example (Q10)
+### ⭐ Light usage example (Q12)
 
 ```python
 from llama_index.core import Settings
@@ -1123,9 +1143,9 @@ print("tokens_out =", counter.completion_llm_token_count)
 # Datadog/OTel sink picks up the tagged spans automatically.
 ```
 
-## 11. Built-in Tools & Tool Authoring API
+## 13. Built-in Tools & Tool Authoring API
 
-### 11.1 Built-in tools shipped in the box
+### 13.1 Built-in tools shipped in the box
 
 `llama-index-core` ships **no general-purpose tools** in the box (no `Read`/`Write`/`Edit`/`Bash`/`WebFetch`/`Grep` analogues). The starter package `llama-index` only pulls in OpenAI LLM + embeddings.
 
@@ -1151,11 +1171,11 @@ For real tools, you install integration packages from `llama-index-integrations/
 
 Core also has `QueryEngineTool`, `RetrieverTool`, `OnDemandLoaderTool` (`llama-index-core/llama_index/core/tools/`) for the RAG use case.
 
-### 11.2 Built-in tool quality
+### 13.2 Built-in tool quality
 
 The web/file tools are thin wrappers around vendor APIs. There is no equivalent to Claude Code's `Edit` (anchor matching), `Read` (line numbers), `Monitor` (line-event streaming). For our use case (agent piloting skills), you would write your own.
 
-### 11.3 Tool authoring API
+### 13.3 Tool authoring API
 
 The smallest possible tool is a typed Python function:
 
@@ -1185,11 +1205,11 @@ topic_search_tool = FunctionTool.from_defaults(
 
 JSON schema is auto-generated from the function signature + type hints via `create_schema_from_function` (`llama-index-core/llama_index/core/tools/function_tool.py:242` + `…/tools/utils.py`).
 
-### 11.4 Typed tool I/O
+### 13.4 Typed tool I/O
 
 Runtime validation via Pydantic. `create_schema_from_function` builds a `BaseModel` subclass; on invalid LLM args the call raises a Pydantic `ValidationError`, which is caught by `_call_tool` and wrapped in a `ToolOutput(is_error=True, content=str(e), ...)` (`base_agent.py:364-378`).
 
-### 11.5 Streaming tools
+### 13.5 Streaming tools
 
 Tools can write to the event stream via `ctx.write_event_to_stream(...)` inside the tool body (because they receive the live `Context`):
 
@@ -1203,9 +1223,9 @@ async def long_task(ctx: Context) -> str:
 
 This emits custom events to the consumer mid-tool-execution. Tools don't *yield* partial results back to the LLM mid-call though — the tool returns once.
 
-## 12. MCP (Model Context Protocol) Support
+## 14. MCP (Model Context Protocol) Support
 
-### 12.1 MCP client support
+### 14.1 MCP client support
 
 ✅ First-party via `llama-index-tools-mcp` (`llama-index-integrations/tools/llama-index-tools-mcp/`). `McpToolSpec` consumes any `mcp.ClientSession` and exposes its tools as `FunctionTool`s (`base.py:19`):
 
@@ -1216,11 +1236,11 @@ tool_spec = McpToolSpec(client, allowed_tools=allowed_tools, ...)
 return await tool_spec.to_tool_list_async()
 ```
 
-### 12.2 MCP server support
+### 14.2 MCP server support
 
 ✅ `workflow_as_mcp(workflow)` (`utils.py:77-141`) wraps any `Workflow` (including an `AgentWorkflow`) as a FastMCP server, exposing it as a single tool. Streams workflow events as MCP log messages (`utils.py:135-137`).
 
-### 12.3 Transports
+### 14.3 Transports
 
 stdio, SSE, streamable_http — all supported by `BasicMCPClient` (`client.py:22-24`):
 
@@ -1232,57 +1252,57 @@ from mcp.client.streamable_http import streamable_http_client
 
 The client picks based on URL: `…/sse` → SSE, `?transport=sse` → SSE, otherwise streamable_http; command-line strings → stdio (`client.py:54-66, 230-275`).
 
-### 12.4 In-process MCP
+### 14.4 In-process MCP
 
 ✅ via `workflow_as_mcp(workflow)` — a Python function or workflow becomes an MCP tool without spawning a subprocess (it runs in the same FastMCP process).
 
-### 12.5 Auth / lifecycle
+### 14.5 Auth / lifecycle
 
 OAuth is supported through `OAuthClientProvider` and a `TokenStorage` interface (`client.py:25-26, 69-...`). `DefaultInMemoryTokenStorage` is the default; production deployments implement their own to persist tokens.
 
-## 13. Multi-model Routing & Fallback
+## 15. Multi-model Routing & Fallback
 
-### 13.1 Multi-provider support
+### 15.1 Multi-provider support
 
 ✅ Extensive. 104 LLM integration packages under `llama-index-integrations/llms/` — Anthropic, OpenAI, Azure OpenAI, Bedrock, Bedrock Converse, Vertex, Google GenAI, Cohere, Mistral, Groq, Together, Fireworks, DeepSeek, Cerebras, Databricks, Cloudflare AI Gateway, Heroku, HuggingFace, IBM, Ollama, vLLM, and many more.
 
-### 13.2 Per-task model selection
+### 15.2 Per-task model selection
 
 Each agent has its own `llm:` field (`base_agent.py:111-113`). You can give a different LLM to each sub-agent in an `AgentWorkflow` — e.g. orchestrator on Sonnet, workers on Haiku. There's no first-party `Router` (cheap-for-triage / expensive-for-hard) abstraction; you build it as a routing tool or as a custom step.
 
-### 13.3 Automatic fallback chain
+### 15.3 Automatic fallback chain
 
 Not first-class in core. There is `llama-index-llms-cloudflare-ai-gateway` (integration) which Cloudflare's AI Gateway provides; for general fallback you wrap an `LLM` with retry/fallback logic yourself.
 
-### 13.4 Mid-stream model switching
+### 15.4 Mid-stream model switching
 
 Per-turn switch supported — change the `llm` attribute on the agent (or use sub-agents on different models). Mid-token switch is not supported.
 
-### 13.5 Sub-agent model overrides
+### 15.5 Sub-agent model overrides
 
 ✅ Each sub-agent in `AgentWorkflow` has its own `llm` (`multi_agent_workflow.py:140` builds `self.agents = {cfg.name: cfg for cfg in agents}`; each `cfg.llm` is independent).
 
-## 14. Chat UI Layer
+## 16. Chat UI Layer
 
-### 14.1 Streaming chat hook
+### 16.1 Streaming chat hook
 
 Not first-party in `llama-index-core`. Community `llama-index-server` (separate PyPI) and `llama-index-chat-ui` (TS, separate repo) provide React/Next.js components.
 
-### 14.2 Tool call rendering primitives
+### 16.2 Tool call rendering primitives
 
 Not provided in core — BYO. The `llama_index.core.chat_ui` namespace exists but contains only event types (`chat_ui/events.py:1-19`: `UIEvent`, `SourceNodesEvent`, `ArtifactEvent`); no React.
 
-### 14.3 Generative UI components
+### 16.3 Generative UI components
 
 Via the separate `llama-index-chat-ui` npm package (out of scope here). In Python, `ArtifactEvent` is just a typed event you forward to your own UI.
 
-### 14.4 BYO pattern
+### 16.4 BYO pattern
 
 Parse `handler.stream_events()` server-side into SSE; render in your own React (or Vue/HTMX) frontend. The `ChatUI` reference frontend (https://github.com/run-llama/chat-ui) is the project's "official" demo.
 
-## 15. Memory & Knowledge
+## 17. Memory & Knowledge
 
-### 15.1 Long-term memory / semantic recall
+### 17.1 Long-term memory / semantic recall
 
 ✅ First-class. `Memory.memory_blocks` (`memory.py:208-211`) accepts `BaseMemoryBlock` subclasses:
 
@@ -1292,40 +1312,40 @@ Parse `handler.stream_events()` server-side into SSE; render in your own React (
 
 Blocks are processed in priority order; ejected short-term messages are pushed into blocks (`memory.py:142-156`).
 
-### 15.2 RAG / knowledge retrieval integration
+### 17.2 RAG / knowledge retrieval integration
 
 This is LlamaIndex's historical core competency. Vector stores: 60+ integrations under `llama-index-integrations/vector_stores/`. Index types: VectorStoreIndex, SummaryIndex, TreeIndex, KeywordTableIndex, KnowledgeGraphIndex, PropertyGraphIndex, ComposableIndex. Retrieval primitives: `BaseRetriever`, `RouterRetriever`, `FusionRetriever`. Citations: built-in via `CitableBlock` / `CitationBlock`.
 
 For agent use: expose retrieval as a `QueryEngineTool` and let the LLM call it.
 
-### 15.3 Per-tenant memory scoping
+### 17.3 Per-tenant memory scoping
 
 `Memory.session_id` is the only first-class scoping key. For per-tenant separation, encode `tenant:user:session` in `session_id` or use a per-tenant `SQLAlchemyChatStore` instance (different DB, table, or schema via `db_schema=`, `memory.py:298`).
 
-## 16. Safety, Guardrails & Tool Sandboxing
+## 18. Safety, Guardrails & Tool Sandboxing
 
-### 16.1 Input/output guardrails
+### 18.1 Input/output guardrails
 
 Not first-party in core. The `llama-index-integrations` ecosystem includes `llama-index-guardrails` (PyPI) and integrations with Guardrails AI, NeMo Guardrails, etc.
 
-### 16.2 Tool sandboxing / permission model
+### 18.2 Tool sandboxing / permission model
 
 No `canUseTool`-style hook. Permission is enforced by what tools you put in the `tools=[...]` list at agent construction. Inside a tool, you can `raise` to refuse — but no declarative ACL.
 
-### 16.3 Sandbox provider integrations
+### 18.3 Sandbox provider integrations
 
 - `llama-index-tools-code-interpreter` — local Python (not sandboxed by default).
 - `llama-index-tools-azure-code-interpreter` — Azure-hosted sandbox.
 - `llama-index-tools-aws-bedrock-agentcore` — Bedrock AgentCore.
 - E2B / Daytona / Modal: no first-party packages found.
 
-### 16.4 Default-deny vs. default-allow
+### 18.4 Default-deny vs. default-allow
 
 Default-allow. Whatever you pass to `tools=[...]` is callable.
 
-## 17. Eval, Testing & CI Gates
+## 19. Eval, Testing & CI Gates
 
-### 17.1 Golden datasets / regression suites
+### 19.1 Golden datasets / regression suites
 
 ✅ Built-in evaluation primitives in `llama-index-core/llama_index/core/evaluation/`. Includes:
 - `RetrieverEvaluator`, `RelevancyEvaluator`, `FaithfulnessEvaluator`, `CorrectnessEvaluator`, `AnswerRelevancyEvaluator`, `GuidelineEvaluator`, `SemanticSimilarityEvaluator`, `BatchEvalRunner`.
@@ -1333,33 +1353,33 @@ Default-allow. Whatever you pass to `tools=[...]` is callable.
 
 These are heavily RAG-oriented; for agent-behavior eval you mostly compose primitives yourself or use Phoenix/Langfuse/Opik.
 
-### 17.2 LLM-as-judge scoring
+### 19.2 LLM-as-judge scoring
 
 ✅ Each of the above evaluators uses an LLM as judge against a rubric.
 
-### 17.3 CI eval gates / pre-merge
+### 19.3 CI eval gates / pre-merge
 
 Not provided — BYO. You wire `BatchEvalRunner` into your CI.
 
-### 17.4 Trace replay for skill iteration
+### 19.4 Trace replay for skill iteration
 
 Not provided — BYO. Phoenix/Langfuse/Arize integrations provide their own UIs.
 
-## 18. Local Sandbox & Dev UX
+## 20. Local Sandbox & Dev UX
 
-### 18.1 Local agent runner
+### 20.1 Local agent runner
 
 Not provided as a CLI/playground in `llama-index-core`. You run agents in a Jupyter notebook or a script. The `llama-index-cli` package exists (separate) but is focused on document indexing, not agent chatting.
 
-### 18.2 Trace inspection
+### 20.2 Trace inspection
 
 Via the OTel exporter into your tracing backend (Phoenix, Jaeger, Langfuse, etc.). No local TUI viewer.
 
-### 18.3 Tenant / org switching
+### 20.3 Tenant / org switching
 
 Not provided — BYO.
 
-### 18.4 Hot reload
+### 20.4 Hot reload
 
 Not provided. Python reload is standard `importlib.reload` / `jurigged` if you want it.
 
