@@ -1,31 +1,33 @@
 # Microsoft Agent Framework — Benchmark Analysis
 
 > **Repo**: https://github.com/microsoft/agent-framework
-> **Commit analysed**: a60e541c9ac53e9cd944986cafd5b044d8d004d0
+> **Commit analysed**: e15c6dce2d10196a61c851a56ef3d839ff3c3ea7
 > **Branch**: main
 > **Framework path**: frameworks/microsoft-agent-framework
-> **Analysed on**: 2026-05-19
+> **Analysed on**: 2026-10-01
+
+Versions at this commit: Python `agent-framework` **1.19.0** (2026-09-18, `python/packages/core/pyproject.toml:7`); .NET `Microsoft.Agents.AI` **1.23.0** (`dotnet/nuget/nuget-package.props:4`, git tag `dotnet-1.23.0` dated 2026-09-28; latest published .NET GitHub Release is `dotnet-1.22.0`, 2026-09-18). Previous analysis (2026-05-19) was at `a60e541c` (`python-1.4.0`, .NET 1.6.x); the delta is 1,277 commits.
 
 ## TL;DR
 
-- ⭐ **What is this stack architecturally?** Microsoft Agent Framework (MAF) is a **dual-language, library-first SDK** (Python `agent-framework` + .NET `Microsoft.Agents.AI`) for in-process agent loops, with two complementary runtimes: (a) a built-in **graph-based Workflow runtime** for multi-agent orchestration (sequential / concurrent / handoff / fan-in/out / checkpoint-able), and (b) optional **hosted runtimes** (Azure Functions, Durable Task framework, Foundry Hosted Agents, AG-UI/A2A endpoints). On .NET the agent is built on top of `Microsoft.Extensions.AI` (`IChatClient` + `FunctionInvokingChatClient`). It is essentially the **convergence of Semantic Kernel + AutoGen**, with migration guides from both.
-- **Ecosystem**: **Python** (primary) with full-parity **.NET** (`Microsoft.Agents.AI`). Both languages ship from the same monorepo; the .NET tree is slightly more mature for hosting (Azure Functions, DurableTask, Aspire).
-- **License / governance**: MIT, owned by Microsoft (`microsoft/agent-framework`). Strong commercial backing (Azure / Foundry), official MS Learn docs, weekly office hours, public Discord, and a "Microsoft Agent Framework" GitHub org.
-- **Maturity**: Core packages (`agent-framework-core`, `agent-framework-openai`, `agent-framework-foundry`, `Microsoft.Agents.AI`) are marked **released**; many adapters (Anthropic, Bedrock, AG-UI, Redis, Cosmos, A2A, DevUI, durabletask, hyperlight, mem0) are `beta`/`alpha`. Skills and several harness providers are still **experimental** (`@experimental(feature_id=ExperimentalFeature.SKILLS)`). Active release cadence — `1.4.0` shipped 2026-05-14, days before this study.
-- **Where does the loop actually execute?** In-process. The Python `Agent` is a thin layer over `BaseChatClient` (`python/packages/core/agent_framework/_clients.py`), and the .NET `ChatClientAgent` wraps `Microsoft.Extensions.AI.IChatClient` with `FunctionInvokingChatClient` middleware. No subprocess, no vendor binary — your process *is* the agent.
-- **Strongest architectural choice for our use case**: **Graph-based `Workflow`** primitive with first-class checkpointing (`CheckpointStorage`, `CosmosCheckpointStorage`, `FileCheckpointStorage`), HITL via `RequestInfoExecutor`/`function_approval_request`, and an explicit `AgentSessionStore` abstraction for multi-session hosting. The .NET hosting story (DI-driven `AddAIAgent(name)` + `AgentSessionStore` + `AIHostAgent` wrapper) maps cleanly onto an ASP.NET Core or Azure Functions multi-tenant server.
-- **Weakest / biggest gap**: **No first-class tenancy primitive.** No `tenant_id` field on session, no per-tenant scoping for skills/tools, no per-tenant rate-limit/budget cap. Forced tool args are doable only via custom `FunctionMiddleware` (.NET equivalent: `FunctionInvokingChatClient` middleware). Skills loaders also have no built-in tenant filter.
-- **Most surprising finding**: The Python `Skill` system follows the **agentskills.io spec** (lowercase-hyphen names, YAML frontmatter, `references/`, `assets/`, `scripts/`) and ships **multi-source composition** (`AggregatingSkillsSource` + `FilteringSkillsSource` + `DeduplicatingSkillsSource`) — closer to Anthropic Claude's SKILL.md than to any other framework studied. Progressive disclosure is built in: `load_skill`/`read_skill_resource`/`run_skill_script` tools, with metadata-only injected into the system prompt.
+- ⭐ **What is this stack architecturally?** Microsoft Agent Framework (MAF) is a **dual-language, library-first SDK** (Python `agent-framework` + .NET `Microsoft.Agents.AI`) for in-process agent loops, with (a) a built-in **graph-based Workflow runtime** plus a stable `agent-framework-orchestrations` package (sequential / concurrent / handoff / group chat / Magentic, checkpointable), (b) a **"harness" layer** (`create_harness_agent` / `HarnessAgent`) that bundles compaction, todo, modes, file memory, background agents, tool approval, shell and looping, and (c) optional **hosting adapters** (OpenAI Responses / Chat Completions endpoints in .NET, app-owned hosting helpers in Python, AG-UI, A2A, MCP, Foundry Hosted Agents). On .NET the agent is built on `Microsoft.Extensions.AI` (`IChatClient` + `FunctionInvokingChatClient`). It is the convergence of Semantic Kernel and AutoGen, with migration guides from both.
+- **Ecosystem**: **Python** (primary) with near-parity **.NET**. Both ship from one monorepo with independent release trains (Python weekly-ish, .NET every 1-2 weeks).
+- **License / governance**: MIT, owned by Microsoft. Commercial backing through Azure / Microsoft Foundry, MS Learn docs, weekly office hours, Discord.
+- **Maturity / adoption**: Python core, OpenAI, Foundry, orchestrations, declarative, AG-UI and GitHub Copilot packages are **released**; most other adapters are beta and the new hosting / vector-store packages are alpha. 13,889 stars, 2,406 forks, 273 contributors on 2026-10-01. Fifteen Python minor releases and seventeen .NET minor releases shipped between May and September 2026.
+- **Where does the loop actually execute?** In-process. Python `Agent` over `BaseChatClient` + `FunctionInvocationLayer`; .NET `ChatClientAgent` over `FunctionInvokingChatClient`. No subprocess, no vendor binary.
+- **Strongest architectural choice for our use case**: the **.NET hosting isolation-key primitive** (new since May): `AgentIsolationKeyProvider` + `ClaimsIdentityAgentIsolationKeyProvider` + `IsolationKeyScopedAgentSessionStore` partition sessions, A2A tasks and OpenAI Responses/Conversations storage by a key resolved from trusted claims (`dotnet/src/Microsoft.Agents.AI.Hosting/AgentIsolationKeyProvider.cs:32`). Combined with first-class skills (now stable) whose sources receive the invoking agent and session (`SkillsSourceContext`), MAF is now closer to a usable multi-tenant base than in May.
+- **Weakest / biggest gap**: the **Python side still has no tenant primitive**: tenant identity travels as untyped `function_invocation_kwargs`, forced tool args are BYO `FunctionMiddleware`, no per-tenant budget/rate limit in either language, and the Python hosting packages are alpha "app-owned" helpers (no routes, no auth). The Durable Task / Azure Functions hosting story was **moved out** of this repo into `microsoft/agent-framework-durable-extension`.
+- **Most surprising finding**: the security posture tightened sharply across the delta. Skill tools, file-access write tools and the shell tool now **require approval by default**; approval responses are **bound to framework-recorded requests in the session** (a fabricated `function_approval_response` in caller-supplied history cannot authorise a tool, `python/packages/core/agent_framework/_tools.py:1798-1811`); MCP server-initiated sampling is denied by default; an experimental **AGENT-HOOKS-0.1 fail-closed enforcement contract** ships in both languages. Good for safety, but it means unattended agents need explicit auto-approval rules.
 - **One-line verdicts**:
-  - Sessions/persistence: ⚠ multi-store (InMemory, File-JSONL, Redis, CosmosNoSql), but only via `HistoryProvider`/`AgentSessionStore` BYO; no built-in service-mesh checkpointing.
-  - Skills: ✅ first-class, spec-aligned, multi-source.
-  - Resource Manager: ✗ no published-resource registry; loading sources exist but no draft/promote/RBAC.
-  - Sub-agents: ✅ `agent.as_tool()` + `SubAgentsProvider` (concurrent task delegation with state).
-  - Multi-tenancy: ✗ BYO via metadata and middleware.
-  - Hooks: ✅ three middleware layers (Agent / Chat / Function) + `ContextProvider` pipeline.
-  - API: ⚠ multiple options (DevUI / AG-UI / A2A / Azure Functions / Foundry Hosted) — none is "the" SDK server.
-  - Observability: ✅ OpenTelemetry GenAI semantic conventions, tokens captured per-call and per-agent-invoke, histograms.
-- **Production-readiness verdict for multi-tenant server-side deployment**: **Solid** core (especially .NET on ASP.NET Core / Azure Functions / DurableTask), with several rough edges — multi-tenancy primitives are entirely BYO, DevUI is explicitly a "sample app, not for production", and several providers (memory, AG-UI, skills) are still experimental/beta. Engineers must layer tenant isolation, USD budget caps, and a resource manager themselves.
+  - Sessions/persistence: ✅ `HistoryProvider` + new `SessionStore` (Python, experimental) and `AgentSessionStore` with partitioned keys (.NET, experimental); stores for in-memory, file, Redis, Cosmos, Valkey, Azure Blob, Foundry.
+  - Skills: ✅ first-class, agentskills.io-aligned, **stable** since Python 1.11.0 / .NET 1.13.0; file, inline, class and MCP sources; context-aware filtering and tenant-keyed caching.
+  - Resource Manager: ✗ loader/decorator pipeline only; no versioning, publish workflow or RBAC.
+  - Sub-agents: ✅ `agent.as_tool()` + `BackgroundAgentsProvider` (renamed from `SubAgentsProvider`, now in both languages) + orchestrations package.
+  - Multi-tenancy: ⚠ .NET hosting has a real isolation-key primitive; Python is BYO via kwargs and middleware.
+  - Hooks: ✅ three middleware layers + `ContextProvider` + message injection + agent-hooks enforcement bundle.
+  - API: ⚠ several options (.NET `MapOpenAIResponses`, AG-UI, A2A, Foundry Hosted, DevUI sample, Python alpha helpers); none is a turnkey multi-tenant server.
+  - Observability: ✅ OTel GenAI conventions, **on by default** since Python 1.6.0, cache/reasoning token fields; no USD cost.
+- **Production-readiness verdict for multi-tenant server-side deployment**: **Solid on .NET** (ASP.NET Core + isolation keys + Cosmos/Blob session stores + OpenAI Responses endpoints), **usable but assemble-it-yourself on Python**. Fast release cadence with frequent `[BREAKING]` entries in experimental and beta areas means pinning and regular upgrade work.
 
 ---
 
@@ -33,48 +35,53 @@
 
 ### 0.1 What is this stack?
 
-A **library/framework** (not a vendor-managed service) for building agent and multi-agent workflows in **Python and .NET**. It ships:
-- A core **agent abstraction** (`Agent` / `ChatClientAgent`) over `IChatClient` (`Microsoft.Extensions.AI`) / `BaseChatClient` (Python).
-- A graph-based **Workflow** runtime for multi-agent orchestration.
-- A constellation of **hosting adapters** (Azure Functions, DurableTask, AG-UI, A2A, Foundry Hosted Agents, DevUI sample server).
+A **library/framework** (not a vendor-managed service) for building agents and multi-agent workflows in **Python and .NET**. It ships:
+- A core **agent abstraction** (`Agent` / `ChatClientAgent`) over `BaseChatClient` (Python) / `IChatClient` (`Microsoft.Extensions.AI`).
+- A graph-based **Workflow** runtime plus a stable **orchestrations** package.
+- A **harness** layer (`create_harness_agent` / `HarnessAgent`) with batteries-included context providers.
+- A constellation of **hosting adapters** (OpenAI Responses / Chat Completions / Conversations endpoints, AG-UI, A2A, MCP, Telegram, Foundry Hosted Agents, DevUI sample server). Durable Task and Azure Functions hosting now live in a sister repo.
 
 ### 0.2 Ecosystem
 
-**Primary: Python** (Python ≥3.10, packages under `python/packages/`).
-Secondary: **.NET 8/9+** (`Microsoft.Agents.AI*`, packages under `dotnet/src/`). Both languages are released from the same monorepo with near-parity feature sets; the .NET tree is slightly more mature on the hosting side (Aspire, Azure Functions templates, DurableTask first-class). Most of this report cites Python file paths but cross-references the .NET equivalent where relevant.
+**Primary: Python** (Python ≥3.10, `python/packages/core/pyproject.toml:6`; 42 packages under `python/packages/`).
+Secondary: **.NET** (targets `net10.0;net9.0;net8.0` plus `netstandard2.0;net472`, `dotnet/Directory.Build.props:12-13`; 35 `.csproj` under `dotnet/src/`). Both languages are released from the same monorepo; features are usually ported in both directions within a few weeks (many release notes are titled ".NET/Python: …"). This report cites Python paths first and the .NET equivalent where relevant.
 
 ### 0.3 Project status & governance
 
-- Open source, **MIT** (`frameworks/microsoft-agent-framework/LICENSE`).
-- Owned and maintained by **Microsoft** under `microsoft/agent-framework`. Strong commercial backing through Azure Foundry, Azure AI Search, Cosmos DB, Azure Functions, DurableTask, Hyperlight. ADRs are formal (`docs/decisions/0001-*` onward).
-- Public Discord, weekly community office hours (`frameworks/microsoft-agent-framework/COMMUNITY.md`).
-- Migration guides explicitly cover **Semantic Kernel → MAF** and **AutoGen → MAF** (README:100-102).
+- Open source, **MIT** (`LICENSE`).
+- Owned and maintained by **Microsoft** (`microsoft/agent-framework`). Commercial backing through Microsoft Foundry, Azure AI Search, Cosmos DB, Azure Storage, Purview, Hyperlight. ADRs are formal and numbered (`docs/decisions/0001-*` through `0043-*`).
+- Public Discord and weekly community office hours (`COMMUNITY.md`).
+- Migration guides cover **Semantic Kernel → MAF** and **AutoGen → MAF**.
+- Durable Task and Azure Functions integrations were extracted to a separate Microsoft repo, `microsoft/agent-framework-durable-extension` (`docs/decisions/0032-durable-azure-functions-extraction.md:21`, `docs/features/durable-agents/README.md:3`). Python core still re-exports their symbols and installs them through the `all` extra (`python/CHANGELOG.md:214`).
+- **Durable extension inspected (calibration pass, 2026-10-01)**: [microsoft/agent-framework-durable-extension](https://github.com/microsoft/agent-framework-durable-extension) is Microsoft-maintained, MIT-licensed, created 2026-07-13 and active (last push 2026-10-01). Its [README](https://github.com/microsoft/agent-framework-durable-extension#readme) and [durable-agents docs](https://github.com/microsoft/agent-framework-durable-extension/blob/main/docs/features/durable-agents/README.md) describe agent sessions as Durable Task entities (history persisted after each message, per-session serialization, any worker can resume a session), Azure Functions hosting as the recommended production model (generated `/api/agents/{name}/run` endpoints, fire-and-forget via `x-ms-wait-for-response: false`, MCP tool triggers), console/generic-host hosting on the Durable Task Scheduler, durable workflows and orchestrations with human-in-the-loop waits, and per-agent session TTL ([durable-agents-ttl.md](https://github.com/microsoft/agent-framework-durable-extension/blob/main/docs/features/durable-agents/durable-agents-ttl.md)). It labels itself preview: the only release is the pre-release [v1.16.0-preview.260922.1](https://github.com/microsoft/agent-framework-durable-extension/releases/tag/v1.16.0-preview.260922.1) (NuGet `Microsoft.Agents.AI.DurableTask` and `Microsoft.Agents.AI.Hosting.AzureFunctions`; PyPI `agent-framework-durabletask` and `agent-framework-azurefunctions` 1.0.0b260922), and the Python package classifier is `Development Status :: 4 - Beta` ([pyproject.toml](https://github.com/microsoft/agent-framework-durable-extension/blob/main/python/packages/durabletask/pyproject.toml)). I found no agent-specific cron or timer abstraction in it. The benchmark counts it as first-party and caps the affected cells at 4: deployment topology (4, unchanged), background tasks (4), worker pool / queue (4) and mid-run checkpointing (4). Horizontal scaling and export/replay were not re-checked against it.
 
 ### 0.4 Project maturity / age
 
-- First public release in 2025 (preview), now at **`1.4.0` (2026-05-14)** for Python; .NET tracks similarly via NuGet `Microsoft.Agents.AI`. Both have a documented `PACKAGE_STATUS.md` (`python/PACKAGE_STATUS.md`) classifying packages into `alpha` / `beta` / `rc` / `released` / `deprecated`.
-- **`released` packages**: `agent-framework`, `agent-framework-core`, `agent-framework-foundry`, `agent-framework-openai`.
-- Most provider/adapter packages are `beta`. `agent-framework-azure-contentunderstanding` and `agent-framework-gemini` are still `alpha` (`python/PACKAGE_STATUS.md:21,35`).
-- **Feature-level experimental APIs** are decorated with `@experimental(feature_id=ExperimentalFeature.SKILLS)` / `EVALS` / `FILE_HISTORY` (`python/PACKAGE_STATUS.md:60-71`).
-- BREAKING changes still happen in experimental areas (skills restructured in 1.3.0 / 1.4.0).
+- Repo created 2025-04-28; `1.0.0` GA for both languages on 2026-04-02. Now at **Python 1.19.0** (2026-09-18) and **.NET 1.23.0** (tagged 2026-09-28).
+- `python/PACKAGE_STATUS.md` classifies each package. **`released`**: `agent-framework`, `agent-framework-core`, `agent-framework-openai`, `agent-framework-foundry`, `agent-framework-orchestrations`, `agent-framework-declarative`, `agent-framework-ag-ui`, `agent-framework-github-copilot`. **`alpha`**: all five hosting packages (`hosting`, `hosting-a2a`, `hosting-mcp`, `hosting-responses`, `hosting-telegram`), the vector-store connectors (`mongodb`, `postgres`, `qdrant`, `duckdb`, `sql-server`, `azure-documentdb`), `azure-cosmos-memory`, `typesafe`. Everything else is `beta`.
+- **Feature-level experimental APIs** (`python/packages/core/agent_framework/_feature_stage.py:43-67`): `AGENT_HOOKS`, `COMPUTER_USE`, `DECLARATIVE_AGENTS`, `EVALS`, `FILE_HISTORY`, `FIDES`, `FOUNDRY_TOOLS`, `FOUNDRY_PREVIEW_TOOLS`, `FUNCTIONAL_WORKFLOWS`, `HARNESS` (background agents, file access, looping, memory sub-features), `MCP_LONG_RUNNING_TASKS`, `MCP_SKILLS`, `PROGRESSIVE_TOOLS`, `SESSION_STORE`, `TO_PROMPT_AGENT`, `VECTOR_STORES`. `SKILLS` is no longer on the list (graduated in 1.11.0, `python/CHANGELOG.md:412`). On .NET, experimental APIs carry `[Experimental(MAAI001)]` (e.g. `AgentSessionStore`).
+- Graduations since May: `create_harness_agent`, mode/todo providers, `ToolApprovalMiddleware`, `FileMemoryProvider` (Python 1.12.0); `HarnessAgent`, `ToolApprovalAgent`, message injection (.NET 1.14.0); Skills API (Python 1.11.0, .NET 1.13.0).
+- BREAKING changes are still frequent (each Python release has several `[BREAKING]` or `[BREAKING — experimental]` entries).
 
 ### 0.5 Adoption & community signal
 
-- GitHub stars not captured in repo; the README shields out to `img.shields.io/github/stars/microsoft/agent-framework?style=social`. As of 2026-05-19 the repo is being actively maintained with very frequent commits; weekly community office hours; Discord linked in README. (Numbers should be re-captured from the GitHub UI on the reading date.)
-- PyPI: `agent-framework` (and 20+ sub-packages); NuGet: `Microsoft.Agents.AI*` (≈35 packages under `dotnet/src/`).
+Captured **2026-10-01** via `gh api repos/microsoft/agent-framework`:
+- **13,889 stars**, **2,406 forks**, 111 watchers, **273 contributors**.
+- 537 open issues, 149 open PRs; 487 PRs merged since 2026-09-01. Last push 2026-10-01.
+- Release cadence: Python minor releases roughly weekly (1.5.0 on 2026-05-19 through 1.19.0 on 2026-09-18), .NET minor releases every 1-2 weeks (1.7.0 through 1.23.0 over the same period). Separate tags for out-of-band packages (`python-github-copilot-1.0.0`, `python-hosting-a2a-1.0.0a260723`).
+- Maintainers triage actively (issue-type triage workflow, community PR limits in CI).
 
 ### 0.6 Ecosystem fit
 
-- 22 Python packages under `python/packages/` (count via `find … -name pyproject.toml`). ≈35 .NET csproj files under `dotnet/src/`.
-- PyPI: `agent-framework` umbrella + provider packages (`agent-framework-openai`, `agent-framework-anthropic`, `agent-framework-foundry`, `agent-framework-azure-cosmos`, `agent-framework-redis`, `agent-framework-mem0`, `agent-framework-ag-ui`, `agent-framework-a2a`, `agent-framework-devui`, …).
-- NuGet: `Microsoft.Agents.AI`, `Microsoft.Agents.AI.OpenAI`, `Microsoft.Agents.AI.Anthropic`, `Microsoft.Agents.AI.Foundry`, `Microsoft.Agents.AI.Hosting`, `Microsoft.Agents.AI.Hosting.AzureFunctions`, `Microsoft.Agents.AI.DurableTask`, `Microsoft.Agents.AI.CosmosNoSql`, `Microsoft.Agents.AI.AGUI`, …
-- Used mostly as a **library**: you `pip install agent-framework` or `dotnet add package Microsoft.Agents.AI` and host it yourself. DevUI is the only "app" surface and is explicitly a sample, not for production.
+- PyPI: `agent-framework` umbrella + `agent-framework-*` packages (openai, foundry, anthropic, bedrock, gemini, mistral, ollama, claude, github-copilot, copilotstudio, azure-cosmos, redis, mem0, ag-ui, a2a, devui, orchestrations, declarative, hosting-*, tools, hyperlight, monty, purview, vector-store connectors, …).
+- NuGet: `Microsoft.Agents.AI`, `.Abstractions`, `.OpenAI`, `.Anthropic`, `.Foundry`, `.Foundry.Hosting`, `.Hosting`, `.Hosting.AspNetCore`, `.Hosting.OpenAI`, `.Hosting.A2A(.AspNetCore)`, `.Hosting.AGUI.AspNetCore`, `.Hosting.AzureStorage`, `.CosmosNoSql`, `.Valkey`, `.Mem0`, `.Mcp`, `.Harness`, `.AgentHooks`, `.Tools.Shell`, `.LocalCodeAct`, `.Hyperlight`, `.Purview`, `.Workflows*`, `.Declarative`, `.GitHub.Copilot`, `.CopilotStudio`, `.DevUI`, `Aspire.Hosting.AgentFramework.DevUI`. The in-tree `Microsoft.Agents.AI.AGUI` package was **removed**; AG-UI protocol types now come from the external `AGUI.*` NuGet packages (`dotnet/src/Microsoft.Agents.AI.AGUI/README.md:1-30`).
+- Used as a **library**. DevUI is the only app surface and remains a sample, not for production (`python/packages/devui/README.md:6`).
 
 ### 0.7 Documentation depth & cross-team contributor accessibility
 
-- Official docs land at https://learn.microsoft.com/agent-framework/. Rich tutorials, quick-start, user guide, migration guides (README:96-101).
-- ADRs are formal and numbered (`docs/decisions/0001`…`0026`), and **design docs** live in `docs/design/`.
-- Skill authoring is YAML-frontmatter Markdown (agentskills.io spec) → a **Product/Data author can write a skill without engineering hand-holding**, but they will still need an engineer to register skill sources, run instrumentation, etc.
+- Official docs at https://learn.microsoft.com/agent-framework/ (tutorials, user guide, migration guides). Feature docs in-repo under `docs/features/` (code_act, durable-agents, FIDES, vector-stores-and-embeddings).
+- 40+ numbered ADRs in `docs/decisions/` (some numbers duplicated, e.g. three `0039-*` files). ADRs are the best source for design intent (session identity, hosting channels, isolation, agent hooks, skills).
+- Skill authoring is YAML-frontmatter Markdown (agentskills.io spec), so a Product/Data author can write a skill unaided. Registering sources, approval rules and tenant filters still needs an engineer.
 
 ### 0.8 Documentation entry points ⭐
 
@@ -82,15 +89,16 @@ Secondary: **.NET 8/9+** (`Microsoft.Agents.AI*`, packages under `dotnet/src/`).
 - Quickstart: https://learn.microsoft.com/agent-framework/tutorials/quick-start
 - API reference: https://learn.microsoft.com/agent-framework/ (per language)
 - User guide: https://learn.microsoft.com/en-us/agent-framework/user-guide/overview
+- Hosting: https://github.com/microsoft/agent-framework/tree/main/python/samples/04-hosting and https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/04-hosting
+- Durable hosting (sister repo): https://github.com/microsoft/agent-framework-durable-extension
 - Migration from Semantic Kernel: https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-semantic-kernel
 - Migration from AutoGen: https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-autogen
 - Devblog: https://devblogs.microsoft.com/agent-framework/
-- Python samples: https://github.com/microsoft/agent-framework/tree/main/python
-- .NET samples: https://github.com/microsoft/agent-framework/tree/main/dotnet
-- Changelog: in-repo `python/CHANGELOG.md`; per-package CHANGELOGs under `dotnet/src/*/CHANGELOG.md`.
+- Examples: https://github.com/microsoft/agent-framework/tree/main/python/samples and https://github.com/microsoft/agent-framework/tree/main/dotnet/samples
+- Changelog: in-repo `python/CHANGELOG.md`; .NET changes are in GitHub Release notes.
 - GitHub Releases: https://github.com/microsoft/agent-framework/releases
 - GitHub Issues: https://github.com/microsoft/agent-framework/issues
-- Discord: https://discord.gg/b5zjErwbQM (linked in README:5)
+- Discord: https://discord.gg/b5zjErwbQM
 
 ---
 
@@ -104,31 +112,31 @@ Secondary: **.NET 8/9+** (`Microsoft.Agents.AI*`, packages under `dotnet/src/`).
   ──────────►  ┌──────────────┐   │   │           Agent / ChatClientAgent          │     │
    Client     │ HTTP surface │───┼──►│   ┌────────────────┐  ┌─────────────────┐  │     │
               │ (one of:     │   │   │   │ AgentMiddleware│  │ ContextProviders│  │     │
-              │  DevUI, A2A, │   │   │   │ ChatMiddleware │  │ (skills, memory,│  │     │
-              │  AG-UI, AzF, │   │   │   │ FunctionMW     │  │  compaction,    │  │     │
-              │  Foundry HA, │   │   │   └────────┬───────┘  │  sub-agents)    │  │     │
-              │  custom ASP) │   │   │            │          └────────┬────────┘  │     │
-              └──────┬───────┘   │   │   ┌────────▼──────────────────▼────────┐   │     │
-                     │           │   │   │  BaseChatClient.get_response /     │   │     │
-                     │           │   │   │  FunctionInvokingChatClient (loop) │   │     │
-                     │           │   │   └────────────────┬───────────────────┘   │     │
-                     │           │   └────────────────────┼───────────────────────┘     │
+              │  .NET OpenAI │   │   │   │ ChatMiddleware │  │ (skills, memory,│  │     │
+              │  Responses,  │   │   │   │ FunctionMW     │  │  compaction,    │  │     │
+              │  AG-UI, A2A, │   │   │   │ (+agent-hooks) │  │  bg agents, todo│  │     │
+              │  MCP, Foundry│   │   │   └────────┬───────┘  └────────┬────────┘  │     │
+              │  HA, DevUI,  │   │   │   ┌────────▼──────────────────▼────────┐   │     │
+              │  custom)     │   │   │   │ FunctionInvocationLayer /          │   │     │
+              └──────┬───────┘   │   │   │ FunctionInvokingChatClient (loop)  │   │     │
+                     │ isolation │   │   └────────────────┬───────────────────┘   │     │
+                     │ key (.NET)│   └────────────────────┼───────────────────────┘     │
                      │           │                        │                             │
                      │ resume    │   ┌──────────┐   ┌─────▼──────┐   ┌───────────────┐  │
-                     └──────────►│   │AgentSess │◄──┤ tools (fn, │──►│ Provider LLM  │──┼───►  Azure OpenAI / OpenAI / Anthropic /
-                                  │   │ionStore  │   │ MCP, hosted│   │ (Chat Comp /  │  │      Foundry / Bedrock / Gemini / Ollama
-                                  │   │ + State  │   │ web search,│   │ Responses /   │  │
-                                  │   │ Bag      │   │ code interp│   │ stream)       │  │
+                     └──────────►│   │AgentSess.│◄──┤ tools (fn, │──►│ Provider LLM  │──┼───►  OpenAI / Azure OpenAI / Foundry /
+                                  │   │Store +   │   │ MCP, hosted│   │ (Chat Comp /  │  │      Anthropic / Bedrock / Gemini /
+                                  │   │ State    │   │ shell, code│   │ Responses /   │  │      Mistral / Ollama / Copilot
+                                  │   │ Bag      │   │ act)       │   │ stream)       │  │
                                   │   └──────────┘   └────────────┘   └───────────────┘  │
-                                  │                                                      │
                                   └──────────────────────────────────────────────────────┘
                                             │                              │
                                             ▼                              ▼
                               ┌──────────────────────┐         ┌─────────────────────────┐
-                              │ Session/Checkpoint   │         │ Optional: Durable Task /│
-                              │ stores: InMemory,    │         │ Azure Functions / Found │
-                              │ File-JSONL, Redis,   │         │ ry Hosting — externalize│
-                              │ Cosmos NoSql, custom │         │ orchestration & resume  │
+                              │ Session/Checkpoint   │         │ Optional, out of repo:  │
+                              │ stores: InMemory,    │         │ Durable Task / Azure    │
+                              │ File, Redis, Cosmos, │         │ Functions (durable-     │
+                              │ Valkey, Azure Blob,  │         │ extension repo);        │
+                              │ Foundry, custom      │         │ Foundry Hosted Agents   │
                               └──────────────────────┘         └─────────────────────────┘
 ```
 
@@ -136,51 +144,53 @@ Secondary: **.NET 8/9+** (`Microsoft.Agents.AI*`, packages under `dotnet/src/`).
 
 **In your process.**
 
-- **Python**: `agent.run()` builds a `_RunContext` and calls `self.client.get_response(...)`. The chat client (`BaseChatClient`, `python/packages/core/agent_framework/_clients.py:217`) executes the LLM round-trip via `_inner_get_response`, parses tool calls, and re-enters until done. The tool-loop is in `_tools.py:_try_execute_function_calls` (line 1632) which fans out via `_execute_function_calls` (line 1781). Streaming is via `ResponseStream` (`_types.py:ResponseStream`).
-- **.NET**: `ChatClientAgent.RunCoreAsync` → `FunctionInvokingChatClient` from `Microsoft.Extensions.AI` handles the tool-call loop (see `FunctionInvocationDelegatingAgent.cs:74` reference to `FunctionInvokingChatClient.CurrentContext`). The agent is a `DelegatingAIAgent` decorating an `IChatClient` pipeline that the user assembles via `chatClient.AsBuilder().UseFunctionInvocation().UseAIContextProviders(...).BuildAIAgent(...)` (e.g. `HarnessAgent.cs:111-127`).
+- **Python**: `Agent.run()` (`python/packages/core/agent_framework/_agents.py:1182`) builds a `_RunContext` (`_prepare_run_context`, `_agents.py:1484`) and calls `self.client.get_response(...)` (`_call_chat_client`, `_agents.py:1274-1313`). The chat client is a `BaseChatClient` (`_clients.py`) wrapped by `FunctionInvocationLayer` (`_tools.py:4888`), which parses tool calls, dispatches them (`_try_execute_function_call_groups`, `_tools.py:2379`) and re-enters the model until done. Streaming is via `ResponseStream` (`_types.py:3361`).
+- **.NET**: `AIAgent.RunAsync` (`dotnet/src/Microsoft.Agents.AI.Abstractions/AIAgent.cs:334`) sets the ambient run context and calls `RunCoreAsync`; `ChatClientAgent` (`dotnet/src/Microsoft.Agents.AI/ChatClient/ChatClientAgent.cs:57`) delegates the tool loop to `FunctionInvokingChatClient` from `Microsoft.Extensions.AI`. `HarnessAgent` shows the full builder pipeline (`dotnet/src/Microsoft.Agents.AI.Harness/HarnessAgent.cs:267-285`: `UseFunctionInvocation → UseMessageInjection → UsePerServiceCallChatHistoryPersistence → UseAIContextProviders → BuildAIAgent`).
 
-No subprocesses, no bundled CLIs.
+No subprocesses or bundled CLIs in the core path. Exceptions are opt-in: MCP stdio servers, the shell tool, `LocalCodeAct` (.NET local Python execution) and provider agents that wrap other SDKs (`agent-framework-claude`, `agent-framework-github-copilot`).
 
 ### 1.2 Runtime dependencies
 
-- **Language runtime**: Python ≥3.10 or .NET 8/9+.
-- **External binaries/CLIs that the SDK subprocesses**: none. The agent is in-process; MCP-stdio servers may be subprocessed if you wire one, but that is opt-in.
-- **Required infrastructure services**: none for the basic in-process agent. Optional backing stores for production deployment: Redis (`agent-framework-redis`), Cosmos DB (`agent-framework-azure-cosmos` / `Microsoft.Agents.AI.CosmosNoSql`), Azure AI Search, Foundry-hosted threads (when using Foundry persistence).
-- **Required vendor services**: a model provider (Azure OpenAI / OpenAI / Anthropic / Foundry / Bedrock / Gemini / Ollama). No mandatory observability vendor — OTel exporters are pluggable. No mandatory eval vendor — `FoundryEvals` is one option among others.
+- **Language runtime**: Python ≥3.10 (3.14 supported where Hyperlight allows), or .NET 8/9/10 (netstandard2.0 / net472 for some libraries).
+- **External binaries/CLIs that the SDK subprocesses**: none by default. Opt-in: MCP stdio servers, `LocalShellTool` / `DockerShellTool` (Docker daemon for the Docker variant), `LocalCodeAct` (local Python interpreter), Hyperlight sandbox.
+- **Required infrastructure services**: none for the in-process agent. Optional production stores: Redis, Cosmos DB, Azure Blob Storage (.NET session store), Valkey (.NET history), Postgres/pgvector, Qdrant, MongoDB, SQL Server, DuckDB (alpha vector stores).
+- **Required vendor services**: a model provider. No mandatory observability or eval vendor. Note that since Python 1.13.0 the SDK adds **feature-usage telemetry to the HTTP User-Agent** of provider calls; opt out with `AGENT_FRAMEWORK_USER_AGENT_DISABLED` / `AGENT_FRAMEWORK_FEATURE_MASK_DISABLED` (`python/packages/core/agent_framework/_telemetry.py:19-21`).
 
 ### 1.3 Recommended deployment topology
 
-Vendor recommends multiple options (no single canonical), with examples for each:
-- **One-process-many-tenants**: `Microsoft.Agents.AI.Hosting` (`AddAIAgent(name, …)` + `AgentSessionStore` + `AIHostAgent`) is the explicit "host multiple agents in ASP.NET Core / Worker Service" path (`dotnet/src/Microsoft.Agents.AI.Hosting/AgentHostingServiceCollectionExtensions.cs`).
-- **Container-per-agent** (Foundry-hosted agents): each agent lives behind Foundry-managed infra (`samples/04-hosting/FoundryHostedAgents`).
-- **Worker pool / durable orchestration**: `Microsoft.Agents.AI.DurableTask` and `Microsoft.Agents.AI.Hosting.AzureFunctions` expose agents as **durable orchestrations** (`DurableAIAgent`, `AgentEntity`, `DurableAgentSession` — see `dotnet/src/Microsoft.Agents.AI.DurableTask/`).
-- **Sample dev surface**: DevUI (`agent-framework-devui`) for local dev only.
+No single canonical topology; options with samples for each:
+- **One-process-many-tenants (.NET)**: `Microsoft.Agents.AI.Hosting` (`AddAIAgent(name, …)`, default `ServiceLifetime.Singleton`, `dotnet/src/Microsoft.Agents.AI.Hosting/AgentHostingServiceCollectionExtensions.cs:25`) + `AIHostAgent` (`AIHostAgent.cs:27`) + an `AgentSessionStore`, optionally wrapped by `IsolationKeyScopedAgentSessionStore` and a `ClaimsIdentityAgentIsolationKeyProvider` (`UseClaimsBasedAgentIsolation`, `dotnet/src/Microsoft.Agents.AI.Hosting.AspNetCore/ServiceCollectionExtensions.cs:57`). Expose with `MapOpenAIResponses` / `MapAGUIServer` / `MapA2AHttpJson`.
+- **One-process-many-tenants (Python)**: `agent-framework-hosting` `AgentState` + `SessionStore`, inside an app-owned FastAPI/Starlette/Functions app. The README is explicit: "Use FastAPI, Starlette, Azure Functions, Django, or another framework for route registration, auth, middleware, response construction, and background work" (`python/packages/hosting/README.md:62-63`).
+- **Container-per-agent**: Foundry Hosted Agents (`agent-framework-foundry-hosting`, `Microsoft.Agents.AI.Foundry.Hosting`), with per-user session storage isolation (ADR `docs/decisions/0031-hosted-per-user-session-storage-isolation.md:51-63`).
+- **Durable orchestration**: now in `microsoft/agent-framework-durable-extension` (Durable Task + Azure Functions).
+- **Local dev**: DevUI.
 
 ### 1.4 Cold-start cost & instance footprint
 
-Not advertised explicitly. The framework is a thin .NET assembly / Python package — startup is dominated by provider SDK initialisation (`AzureCliCredential`, `OpenAIClient`) and any context-provider loading (e.g., scanning skill directories). DevUI's `dev.md` lists ports 8080/8090. No documented multi-second cold-start surcharge (unlike Claude Agent SDK's open issue #333).
+Not advertised. Startup is dominated by provider SDK initialisation and context-provider work (skill directory scans, MCP connects). Python 1.11.0 made root `agent_framework` exports lazy-loaded and 1.18.0 lazy-loads Foundry/OpenAI integrations to cut import cost (`python/CHANGELOG.md`). No documented multi-second startup issue.
 
 ### 1.5 Vendor lock-in
 
-- **LLM provider**: ✅ open. Adapters ship for Azure OpenAI / Foundry / OpenAI / Anthropic / Bedrock / Gemini / Ollama / Claude / GitHub Copilot / Foundry-Local / Copilot Studio.
-- **Hosting platform**: Microsoft Azure stack is clearly first-class (Foundry, Azure Functions, Cosmos, AI Search), but core packages have no hard dependency on Azure. ASP.NET Core hosting works against any LLM.
-- **Eval / observability**: OTel-native; `FoundryEvals` is one option among others (`LocalEvaluator` ships out of box, `_evaluation.py:LocalEvaluator`).
+- **LLM provider**: ✅ open. Python chat clients for OpenAI, Azure/Foundry, Anthropic, Bedrock, Gemini, **Mistral** (new), Ollama, Foundry Local, TypeSafe (alpha), plus agent wrappers for Claude Agent SDK, GitHub Copilot SDK, Copilot Studio. .NET relies on any `IChatClient` (OpenAI, Anthropic, Foundry, Bedrock via `AWS.Bedrock.MEAI`, Ollama, …).
+- **Hosting platform**: Azure is first-class (Foundry, Cosmos, Blob, AI Search, Purview) but core packages have no hard Azure dependency. .NET 1.21.0 removed the `Azure.AI.OpenAI` dependency.
+- **Eval / observability**: OTel-native. `LocalEvaluator` ships in core; Foundry evals moved into the Foundry package in 1.18.0.
 
 ### 1.6 Framework weight / footprint
 
-**Heavy** — comparable to LangGraph in scope but broader. The core Python package alone is ~27 kLOC (`wc -l` across `_*.py`). It bundles: agents, workflows, sessions, compaction, mcp, middleware, observability, skills, security/labelling, evaluation, harness providers (memory/todo/mode), serialization, and 20+ provider connectors.
+**Heavy.** The Python core package alone is ~51 kLOC (`agent_framework/*.py`, up from ~27 kLOC in May), and bundles agents, workflows, sessions, session stores, compaction, MCP, middleware, agent-hooks enforcement, observability, skills, FIDES security labelling, evaluation, harness providers, vector-store abstractions and serialization. 42 Python packages and 35 .NET projects in total.
 
 ### 1.7 Release-history signal
 
-`python/CHANGELOG.md:1` (Keep a Changelog, semver). Recent decision-relevant additions:
-- `1.4.0` (2026-05-14): "Align file skill folder discovery with agentskills.io spec" (BREAKING — experimental skills); "Strip server-issued response item IDs under storage" — meaningful for cross-session replay (CHANGELOG.md:14-21).
-- `1.3.0` (2026-05-07): "Add experimental session-mode harness context provider" (`_harness/_mode.py`); experimental todo-list and memory harness providers; "Information-flow control prompt injection defense" (`security.py`, ADR `docs/decisions/0024-prompt-injection-defense.md`).
-- `1.2.2` (2026-04-29): "Standardize orchestration terminal outputs as `AgentResponse`" — orchestration API standardization.
-- `1.2.0` (2026-04-24): "Add functional workflow API" — Python workflow improvements.
+`python/CHANGELOG.md` (Keep a Changelog, semver); .NET changes are only in GitHub Release notes. Decision-relevant changes since `python-1.4.0`:
+- **Harness & loop**: `HarnessAgent` + background agents (1.7.0, `CHANGELOG.md:593`); `AgentLoopMiddleware`, `ToolApprovalMiddleware`, shell tool in harness (1.9.0); `create_harness_agent` stable (1.12.0, `:348`); tool-loop `max_duration_seconds` and stop reason (1.18.0, `:66`); sequential-invocation option (1.19.0, `:19`; concurrent remains the default).
+- **Skills**: MCP skills source (1.8.0); all `SkillsProvider` tools require approval by default (1.10.0, `:483`); `SkillsSourceContext` and `CachingSkillsSource` refresh interval (1.11.0, `:395`); experimental marker removed (1.11.0, `:412`).
+- **Sessions & hosting**: hosting helpers `AgentState`/`SessionStore` (1.11.0, `:399`); reusable session stores (1.13.0, `:252`); Durable Task / Azure Functions moved out (1.14.0, `:214`); .NET `AgentIsolationKeyProvider` (1.18.0), `AgentSessionStore` promoted to Abstractions with partitioned keys (1.22.0), Azure Blob session store (1.19.0).
+- **Hooks / safety**: message injection (1.11.0, `:391`); AGENT-HOOKS-0.1 enforcement (1.14.0, `:203`); `MiddlewareFailure` fail-closed signal (1.15.0); MCP sampling denied by default (1.9.0).
+- **Observability**: instrumentation enabled by default (1.6.0, `:628`, BREAKING); GenAI semconv modes consolidated (1.15.0, BREAKING); feature-usage User-Agent telemetry (1.13.0).
+- **Memory/RAG**: shared vector-store abstractions and connectors (1.18.0, `:65`; 1.19.0).
+- **UI**: AG-UI promoted to stable (1.12.1, `:317`); A2UI support (1.15.0, `:170`); .NET AG-UI split into external `AGUI.*` SDK (.NET 1.14.0).
 
-.NET CHANGELOGs live under `dotnet/src/Microsoft.Agents.AI.*/CHANGELOG.md` (per-package), e.g. `Microsoft.Agents.AI.DurableTask/CHANGELOG.md` and `Microsoft.Agents.AI.Hosting.AzureFunctions/CHANGELOG.md`.
-
-GitHub Releases: https://github.com/microsoft/agent-framework/releases — Python `1.4.0` and per-.NET-package releases are tagged independently.
+GitHub Releases: https://github.com/microsoft/agent-framework/releases (`python-*` and `dotnet-*` tags are independent).
 
 ---
 
@@ -188,7 +198,7 @@ GitHub Releases: https://github.com/microsoft/agent-framework/releases — Pytho
 
 ### 2.1 Run loop entrypoint(s)
 
-**Python** (`python/packages/core/agent_framework/_agents.py:271-300`):
+**Python** (`python/packages/core/agent_framework/_agents.py:1182-1194`, `RawAgent.run` implementation overload):
 ```python
 def run(
     self,
@@ -196,61 +206,68 @@ def run(
     *,
     stream: bool = False,
     session: AgentSession | None = None,
+    tools: ToolTypes | Callable[..., Any] | Sequence[ToolTypes | Callable[..., Any]] | None = None,
+    options: OptionsCoT | ChatOptions[Any] | None = None,
+    compaction_strategy: CompactionStrategy | None = None,
+    tokenizer: TokenizerProtocol | None = None,
     function_invocation_kwargs: Mapping[str, Any] | None = None,
     client_kwargs: Mapping[str, Any] | None = None,
 ) -> Awaitable[AgentResponse[Any]] | ResponseStream[AgentResponseUpdate, AgentResponse[Any]]: ...
 ```
 
-Returns `AgentResponse[T]` (non-stream) or `ResponseStream[AgentResponseUpdate, AgentResponse[T]]` (stream). `ResponseStream.get_final_response()` aggregates updates into a complete response.
+Returns `AgentResponse[T]` (non-stream) or `ResponseStream[AgentResponseUpdate, AgentResponse[T]]` (stream). `ResponseStream.get_final_response()` aggregates updates.
 
-**.NET** (`dotnet/src/Microsoft.Agents.AI.Abstractions/AIAgent.cs:334-341`):
+**.NET** (`dotnet/src/Microsoft.Agents.AI.Abstractions/AIAgent.cs:334-341`, `465`):
 ```csharp
-public Task<AgentResponse> RunAsync(
+public async Task<AgentResponse> RunAsync(
     IEnumerable<ChatMessage> messages,
     AgentSession? session = null,
     AgentRunOptions? options = null,
-    CancellationToken cancellationToken = default);
+    CancellationToken cancellationToken = default)
+{
+    CurrentRunContext = new(this, session, messages as IReadOnlyCollection<ChatMessage> ?? messages.ToList(), options);
+    return await this.RunCoreAsync(messages, session, options, cancellationToken).ConfigureAwait(false);
+}
 
-public IAsyncEnumerable<AgentResponseUpdate> RunStreamingAsync(
-    IEnumerable<ChatMessage> messages,
-    AgentSession? session = null,
-    AgentRunOptions? options = null,
-    CancellationToken cancellationToken = default);
+public async IAsyncEnumerable<AgentResponseUpdate> RunStreamingAsync(
+    IEnumerable<ChatMessage> messages, AgentSession? session = null,
+    AgentRunOptions? options = null, CancellationToken cancellationToken = default);
 ```
 
-`AgentRunContext` is set as an `AsyncLocal` (`AIAgent.cs:40`) so middleware and tools can pull it via `AIAgent.CurrentRunContext` (`AIAgent.cs:102-106`).
+`AgentRunContext` is an `AsyncLocal` (`AIAgent.cs:40`) exposed as `AIAgent.CurrentRunContext` (`AIAgent.cs:102`), so middleware, tools and routing clients can read the current agent, session and options.
 
 ### 2.2 Per-iteration behavior
 
-Python (`_agents.py:_call_chat_client` line 985 → `BaseChatClient.get_response`):
-1. `_prepare_run_context` resolves messages, options, tools, ContextProviders (`_agents.py:1150`).
-2. The chat client calls the LLM (`_inner_get_response`).
-3. `_try_execute_function_calls` (`_tools.py:1632`) inspects assistant content; for each `FunctionCallContent`, the matching `FunctionTool.invoke()` runs (with `FunctionInvocationContext`).
-4. Results re-enter the loop until `finish_reason != "tool_calls"` (`_types.py:1651`).
-5. `_finalize_response` collapses streamed updates (`_types.py:1976`).
+Python:
+1. `_prepare_run_context` (`_agents.py:1484`) resolves messages, options, tools and runs `ContextProvider.before_run` for each provider.
+2. `_call_chat_client` (`_agents.py:1274-1313`) calls `client.get_response(...)`, forwarding `function_invocation_kwargs`.
+3. `FunctionInvocationLayer` (`_tools.py:4888`) calls the model, extracts `function_call` contents (`_extract_function_calls`, `_tools.py:4184`), applies approval binding and pauses (`_tools.py:2379-2430`), then runs the executable batch **concurrently** (`asyncio.gather`, `_tools.py:2542-2545`) or in model order when `allow_concurrent_invocation=False` (`_tools.py:2558`).
+4. Results re-enter the loop until no tool calls remain, or a limit trips: `max_iterations`, `max_function_calls`, `max_duration_seconds`, `max_consecutive_errors_per_request` (`FunctionInvocationConfiguration`, `_tools.py:1755-1846`). On a limit, tools are disabled and the model is forced to answer in text (graceful degradation).
+5. `ContextProvider.after_run` runs in reverse order (`_run_after_providers`, `_agents.py:586`); providers flagged `after_run_once_per_turn` are deferred to the end of an `AgentLoopMiddleware` loop (`_sessions.py:771-779`).
 
-.NET delegates the tool loop to `FunctionInvokingChatClient` (Microsoft.Extensions.AI). MAF adds `FunctionInvocationDelegatingAgent` to surface per-call context via `FunctionInvokingChatClient.CurrentContext` (`FunctionInvocationDelegatingAgent.cs:74`). Per-service-call persistence is bolted on with `PerServiceCallChatHistoryPersistingChatClient` (referenced by `HarnessAgent.cs:115`).
+.NET delegates the tool loop to `FunctionInvokingChatClient`; `ChatClientAgentOptions.AllowConcurrentInvocation` opts into concurrent tool execution (default `false`, `dotnet/src/Microsoft.Agents.AI/ChatClient/ChatClientAgentOptions.cs:75`). `HarnessAgent` adds per-service-call persistence and message injection (`HarnessAgent.cs:267-271`).
 
 ### 2.3 ReAct loop
 
-**Built-in.** The function-invocation loop is automatic when tools are present — no explicit ReAct wiring. Both languages rely on the LLM's native tool-calling protocol.
+**Built-in.** The function-invocation loop is automatic when tools are present. On top of it, `AgentLoopMiddleware` (Python `_harness/_loop.py:229`) and `LoopAgent` (.NET `dotnet/src/Microsoft.Agents.AI/Harness/Loop/LoopAgent.cs`) re-run the whole agent until an evaluator is satisfied (todos complete, background tasks finished, AI-judge verdict, completion marker).
 
 ### 2.4 Tool dispatch + result handling
 
 Python — `_tools.py`:
-- `_try_execute_function_calls` (line 1632) iterates `FunctionCallContent` items, resolves `FunctionTool` from a `tool_map` (line 1622), and invokes via `_execute_function_calls` (line 1781).
-- Each invocation receives an injected `FunctionInvocationContext` (`_middleware.py:204`) carrying `function`, `arguments`, `session`, `metadata`, `kwargs`.
-- Approval gating is performed inline: when `tool.approval_mode == "always_require"` and no matching `function_approval_response` exists in input, the loop emits `function_approval_request` content (`_tools.py:1662-1699`) and pauses by surfacing the request in `AgentResponse.user_input_requests` (`exceptions.py:UserInputRequiredException`).
+- `_try_execute_function_call_groups` (line 2379) resolves tools from `_get_tool_map` (line 2281), separates approval-gated and declaration-only calls, then executes each call in its own task with a copied `contextvars` context so one tool's context changes cannot leak into another (lines 2524-2545).
+- Each invocation gets a `FunctionInvocationContext` (`_middleware.py:428`) with `function`, `arguments`, `session`, `metadata`, `kwargs`, `result`, `tools`.
+- **Approval gating**: tools with `approval_mode == "always_require"` (line 2425) are not executed; the loop emits `function_approval_request` content and surfaces it in `AgentResponse.user_input_requests`. Approval responses are now **bound** to the requests the framework recorded in the `AgentSession` (`_bind_approval_response_to_pending_request`, line 2890; opt-out `disable_approval_response_binding`, documented at lines 1798-1811). Resuming therefore requires passing the same session back.
+- `MiddlewareFailure` raised by function middleware cancels the in-flight batch and aborts the run fail-closed (`_middleware.py:86`, `_tools.py:2546-2556`).
 
-.NET — `FunctionInvokingChatClient` (in `Microsoft.Extensions.AI`) routes calls to registered `AIFunction` instances. The user-approval flow is provided in MAF via `Microsoft.Agents.AI/Harness/ToolApproval/ToolApprovalAgent.cs` which uses standing-approval rules in `ToolApprovalState` (line 52). ADR: `docs/decisions/0006-userapproval.md`.
+.NET — `FunctionInvokingChatClient` routes calls to `AIFunction` instances. Approval UX is in `ToolApprovalAgent` (`dotnet/src/Microsoft.Agents.AI/Harness/ToolApproval/ToolApprovalAgent.cs:52`) with standing rules (`ToolApprovalState.Rules`, `ToolApprovalState.cs:19`) and auto-approval callbacks (`_autoApprovalRules`, `ToolApprovalAgent.cs:59`). ADR `docs/decisions/0006-userapproval.md`.
 
 ### 2.5 Explicit turn concept
 
-Implicit: a "turn" ends when the LLM returns a non-tool-call response (`finish_reason in {"stop","length","content_filter"}`) or when `MiddlewareTermination` is raised. No explicit `Turn` type; instead the run accumulates updates until terminal.
+Implicit: a run ends when the model returns no actionable tool calls, when a loop limit triggers (stop reason recorded), when an approval pause is raised, or when `MiddlewareTermination` / `MiddlewareFailure` is raised. No explicit `Turn` type. `AgentLoopMiddleware` introduces a "user turn" scope above individual runs (used by `after_run_once_per_turn`).
 
 ### 2.6 Event emission mechanism (in-process)
 
-**Async generator-style** — Python returns an `AsyncIterable[AgentResponseUpdate]`; .NET returns `IAsyncEnumerable<AgentResponseUpdate>`. Middleware can wrap the stream with `with_transform_hook` / `with_result_hook` (`_agents.py:1102-1112`). `ResponseStream` (`_types.py:ResponseStream`) is the canonical Python type. There is no in-process event bus or observer pattern — composition is via middleware and `ContextProvider` lifecycle hooks (see Q7).
+**Async iterator.** Python returns `ResponseStream` (`_types.py:3361`), an `AsyncIterable[AgentResponseUpdate]` with `with_transform_hook` / `with_result_hook` / cleanup hooks (used e.g. at `_agents.py:1437-1446`). .NET returns `IAsyncEnumerable<AgentResponseUpdate>`. No in-process event bus; composition is via middleware and `ContextProvider` (see Q7). Workflows emit `WorkflowEvent` objects on their own stream (Q3).
 
 ---
 
@@ -258,21 +275,24 @@ Implicit: a "turn" ends when the LLM returns a non-tool-call response (`finish_r
 
 ### 3.1 Message layers
 
-- **Wire/LLM message**: `Microsoft.Extensions.AI.ChatMessage` (.NET) and `Message` (`python/packages/core/agent_framework/_types.py:1672`) — list of `Content` parts plus `role`.
-- **Agent-level message**: same `Message` type but wrapped in `AgentResponse.messages` after parsing tool results.
-- **UI message** (when going via DevUI): converted to OpenAI Responses API events by `agent-framework-devui/_mapper.py` (the README table on lines 252-288 documents the mapping).
-- **AG-UI**: converted to `BaseEvent` (`agent-framework-ag-ui/_event_converters.py`).
+- **Wire/LLM message**: `Message` (`python/packages/core/agent_framework/_types.py:1958`) = `role` + list of `Content`; .NET uses `Microsoft.Extensions.AI.ChatMessage`.
+- **Agent-level response**: `AgentResponse` (`_types.py:2928`) / `AgentResponseUpdate` (`_types.py:3210`) wrap messages plus `usage_details`, `user_input_requests`, response IDs and continuation tokens.
+- **HTTP/UI layers** (owned by hosting packages, not core):
+  - OpenAI Responses shape: DevUI (`agent_framework_devui/_mapper.py`), Python `agent-framework-hosting-responses` (`responses_from_run`, `_parsing.py:290`), .NET `Microsoft.Agents.AI.Hosting.OpenAI`.
+  - AG-UI events: Python `agent-framework-ag-ui` (`_event_converters.py`); .NET via external `AGUI.Server`.
+  - A2A messages/tasks: `agent-framework-a2a`, `agent-framework-hosting-a2a`, `Microsoft.Agents.AI.A2A`.
+  - MCP tool results: `agent-framework-hosting-mcp` (`mcp_from_run`, `_conversion.py:65`).
 
-Conversion path (typical): `Message` (in-process) → `AgentResponseUpdate` (streaming) → DevUI/AG-UI wire frame (HTTP-side). The wire→UI step is owned by the host integration package, not by core.
+Conversion path: `Message` (in-process) → `AgentResponseUpdate` (streaming) → protocol frame (hosting package).
 
 ### 3.2 Concrete message types
 
-Content types (from `_types.py:331-363`):
+Content types (`ContentType` literal, `_types.py:363-389`):
 
 | Content `type` | Purpose |
 |---|---|
-| `text` | Plain assistant/user text |
-| `text_reasoning` | Reasoning text (OpenAI o-series, Anthropic thinking) |
+| `text` | Plain assistant/user text (refusals are preserved as marked text since 1.17.0) |
+| `text_reasoning` | Reasoning text (OpenAI reasoning, Anthropic thinking, Gemini thought summaries) |
 | `data` | Inline base64 binary (images, audio, video) |
 | `uri` | Reference to external resource |
 | `error` | Error content |
@@ -285,43 +305,46 @@ Content types (from `_types.py:331-363`):
 | `image_generation_tool_call` / `…_result` | Provider-hosted image gen |
 | `mcp_server_tool_call` / `…_result` | MCP tool invocation by the model |
 | `search_tool_call` / `…_result` | Provider web search |
-| `shell_tool_call` / `…_result` / `shell_command_output` | Shell tool (provider or local) |
+| `shell_tool_call` / `…_result` / `shell_command_output` | Shell tool (hosted and local are separated since 1.19.0) |
+| `computer_tool_call` / `…_result` | Computer-use tool (new, experimental `COMPUTER_USE`) |
 | `function_approval_request` / `function_approval_response` | HITL approval messages |
 | `oauth_consent_request` | OAuth consent prompt |
 
+Hosted/provider-executed tool calls carry `Content.informational_only` so they stay visible in transcripts without local re-invocation (1.11.0).
+
 ### 3.3 Messages vs. events
 
-Messages are content arrays; **events** for the workflow layer live in `python/packages/core/agent_framework/_workflows/_events.py` (`WorkflowEvent`, `ExecutorActionItem`, started/completed/failed). At the **agent** layer, the iterator yields `AgentResponseUpdate` items (which are partial Messages) — there is no separate event taxonomy alongside messages.
+At the **agent** layer there is one iterator: `AgentResponseUpdate` items (partial messages). At the **workflow** layer there is a separate taxonomy, `WorkflowEvent` (`_workflows/_events.py:169`). The two meet when a workflow is exposed as an agent (`Workflow.as_agent`, `_workflows/_workflow.py:1560`).
 
 ### 3.4 Event categories
 
-- **Stream-event** (token-level updates): `AgentResponseUpdate` / `ChatResponseUpdate`.
-- **Turn-event**: implicit (response with `finish_reason`).
-- **Message-event**: not a distinct category — messages flow as content within updates.
-- **Tool-event**: surfaces as `FunctionCallContent` / `FunctionResultContent` inside `AgentResponseUpdate`; DevUI's mapper splits these into discrete `response.function_call_arguments.delta` / `response.function_result.complete` frames.
-- **Workflow event**: `WorkflowEvent` with `type ∈ {started, status, output, executor_invoked, executor_completed, executor_failed, failed, warning}` (see `python/packages/devui/README.md:275-282`).
-- **Session lifecycle**: not exposed as events; lives in `AgentSessionStore` `Save/Get`.
-- **Hook event**: middleware fires via `call_next()` chain, not an event bus.
-- **Sub-agent event**: emitted as `function_result` content for the `SubAgents_*` tools.
+- **Stream-event**: `AgentResponseUpdate` / `ChatResponseUpdate` (`_types.py:2803`).
+- **Turn-event**: implicit (final response with `finish_reason`; finish reasons normalised across providers since 1.12.0).
+- **Message-event**: not distinct; messages flow as content within updates.
+- **Tool-event**: `function_call` / `function_result` contents inside updates; protocol adapters split them into discrete frames.
+- **Workflow event** (`WorkflowEventType`, `_workflows/_events.py:127-168`): `started`, `status`, `failed`, `output`, `intermediate`, `request_info`, `warning`, `error`, `superstep_started`, `superstep_completed`, `executor_invoked`, `executor_completed`, `executor_failed`, `executor_bypassed`, `group_chat`, `handoff_sent`, `magentic_orchestrator`.
+- **Session lifecycle**: not exposed as events.
+- **Hook event**: middleware chain, not an event bus. The agent-hooks contract emits interception points (`agent_startup`, `input`, `pre_model_call`, `post_model_call`, `pre_tool_call`, `post_tool_call`, `output`, `agent_shutdown`) to an external interceptor (`_agent_hooks.py:1-60`).
+- **Sub-agent event**: `function_result` content for `as_tool` / `background_agents_*` tools; workflow orchestrations emit `group_chat` / `handoff_sent` / `magentic_orchestrator` events.
 
 ### 3.5 Canonical type-definition file(s)
 
-- Python: `python/packages/core/agent_framework/_types.py:1672` (`Message`), `_types.py:455` (`Content`), `_types.py:2036` (`ChatResponse`).
-- .NET: `dotnet/src/Microsoft.Agents.AI.Abstractions/AgentResponse.cs`, `AgentResponseUpdate.cs`. Messages and content types are re-exported from `Microsoft.Extensions.AI`.
-- DevUI mapping: `python/packages/devui/agent_framework_devui/_mapper.py`.
+- Python: `python/packages/core/agent_framework/_types.py` — `ContentType` (363), `UsageDetails` (431), `Content` (502), `Message` (1958), `ChatResponse` (2514), `ChatResponseUpdate` (2803), `AgentResponse` (2928), `AgentResponseUpdate` (3210), `ResponseStream` (3361).
+- Workflows: `python/packages/core/agent_framework/_workflows/_events.py:127-169`.
+- .NET: `dotnet/src/Microsoft.Agents.AI.Abstractions/AgentResponse.cs`, `AgentResponseUpdate.cs`; message/content types from `Microsoft.Extensions.AI`.
 
 ### 3.6 Live agentic event stream taxonomy
 
-Sample event frames as emitted by DevUI (OpenAI Responses-shaped wire format, see `python/packages/devui/README.md:252-288`):
+Frames as emitted by DevUI (OpenAI Responses-shaped, mapping table at `python/packages/devui/README.md:248-290`); the .NET `MapOpenAIResponses` endpoint and Python `hosting-responses` helpers use the same Responses event names:
 
 - Start: `response.created` + `response.in_progress`.
 - Mid-stream text: `response.content_part.added` + `response.output_text.delta`.
-- Tool-call start: `response.output_item.added` with `ResponseFunctionToolCall`.
+- Tool-call start: `response.output_item.added` with a `function_call` item.
 - Tool-call args streaming: `response.function_call_arguments.delta`.
 - Tool result: `response.function_result.complete` (DevUI extension).
-- Approval request: `response.function_approval.requested`.
-- Workflow executor lifecycle: `response.output_item.added` (`type='executor_invoked'`) and `…done` (`type='executor_completed'`).
-- Terminal: `response.completed` or `response.failed`.
+- Approval request: `response.function_approval.requested` (DevUI extension).
+- Workflow executor lifecycle: `response.output_item.added` (`executor_invoked`) and `…done` (`executor_completed`).
+- Terminal: `response.completed` / `response.failed` (Foundry hosting emits failed events since 1.9.0).
 
 ---
 
@@ -329,37 +352,34 @@ Sample event frames as emitted by DevUI (OpenAI Responses-shaped wire format, se
 
 ### 4.1 Multi-session host architecture
 
-There is **no built-in `RuntimeHost`** that hosts N concurrent sessions. Instead, agents are stateless objects you embed in **your** host (ASP.NET Core, FastAPI, Azure Functions, DurableTask), and session state is externalized through `AgentSessionStore` (.NET) / `HistoryProvider` (Python).
+No built-in runtime process that hosts N sessions. Agents are stateless objects (singletons are the norm) embedded in **your** host; session state is externalised through a store.
 
-The .NET hosting helper `Microsoft.Agents.AI.Hosting` provides the wiring (`AddAIAgent` ServiceCollection extension, `AIHostAgent` wrapper, `AgentSessionStore` base class) to make this multi-session pattern straightforward (`dotnet/src/Microsoft.Agents.AI.Hosting/AgentHostingServiceCollectionExtensions.cs:25-79`).
-
-For Python, the analogous pattern lives in `agent-framework-foundry-hosting`, `agent-framework-durabletask`, and `agent-framework-a2a` — each implements a server that creates an agent instance per request/session.
+- **.NET** `Microsoft.Agents.AI.Hosting`: `AddAIAgent` DI registration (`AgentHostingServiceCollectionExtensions.cs:25-113`), `AIHostAgent` wrapper with `GetOrCreateSessionAsync(conversationId)` / `SaveSessionAsync` (`AIHostAgent.cs:27, 70, 100`), hosted workflows (`HostedWorkflowBuilder.cs`, `WorkflowCatalog.cs`), and the experimental `AgentSessionStore` contract (now in `Microsoft.Agents.AI.Abstractions/AgentSessionStore.cs:20`).
+- **Python** `agent-framework-hosting` (alpha): `AgentState` pairs an agent target (instance or factory) with a `SessionStore` and exposes `get_or_create_session` / `set_session` (`python/packages/hosting/agent_framework_hosting/_state.py:74`); `WorkflowState` (`_state.py:193`) does the same for workflows and orchestration builders. Routes, auth and background work are explicitly app-owned.
+- Protocol channels on top: `hosting-responses`, `hosting-a2a`, `hosting-mcp`, `hosting-telegram` (Python, alpha); `Hosting.OpenAI`, `Hosting.A2A(.AspNetCore)`, `Hosting.AGUI.AspNetCore` (.NET).
 
 ### 4.2 Concurrent session isolation
 
-Isolation is **per-session-instance**:
-- `AgentSession` (Python `_sessions.py:711`) holds `session_id`, `service_session_id`, and a mutable `state: dict[str, Any]` shared with providers.
-- .NET `AgentSession` is a base abstract class with an `AgentSessionStateBag` of concurrent-dictionary entries (`AgentSession.cs:59-85`, `AgentSessionStateBag.cs:21-39`).
-- Agents themselves are typically singletons (`ServiceLifetime.Singleton` is the default in `AddAIAgent` — `AgentHostingServiceCollectionExtensions.cs:25`), and only sessions are per-conversation.
-
-State bleed would only occur if you stored conversation state on the agent instance (anti-pattern) or shared an `AgentSession` across requests.
+- `AgentSession` (Python `_sessions.py:1843`) holds `session_id`, `service_session_id` and a `state` dict namespaced by provider `source_id`. `SessionStore.get` returns **independent copies** so concurrent continuations cannot mutate each other's snapshot (`_sessions.py:1926-1990`; `python/packages/hosting/README.md:13-16`). `AgentState` does **not** provide locking for a mutable conversation head; the README says the app must ensure "only one caller advances it at a time" (`README.md:96-101`).
+- Tool calls run in per-call tasks with copied `contextvars` (`_tools.py:2524-2531`). `as_tool(propagate_session=True)` copies parent state into a child-owned dict and keeps approval/budget state isolated (`_agents.py:752-777`).
+- .NET `AgentSession` holds an `AgentSessionStateBag` (`dotnet/src/Microsoft.Agents.AI.Abstractions/AgentSession.cs:59-73`).
+- **Tenant isolation (.NET, new)**: `IsolationKeyScopedAgentSessionStore` adds an `isolation` partition from the current `AgentIsolationKeyProvider` to every session key, and throws in strict mode when no key is available (`dotnet/src/Microsoft.Agents.AI.Hosting/IsolationKeyScopedAgentSessionStore.cs:17-93`). The OpenAI hosting layer requires a key whenever a provider is registered (`EndpointRouteBuilderExtensions.Responses.cs`, `IsolationKeyResolver(… strict: isolationKeyProvider is not null)`), and A2A task storage has an `IsolationKeyScopedTaskStore`.
 
 ### 4.3 Horizontal scaling / multi-instance
 
-- Stateless workers + shared store: ✅ `AgentSessionStore` abstraction allows N pods to share Cosmos / Redis. `CosmosCheckpointStorage` and `CosmosChatHistoryProvider` (`dotnet/src/Microsoft.Agents.AI.CosmosNoSql/`) are designed for this.
-- Leader election / sticky routing: not provided. You either run **stateless** with a shared store, or use **DurableTask** which provides leader-elected, queue-backed orchestration (`Microsoft.Agents.AI.DurableTask`).
+- Stateless workers + shared store: ✅. Shared stores now include Cosmos (`CosmosHistoryProvider`, `CosmosCheckpointStorage`; .NET `CosmosChatHistoryProvider`, `CosmosCheckpointStore`), Redis (`RedisHistoryProvider`, keys scoped by provider and session identity since 1.19.0), Valkey (`ValkeyChatHistoryProvider.cs:42`), and Azure Blob for .NET sessions (`AzureBlobAgentSessionStore.cs:35`).
+- Leader election / sticky routing: not provided. `SessionStore` / `AgentSessionStore` have no optimistic concurrency; same-session concurrency is the host's problem.
+- Durable, queue-backed orchestration is available only via the external `agent-framework-durable-extension` repo.
 
 ### 4.4 Background / async / scheduled tasks
 
-- **Cron / trigger**: BYO via Azure Functions (`Microsoft.Agents.AI.Hosting.AzureFunctions`) which exposes Timer/HTTP/MCPTool triggers.
-- **Long-running background**: `Microsoft.Agents.AI.DurableTask` (`DurableAIAgent`, `AgentEntity` with `EntityAgentWrapper.cs`) treats each agent run as a durable orchestration with replay-on-crash.
-- Python: similar wrapper exists in `agent-framework-durabletask` but is `beta`.
+- **In-process background work**: `BackgroundAgentsProvider` (Python `_harness/_background_agents.py:269`, .NET `Harness/BackgroundAgents/BackgroundAgentsProvider.cs:53`) starts sub-agent tasks with `asyncio.create_task` / `Task.Run` and lets the parent poll or wait. Tasks live in process memory; `release_session()` / `ReleaseSessionAsync` cancels them (`_background_agents.py:358`, `.cs:227`). Not durable across restarts.
+- **Long-running provider tasks**: MCP long-running tasks (`MCPTaskOptions`, `_mcp.py:749`, experimental), Foundry "resilient long-running and steerable" hosted agents (.NET 1.19.0, ADR `0035-foundry-hosting-resilient-long-running-agents.md`).
+- **Cron / triggers / durable replay**: BYO, or the external durable-extension repo (Durable Task, Azure Functions timer/HTTP triggers).
 
 ### 4.5 Worker pool / queue model
 
-- **DurableTask** is the explicit queue/orchestrator model.
-- **Azure Functions** triggers fan out to a worker pool.
-- The vanilla in-process agent does NOT expose a queue API.
+No queue API in this repo. The vanilla agent assumes request scope (or in-process background tasks). For a queue/orchestrator model use the durable-extension repo or your own worker framework.
 
 ---
 
@@ -367,208 +387,200 @@ State bleed would only occur if you stored conversation state on the agent insta
 
 ### 5.1 Session / chat data model
 
-**Python** (`python/packages/core/agent_framework/_sessions.py:711-756`):
+**Python** (`python/packages/core/agent_framework/_sessions.py:1843-1923`):
 
 ```python
 class AgentSession:
-    session_id: str           # local UUID by default
-    service_session_id: str | None   # for provider-managed sessions (OpenAI Responses, Foundry threads)
-    state: dict[str, Any]     # mutable per-session state, namespaced by ContextProvider.source_id
+    def __init__(self, *, session_id: str | None = None,
+                 service_session_id: str | ServiceSessionId | None = None):
+        self._session_id = session_id or str(uuid.uuid4())
+        self.service_session_id = service_session_id
+        self.state: dict[str, Any] = {}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"type": "session", "session_id": self._session_id,
+                "service_session_id": self.service_session_id,
+                "state": _serialize_state(self.state)}
 ```
 
-Serialization (`AgentSession.to_dict()`):
-```json
-{"type": "session", "session_id": "...", "service_session_id": null, "state": {...}}
-```
+The docstring now warns that `service_session_id` "is scoped by the backing API key, service account, or project, but it is not an end-user authorization boundary by itself" (`_sessions.py:1849-1853`).
 
-State is namespaced by each `ContextProvider`'s `source_id` (e.g. `"in_memory"` for `InMemoryHistoryProvider`).
+**.NET** (`dotnet/src/Microsoft.Agents.AI.Abstractions/AgentSession.cs:59-73`): abstract `AgentSession` with an `AgentSessionStateBag` (thread-safe, JSON-serialized). Store identity is a separate `AgentSessionStoreKey` (`AgentSessionStoreKey.cs:27-56`): a `SessionId` plus optional named `Partitions` (e.g. `isolation`), all of which are part of identity.
 
-**.NET** (`dotnet/src/Microsoft.Agents.AI.Abstractions/AgentSession.cs:59-85`):
-
-```csharp
-public abstract class AgentSession {
-    public AgentSessionStateBag StateBag { get; protected set; } = new();
-    // … (abstract; concrete classes per agent type, e.g. ChatClientAgentSession)
-}
-```
-
-State bag is a thread-safe `ConcurrentDictionary<string, AgentSessionStateBagValue>` (`AgentSessionStateBag.cs:22-38`), JSON-serialized via a custom converter.
-
-No first-class `tenant_id`, `user_id`, `cwd`, `created_at`, `updated_at`, or `parent_session_id` fields — those are BYO via `state` / `StateBag` keys.
+No first-class `tenant_id`, `user_id`, `created_at`, `updated_at` or `parent_session_id` on the session object in either language. On .NET, tenant/user can live in the store key partitions; on Python they go into `state`.
 
 ### 5.2 What's stored on a session
 
-- Message history (only if a `HistoryProvider` is attached; e.g. `InMemoryHistoryProvider` stores `state["messages"]`).
-- Provider-namespaced state (skills metadata, sub-agent runtime state, compaction summary, todo lists, memory snapshots).
-- `service_session_id` (if the LLM provider has its own thread/conversation handle).
+- Message history (when a `HistoryProvider` is attached).
+- Provider-namespaced state: skills, compaction summaries, todo lists, agent mode, file-memory index, background-task state, tool-approval rules and pending approval requests, function-invocation budgets, pending injected messages (`MESSAGE_INJECTION_PENDING_MESSAGES_STATE_KEY`, `_sessions.py:1415-1431`).
+- `service_session_id` for provider-managed threads.
+- Custom classes in `state` must be registered with `register_state_type` (`_sessions.py:284`) for cold-start restore.
 
 ### 5.3 Granularity
 
-One session = one conversation. No fork/branch model on `AgentSession`. Branching exists at the **workflow** layer via `CheckpointStorage` (`python/packages/core/agent_framework/_workflows/_checkpoint.py`) — you can resume a workflow from any checkpoint.
+One session = one conversation. No built-in fork on `AgentSession`, but `SessionStore.get` returns copies, so storing post-run sessions under a new id (OpenAI `previous_response_id` pattern) gives simultaneous branches (`python/packages/hosting/README.md:86-96`). Workflows branch/resume via checkpoints (`_workflows/_checkpoint.py:134`).
 
 ### 5.4 Built-in persistence stores
 
 | Backend | Python | .NET |
 |---|---|---|
-| In-memory | `InMemoryHistoryProvider` (`_sessions.py:779`) | `InMemoryAgentSessionStore` (`Microsoft.Agents.AI.Hosting/Local/InMemoryAgentSessionStore.cs:28`), `InMemoryChatHistoryProvider` |
-| File / JSONL | `FileHistoryProvider` (`_sessions.py:858`, **experimental** `@experimental(feature_id=ExperimentalFeature.FILE_HISTORY)`) | None first-party (file store exists for `AgentFileStore` harness but not as session store) |
-| Redis | `agent-framework-redis` package | None first-party |
-| Cosmos NoSql | `agent-framework-azure-cosmos` (`CosmosChatHistoryProvider`, `CosmosCheckpointStorage`) | `Microsoft.Agents.AI.CosmosNoSql` (`CosmosChatHistoryProvider.cs`, `CosmosCheckpointStore.cs`) |
-| Foundry Persistent Agents (server-side threads) | `agent-framework-foundry` (uses `service_session_id`) | `Microsoft.Agents.AI.AzureAI.Persistent` |
+| In-memory | `InMemoryHistoryProvider` (`_sessions.py:2218`), `SessionStore` (`_sessions.py:1926`, experimental) | `InMemoryAgentSessionStore` (`Microsoft.Agents.AI.Hosting/Local/InMemoryAgentSessionStore.cs:42`), `InMemoryChatHistoryProvider` |
+| No-op | – | `NoopAgentSessionStore` (`Microsoft.Agents.AI.Hosting/NoopAgentSessionStore.cs:15`, default for A2A since 1.11.0) |
+| File | `FileHistoryProvider` (`_sessions.py:2303`, experimental), `FileSessionStore` (`_sessions.py:2003`, experimental, JSON or MessagePack), `FileCheckpointStorage` (`_workflows/_checkpoint.py:505`) | Foundry Hosting file-backed store under `$HOME` |
+| Redis | `RedisHistoryProvider` (`python/packages/redis/agent_framework_redis/_history_provider.py:44`) | – |
+| Valkey | – | `ValkeyChatHistoryProvider` (`Microsoft.Agents.AI.Valkey/ValkeyChatHistoryProvider.cs:42`) |
+| Cosmos NoSQL | `CosmosHistoryProvider` (`azure-cosmos/…/_history_provider.py:38`), `CosmosCheckpointStorage` (`…/_checkpoint_storage.py:37`) | `CosmosChatHistoryProvider` (`CosmosChatHistoryProvider.cs:41`), `CosmosCheckpointStore` (`CosmosCheckpointStore.cs:261`) |
+| Azure Blob | – | `AzureBlobAgentSessionStore` (`Microsoft.Agents.AI.Hosting.AzureStorage/Blob/AzureBlobAgentSessionStore.cs:35`) |
+| Vector store as history | `VectorStoreHistoryProvider` (`_vectors.py:2826`, experimental) | – |
+| Foundry | `FoundryAgentSessionStore` (`foundry_hosting/…/_state_store.py:332`), Foundry server-side conversations via `service_session_id` | `Microsoft.Agents.AI.Foundry.Hosting` stores, `Microsoft.Agents.AI.AzureAI.Persistent` |
 
-For everything else: **BYO** via `HistoryProvider` (Python) / `AgentSessionStore` (.NET).
+Everything else: **BYO** via `HistoryProvider` / `SessionStore` (Python) or `ChatHistoryProvider` / `AgentSessionStore` (.NET).
 
 ### 5.5 Persistence timing
 
-The default `InMemoryHistoryProvider` saves after the response is complete (`PerServiceCallHistoryPersistingMiddleware` in `_sessions.py:489-531` saves messages in the `before_run` / `after_run` lifecycle of the `HistoryProvider`).
-
-The .NET `HarnessAgent` deliberately enables `RequirePerServiceCallChatHistoryPersistence` plus a `PerServiceCallChatHistoryPersistingChatClient` so that **every individual LLM round-trip** within a function-invocation loop is persisted (`dotnet/src/Microsoft.Agents.AI.Harness/HarnessAgent.cs:21-22, 121-126`) — i.e. mid-tool-call durability is opt-in.
+- Default `HistoryProvider` loads in `before_run` and saves in `after_run` (`_sessions.py:1091-1103`), i.e. at the end of the run.
+- `Agent(require_per_service_call_history_persistence=True)` (`_agents.py:954`) installs `PerServiceCallHistoryPersistingMiddleware` (`_sessions.py:1586`), which persists after **every model call** inside the tool loop. `create_harness_agent` enables it by default; .NET `HarnessAgent` uses `UsePerServiceCallChatHistoryPersistence()` (`HarnessAgent.cs:271`).
+- When agent-hooks enforcement is installed, persistence is gated behind `output` / `post_model_call` verdicts so denied content never becomes durable (`_agent_hooks.py:50-58`).
+- Session snapshots (`SessionStore` / `AgentSessionStore`) are saved by the host after `run()` returns.
 
 ### 5.6 Mid-run checkpointing (durable)
 
-- **Agent level**: with `PerServiceCallChatHistoryPersistingChatClient`, an agent can resume after a crash mid-tool-loop because chat history is persisted between every chat-client call.
-- **Workflow level**: explicit `CheckpointStorage` interface (Python `_workflows/_checkpoint.py`) and `WorkflowBuilder…with_checkpointing(storage=…)`. Checkpoints are written between executor transitions. `CosmosCheckpointStorage` is the production-grade implementation (`agent-framework-azure-cosmos`).
-- **DurableTask**: `DurableAIAgent` (`dotnet/src/Microsoft.Agents.AI.DurableTask/DurableAIAgent.cs`) makes every agent step a durable orchestration step, replayable from any failure.
+- **Agent level**: per-service-call history persistence lets a run resume after a crash between model calls. A crash mid-tool-call loses that tool's work.
+- **Workflow level**: `CheckpointStorage` protocol (`_workflows/_checkpoint.py:134`), wired via `WorkflowBuilder(checkpoint_storage=…)` (`_workflow_builder.py:98`). Checkpoints are written between supersteps and, since 1.13.0, are "fully replayable from initial input and human-in-the-loop responses". Checkpoint deserialization is restricted to registered types (process-wide registry, 1.15.0).
+- **Durable Task**: moved to the external durable-extension repo.
 
 ### 5.7 Session ID format
 
-UUID v4 by default (`AgentSession.__init__` — `str(uuid.uuid4())`). The .NET equivalent uses `Guid.NewGuid().ToString("N")` (`AIAgent.cs:58`).
-
-No tenant prefix, no composite ID — flat UUIDs.
+Python: UUID4 string by default (`_sessions.py:1874`), or any caller-chosen string. `FileSessionStore` restricts keys to 128 ASCII letters/digits/`-`/`_` (`python/packages/hosting/README.md:24-29`).
+.NET: `AgentSessionStoreKey(sessionId, partitions)` — composite by design (`AgentSessionStoreKey.cs:39-52`); with isolation enabled the effective key is `sessionId + {isolation: <tenant/user key>}`. Foundry hosted storage uses `{root}/a-{agent}/u-{userId}/c-{contextId}.json` (ADR 0031, lines 51-63).
 
 ### 5.8 Pluggable store interface
 
-**Python** (`_sessions.py:410`, abstract base `HistoryProvider`):
+**Python** history (`_sessions.py:987-1090`):
 ```python
 class HistoryProvider(ContextProvider):
-    async def get_messages(self, session_id: str | None, *, state: dict[str, Any] | None = None, **kw) -> list[Message]: ...
-    async def save_messages(self, session_id: str | None, messages: Sequence[Message], *, state: dict[str, Any] | None = None, **kw) -> None: ...
+    async def get_messages(self, session_id: str | None, *, state: dict[str, Any] | None = None, **kwargs) -> list[Message]: ...
+    async def save_messages(self, session_id: str | None, messages: Sequence[Message], *, state: dict[str, Any] | None = None, **kwargs) -> None: ...
 ```
 
-**.NET** (`AgentSessionStore.cs:16-46`):
+**Python** session snapshots (`_sessions.py:1926-1990`, experimental): `SessionStore.get(session_id)`, `set(session_id, session)`, `delete(session_id)`.
+
+**.NET** (`dotnet/src/Microsoft.Agents.AI.Abstractions/AgentSessionStore.cs:20-78`, experimental `MAAI001`):
 ```csharp
 public abstract class AgentSessionStore {
-    public abstract ValueTask SaveSessionAsync(AIAgent agent, string conversationId, AgentSession session, CancellationToken ct = default);
-    public abstract ValueTask<AgentSession> GetSessionAsync(AIAgent agent, string conversationId, CancellationToken ct = default);
+    public abstract ValueTask SaveSessionAsync(AIAgent agent, AgentSessionStoreKey key, AgentSession session, CancellationToken ct = default);
+    public abstract ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, AgentSessionStoreKey key, CancellationToken ct = default);
+    public virtual ValueTask<AgentSession> GetOrCreateSessionAsync(AIAgent agent, AgentSessionStoreKey key, CancellationToken ct = default);
 }
 ```
-
-Plus a separate `ChatHistoryProvider` abstract class (`dotnet/src/Microsoft.Agents.AI.Abstractions/ChatHistoryProvider.cs`) for message-history backends.
+Plus `ChatHistoryProvider` for message history and `DelegatingAgentSessionStore` for decorators. This contract was promoted from Foundry Hosting into Abstractions in .NET 1.22.0 (`[PREVIEW BREAKING]`; ADR `docs/decisions/0039-shared-agent-session-store.md:35-47`).
 
 ### 5.9 Schema evolution / migration
 
-Not explicitly addressed. `AgentSession.to_dict()` / `from_dict()` returns a typed envelope (`{"type": "session", …}`) but there is no migration helper. State serialization auto-registers Pydantic types (`_sessions.py:66-90`) — survives version-agnostic round-trips for primitive shapes.
+No migration helpers. Python session serialization uses typed envelopes and explicit `register_state_type` codecs (`_sessions.py:284`); unregistered Pydantic models emit `DeprecationWarning` (ADR `0034-python-session-store-serialization.md`). Checkpoint restore after package upgrades was fixed in both languages (June 2026), but there is no versioned schema.
 
 ### 5.10 Export / replay
 
-- Session export: `AgentSession.to_dict()` → JSON envelope. Workflow checkpoint export via `CheckpointStorage`.
-- Deterministic replay: **DurableTask** provides replay-from-checkpoint (`Microsoft.Agents.AI.DurableTask`).
+- Session export: `AgentSession.to_dict()` / `from_dict()`; `FileSessionStore` writes JSON or MessagePack.
+- Workflow checkpoints are replayable from initial input and HITL responses (1.13.0).
+- AG-UI thread snapshots can be persisted and hydrated (opt-in, `snapshot_store` on `add_agent_framework_fastapi_endpoint`, `python/packages/ag-ui/agent_framework_ag_ui/_endpoint.py:103`).
+- Deterministic agent replay: not provided (LLM calls are not recorded for replay).
 
 ### 5.11 Cross-session memory
 
-Cross-reference Q17. **Mem0** (`agent-framework-mem0`, `Microsoft.Agents.AI.Mem0`) is the primary first-party long-term-memory adapter. Otherwise BYO via your own `ContextProvider` that pulls from a vector store.
+See Q17. Mem0, a new Cosmos semantic-memory provider (alpha), `FileMemoryProvider` (harness, stable) and vector-store context providers are first-party. Context-injected messages now carry cross-session origin attribution (1.12.0).
 
 ---
 
-## 6. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
+## 6. Multi-tenancy & Tenant Identity ⭐ THE KEY QUESTION
 
-### 6.1 Full run-loop input struct
+### 6.1 Run-loop tenant identity
 
-Python `agent.run()` (`_agents.py:271`):
-```python
-messages: AgentRunInputs | None
-stream: bool
-session: AgentSession | None
-function_invocation_kwargs: Mapping[str, Any] | None  # forwarded to tool invocation
-client_kwargs: Mapping[str, Any] | None               # client-specific
-tools, options, compaction_strategy, tokenizer        # via overload
-```
+**Python** `Agent.run()` (`_agents.py:1182-1194`) has no tenant field. Tenant identity goes into:
+- `function_invocation_kwargs: Mapping[str, Any]` — forwarded to every tool invocation and to MCP `header_provider` callbacks;
+- `session.state[...]` — durable per-session values readable by context providers, skills sources and middleware;
+- `client_kwargs` — provider-specific (e.g. OpenAI `user`).
 
-.NET (`AgentRunOptions.cs`):
+**.NET**: `AgentRunOptions.AdditionalProperties` (read in tools via `FunctionInvokingChatClient.CurrentContext`, see `dotnet/src/Microsoft.Agents.AI/AgentExtensions.cs:79`) and `AIAgent.CurrentRunContext`. At the **hosting** layer .NET now has a first-class tenant/user key:
+
 ```csharp
-public class AgentRunOptions { /* additional properties + per-options-type fields */ }
-public class ChatClientAgentRunOptions : AgentRunOptions {
-    public ChatOptions? ChatOptions { get; set; }
-    public ResponseContinuationToken? ContinuationToken { get; set; }
+// dotnet/src/Microsoft.Agents.AI.Hosting/AgentIsolationKeyProvider.cs:32-47
+public abstract class AgentIsolationKeyProvider
+{
+    // "scopes agent-owned resources, such as sessions and A2A tasks, to a logical
+    //  partition (e.g., user ID, tenant ID, or composite key)"
+    public abstract ValueTask<string?> GetIsolationKeyAsync(CancellationToken cancellationToken = default);
 }
 ```
+`ClaimsIdentityAgentIsolationKeyProvider` resolves it from the authenticated principal (default claim `ClaimTypes.NameIdentifier`, configurable to `oid` or a tenant claim; `Microsoft.Agents.AI.Hosting.AspNetCore/ClaimsIdentityAgentIsolationKeyProvider.cs:48-89`, options at `ClaimsIdentityAgentIsolationKeyProviderOptions.cs:42`). The doc comment is explicit that isolation "does not authenticate callers or authorize access to agents and tools" and that "unvalidated request headers … are not trusted identity" (`AgentIsolationKeyProvider.cs:20-25`).
 
-**Neither has a `tenantId` / `userId` field.** Callers must stuff that into `function_invocation_kwargs` (Python) or via `AdditionalProperties` and the `AgentRunContext.CurrentRunContext` async-local (.NET).
+### 6.2 Tenant identity propagation into tool calls
 
-### 6.2 Context propagation into a tool call
+Python:
+- `_call_chat_client` forwards `function_invocation_kwargs` to the client (`_agents.py:1303, 1313`); the function layer builds a `FunctionInvocationContext` whose `kwargs` holds them (`_tools.py:2157`, `_middleware.py:428-465`). Tools receive the context if they declare a `FunctionInvocationContext` parameter.
+- `agent.as_tool()` forwards the parent's kwargs to the sub-agent run: `function_invocation_kwargs=dict(ctx.kwargs)` (`_agents.py:784`), so tenant identity survives agents-as-tools.
+- `BackgroundAgentsProvider` does **not** forward them: background tasks call `bg_agent.run(input, session=sub_session)` (`_harness/_background_agents.py:492`). Tenant identity must be re-injected (e.g. via per-tenant agent instances or session state).
+- MCP: `MCPStreamableHTTPTool(header_provider=…)` receives "the runtime keyword arguments (from `FunctionInvocationContext.kwargs`)" and returns per-request headers; it never sees model arguments (`_mcp.py:3854-3862`).
 
-Python (`_tools.py:_auto_invoke_function` line 1411 and `FunctionInvocationContext` at `_middleware.py:204`):
-- The `FunctionInvocationContext` is built with `kwargs=function_invocation_kwargs` (Python `_agents.py:556`) and made available to tool code that accepts a `FunctionInvocationContext` parameter (auto-discovered at registration — `_tools.py:_discover_injected_parameters` line 406).
-
-.NET — middleware reads `FunctionInvokingChatClient.CurrentContext` (and `AIAgent.CurrentRunContext` for the broader run context), so a `FunctionMiddleware` or a custom delegate can pull tenant info from `AgentRunContext.RunOptions.AdditionalProperties`.
+.NET: tools and middleware read `FunctionInvokingChatClient.CurrentContext` / `AIAgent.CurrentRunContext`; hosting stores call the isolation key provider from the ambient request (`IsolationKeyScopedAgentSessionStore.cs:84-93`).
 
 ### 6.3 Tool call interface
 
-Python tool defined with `@tool` (`_tools.py:1135`):
+Python `@tool` (`_tools.py:1583-1600`):
 ```python
 @tool(name="topic_search", description="Search topics")
 def topic_search(query: str, ctx: FunctionInvocationContext) -> str:
-    tenant_id = ctx.kwargs.get("tenant_id")  # arrives via function_invocation_kwargs
+    tenant_id = ctx.kwargs["tenant_id"]  # host-supplied via function_invocation_kwargs
     return do_search(query, tenant_id)
 ```
 
-The `FunctionInvocationContext` exposes: `function`, `arguments`, `session`, `metadata`, `kwargs`, `result` (`_middleware.py:204-262`).
+`FunctionInvocationContext` (`_middleware.py:428`) exposes `function`, `arguments`, `session`, `metadata`, `result`, `kwargs`, and `tools` (live tool list with `add_tools` / `remove_tools`, lines 533/570). The context parameter is hidden from the model's JSON schema.
 
-.NET tools are `AIFunction` (from `Microsoft.Extensions.AI`); per-call context is reached via `FunctionInvokingChatClient.CurrentContext`.
+.NET tools are `AIFunction` (from `Microsoft.Extensions.AI`); per-call context via `FunctionInvokingChatClient.CurrentContext`.
 
 ### 6.4 Forcing tool arguments from the harness
 
-⚠ **Not built-in as a declarative "pin this arg to X" mechanism.** Achievable via `FunctionMiddleware` that mutates `context.arguments` before `call_next()`:
+⚠ **No declarative "pin this arg" mechanism; BYO `FunctionMiddleware`.** The middleware can overwrite `context.arguments` before `call_next()`. Since 1.19.0 the innermost handler re-validates changed arguments immediately before execution (`_middleware.py:436-444`), so a middleware-forced value still passes schema validation:
 
 ```python
 class ForceTenantIdMiddleware(FunctionMiddleware):
     async def process(self, context: FunctionInvocationContext, call_next):
         if context.function.name == "topic_search":
-            args = dict(context.arguments)
-            args["tenant_id"] = context.kwargs.get("tenant_id")  # override LLM choice
-            context.arguments = args
+            context.arguments = {**context.arguments, "tenant_id": context.kwargs["tenant_id"]}
         await call_next()
 ```
 
-The middleware is registered on the agent (`middleware=[ForceTenantIdMiddleware()]`). This is the recommended pattern but is **BYO** — no `pinned_args` / `forced_args` decorator-level support.
+The cleaner pattern is to **not expose** `tenant_id` as a model-visible parameter at all and read it from `ctx.kwargs` inside the tool (Q6.3). For MCP tools, use `header_provider` (Q6.2). The agent-hooks `pre_tool_call` `transform` verdict is an alternative enforcement point (Q7).
 
-### 6.5 Filtering visible tools
+### 6.5 Tenant-aware visible tool selection
 
-- **At agent-construction time**: pass `tools=[…]` listing only the allowed `FunctionTool` instances.
-- **Per-run**: pass `tools=…` to `agent.run(messages, options={"tools": [...]})`. The merge logic in `_merge_options` (`_agents.py:92-126`) lets a per-run tools list override the agent default.
-- **From a `ContextProvider`**: providers can contribute tools via `SessionContext.tools` (`_sessions.py:151-200`) — this is how `SkillsProvider` injects its `load_skill`/`read_skill_resource`/`run_skill_script` tools.
-- **Tool choice / `allowed_tools`**: `_tools.py` exposes `ToolMode` (`_types.py:3243`) and OpenAI/Gemini support `allowed_tools` via `tool_choice` (added in `1.3.0`).
+- **Construction time**: `Agent(tools=[…])` with the tenant's allowed tools (per-tenant agent factories are a documented hosting pattern: `AgentState(create_agent, cache_target=False)`, `python/packages/hosting/README.md:104-108`).
+- **Per run**: `agent.run(..., tools=[...])` and `options={"tool_choice": {"mode": "auto", "allowed_tools": [...]}}` (`ToolMode.allowed_tools`, `_types.py:4287-4298`). `AgentContext.tools` lets an `AgentMiddleware` override run-level tools (`_middleware.py:221-250`).
+- **From a `ContextProvider`**: providers add tools via `SessionContext.tools` (`_sessions.py:516-530`) in `before_run`, which can read `session.state["tenant_id"]`.
+- **Mid-run**: `FunctionInvocationContext.add_tools` / `remove_tools` (experimental `PROGRESSIVE_TOOLS`).
+- **Skills**: `FilteringSkillsSource(predicate=lambda skill, context: …)` receives `SkillsSourceContext(agent, session)` (`_skills.py:3040-3057`, `4198-4246`), so a per-tenant skill catalogue can be derived from session state. `CachingSkillsSource(cache_isolation_key_selector=…)` keeps per-tenant caches apart (`_skills.py:4249-4330`). Skill frontmatter `allowed_tools` exists but is informational for approval, not a runtime tool filter.
 
-### 6.6 Tenant scope on session
+### 6.6 Per-tool-call auth propagation
 
-✗ **Not first-class.** Stuff it in `session.state["tenant_id"]` or `AgentSessionStateBag["tenant_id"]`.
+Not automatic for local tools: identity reaches tools only if the host puts it in `function_invocation_kwargs` (Python) or `AdditionalProperties` / ambient context (.NET). Improvements since May:
+- MCP `header_provider` maps host kwargs to per-request auth headers (`_mcp.py:3854-3862`); ADR `0043-python-mcp-runtime-context.md:26-38` (proposed) keeps host context separate from model args and binds MCP approvals to header sets.
+- .NET Foundry Hosting passes the hosted user identity through to the session and makes delegated user identity sticky on `AgentSession` (.NET 1.18.0 / 1.22.0); Purview prefers the token principal for user identity.
 
-### 6.7 Per-tool-call auth propagation
+### 6.7 Per-tenant rate limit + budget cap
 
-Caller identity is **not automatically** propagated. You must inject it via `function_invocation_kwargs` (Python) or `AgentRunOptions.AdditionalProperties` (.NET), or via a custom `FunctionMiddleware` / `ContextProvider`. The `ToolApprovalAgent` (.NET) and `function_approval_request` (Python) mechanism only handles "is this call approved", not identity propagation.
-
-### 6.8 Resource scoping primitives
-
-- Tools / skills / sub-agents can be filtered at registration via `FilteringSkillsSource` (`_skills.py:AggregatingSkillsSource` + `FilteringSkillsSource`).
-- No publish-time tenant tag. Scoping happens at runtime (you compose a different `SkillsProvider` for each tenant).
-
-### 6.9 Per-tenant rate limit + budget cap
-
-✗ Not provided. Tokens are observable via OTel histograms and `UsageDetails`, but no built-in USD-cap or per-tenant ceiling.
+✗ Not provided. `FunctionInvocationConfiguration` caps iterations, function calls and wall-clock duration per request (`_tools.py:1755-1846`), and `FunctionTool(max_invocations=…)` caps per-tool calls; none of these are tenant-scoped or USD-based. (The `agent-framework-claude` wrapper forwards Claude Agent SDK's `max_budget_usd`, `python/packages/claude/agent_framework_claude/_agent.py:162`, but that is a vendor option for that one agent type.)
 
 ---
 
 ⭐ **Light usage example** (Python):
 
 ```python
-from agent_framework import Agent, FunctionMiddleware, FunctionInvocationContext
+from agent_framework import Agent, FunctionInvocationContext, FunctionMiddleware, tool
 from agent_framework.openai import OpenAIChatClient
 
-# Tools (registered globally; filtering happens at run-time)
 @tool
 def topic_search(query: str, ctx: FunctionInvocationContext) -> str:
-    tenant_id = ctx.kwargs.get("tenant_id")  # forced by middleware below
-    return f"hits for {query} in tenant {tenant_id}"
+    return f"hits for {query} in tenant {ctx.kwargs['tenant_id']}"   # tenant never model-supplied
 
 @tool
 def iab_search(query: str) -> str: ...
@@ -579,33 +591,28 @@ def bash_exec(cmd: str) -> str: ...
 @tool
 def web_fetch(url: str) -> str: ...
 
-# (6.4) Force tenant_id on topic_search regardless of LLM-supplied value
+# (3) Belt and braces: if a tool does expose tenant_id, overwrite whatever the LLM produced
 class ForceTenantId(FunctionMiddleware):
     async def process(self, context: FunctionInvocationContext, call_next):
-        if context.function.name == "topic_search":
-            args = dict(context.arguments)
-            args["tenant_id"] = context.kwargs.get("tenant_id")
-            context.arguments = args
+        if context.function.name == "topic_search" and "tenant_id" in context.arguments:
+            context.arguments = {**context.arguments, "tenant_id": context.kwargs["tenant_id"]}
         await call_next()
 
 agent = Agent(
-    client=OpenAIChatClient(model="gpt-4o"),
+    client=OpenAIChatClient(model="gpt-5"),
     name="brief-agent",
-    # (6.5) only these three tools are visible to the LLM
-    tools=[topic_search, iab_search, audience_create],
+    tools=[topic_search, iab_search, audience_create],   # (2) bash_exec / web_fetch not registered
     middleware=[ForceTenantId()],
 )
 
-# (6.1) Pass tenant context through function_invocation_kwargs
+# (1) Tenant identity travels as host-side kwargs
 response = await agent.run(
     "Build me an audience of young urban moms",
-    function_invocation_kwargs={
-        "tenant_id": "acme",
-        "targeting_strategy_id": "strat-42",
-        "user_id": "u-123",
-    },
+    function_invocation_kwargs={"tenant_id": "acme", "targeting_strategy_id": "strat-42", "user_id": "u-123"},
 )
 ```
+
+On .NET, step (1) at the hosting layer is `builder.Services.UseClaimsBasedAgentIsolation(...)` plus an authenticated endpoint; the isolation key then partitions sessions automatically, but tool-argument forcing is still middleware you write.
 
 ---
 
@@ -615,86 +622,103 @@ response = await agent.run(
 
 | Name | Fires when | Can do |
 |---|---|---|
-| `AgentMiddleware.process(ctx, call_next)` (`_middleware.py:357`) | Around every `agent.run()` | Read/mutate `AgentContext.messages`, set/override `result`, raise `MiddlewareTermination` |
-| `ChatMiddleware.process(ctx, call_next)` (`_middleware.py:480`) | Around every chat-client call (per LLM round-trip in tool loop) | Mutate messages, inject system, transform stream updates, override response |
-| `FunctionMiddleware.process(ctx, call_next)` (`_middleware.py:416`) | Around every tool invocation | Mutate `arguments`, override `result`, cache, validate, redact |
-| `ContextProvider.before_run` / `after_run` / `before_chat_call` / `after_chat_call` (`_sessions.py:348`) | Lifecycle around full run and each chat call | Inject context-messages, instructions, tools, middleware; mutate after-call state |
-| `HistoryProvider.get_messages` / `save_messages` (`_sessions.py:410`) | Load before invoke, save after | Persist conversation |
-| `@agent_middleware` / `@function_middleware` / `@chat_middleware` decorators (`_middleware.py:570, 603, 636`) | Same as the abstract classes | Functional shorthand |
-| `ResponseStream.with_transform_hook` / `with_result_hook` / `with_cleanup_hook` (`_types.py:ResponseStream`) | Per-update during stream | Mutate or observe streamed updates |
-| .NET pipeline builder hooks: `UseFunctionInvocation`, `UseMessageInjection`, `UsePerServiceCallChatHistoryPersistence`, `UseAIContextProviders`, `UseOpenTelemetry`, `UseLogging`, `Use(...)` custom | At builder time | Compose decorating `IChatClient`/`AIAgent` decorators |
+| `AgentMiddleware.process(ctx, call_next)` (`_middleware.py:838`) | Around every `agent.run()` | Read/mutate `messages`, run-level `tools`, `options`, `function_invocation_kwargs`; set/override `result`; raise `MiddlewareTermination` |
+| `ChatMiddleware.process(ctx, call_next)` (`_middleware.py:1001`) | Around every model call in the tool loop | Mutate messages/options, inject system content, add stream transform/result/cleanup hooks, override response |
+| `FunctionMiddleware.process(ctx, call_next)` (`_middleware.py:910`) | Around every tool invocation | Mutate/repair `arguments`, override `result`, deny (`MiddlewareTermination`), abort run fail-closed (`MiddlewareFailure`, `_middleware.py:86`) |
+| `@agent_middleware` / `@function_middleware` / `@chat_middleware` (`_middleware.py:1176, 1209, 1242`) | Same as above | Functional shorthand |
+| `MiddlewareBundle` (`_middleware.py:1082`) | Installs a set of middleware as one unit | Used by agent-hooks |
+| `ContextProvider.before_run` / `after_run` (`_sessions.py:789, 810`) | Before the first model call / after the run (or end of user turn when `after_run_once_per_turn`) | Add context messages, instructions, tools, chat/function middleware (`SessionContext`, `_sessions.py:516`); process response |
+| `HistoryProvider.get_messages` / `save_messages` (`_sessions.py:1047, 1064`) | Load before run, save after run | Persist conversation |
+| `PerServiceCallHistoryPersistingMiddleware` (`_sessions.py:1586`) | Around each model call | Persist history per model call |
+| `MessageInjectionMiddleware` + `enqueue_messages(session, …)` (`_sessions.py:1415, 1434`) | Before next model call | Tools or host code inject messages into an active run |
+| `AgentLoopMiddleware` (`_harness/_loop.py:229`) | Around whole runs | Re-run the agent until `should_continue` is false (todos, background tasks, AI judge) |
+| `ToolApprovalMiddleware` (`_harness/_tool_approval.py:361`) | Around runs with approval requests | Standing "always approve" rules, auto-approval callbacks, queued prompts |
+| `FunctionInvocationContext.add_tools` / `remove_tools` (`_middleware.py:533, 570`) | Inside a tool or function middleware | Progressive tool exposure (next iteration), experimental |
+| Agent-hooks bundle: `create_agent_hooks_middleware(...)` (`_agent_hooks.py`, experimental `AGENT_HOOKS`; needs separate `agent-hooks-sdk`) | `agent_startup`, `input`, `pre_model_call`, `post_model_call`, `pre_tool_call`, `post_tool_call`, `output`, `agent_shutdown` | External interceptor returns allow / deny / transform; fail-closed |
+| `ResponseStream.with_transform_hook` / `with_result_hook` / cleanup (`_types.py:3361`) | Per streamed update / at finalisation | Mutate or observe updates |
+| .NET builder: `UseFunctionInvocation`, `UseMessageInjection`, `UsePerServiceCallChatHistoryPersistence`, `UseAIContextProviders`, `UseToolApproval`, `UseOpenTelemetry`, `Use(...)`, `LoopAgent` | Builder time | Compose `IChatClient` / `AIAgent` decorators (`HarnessAgent.cs:181-285`) |
+| .NET `Microsoft.Agents.AI.AgentHooks` (`AgentHooksChatClientExtensions.cs`) | Same interception points as Python | Agent-hooks enforcement over three seams (ADR `0035-dotnet-agent-hooks-enforcement.md`) |
 
 ### 7.2 Hook concurrency model
 
-Sequential. Each middleware wraps the next via `await call_next()`; the chain is built linearly by `MiddlewareWrapper` (`_middleware.py:669`). `ContextProvider`s run in registration order on `before_*` and in reverse on `after_*` (`_agents.py:_run_after_providers` line 447).
+Sequential onion. Each middleware wraps the next via `await call_next()`; pipelines are built by `AgentMiddlewarePipeline` / `FunctionMiddlewarePipeline` / `ChatMiddlewarePipeline` (`_middleware.py:1351, 1464, 1550`). `ContextProvider.before_run` runs in registration order and `after_run` in reverse (`_run_after_providers`, `_agents.py:586`). Function middleware runs **concurrently across tool calls** when the batch runs concurrently, but sequentially within one call.
 
 ### 7.3 Specific capability tests
 
-- **Inject system messages at session start** — ✅ via `ContextProvider.before_run` populating `SessionContext.instructions` or `SessionContext.context_messages` (`_sessions.py:151`).
-- **Expand user input** — ✅ via `ContextProvider.before_chat_call` or `ChatMiddleware` mutating `context.messages`.
-- **Mutate messages list before each LLM call** — ✅ same hook (per service call). The `CompactionProvider` does exactly this.
-- **Mutate tool input** — ✅ via `FunctionMiddleware` (see Q6.4).
-- **Mutate tool result** — ✅ via `FunctionMiddleware` (set `context.result` after `call_next()`).
-- **Emit additional tool calls in response to a tool result** — ⚠ Not via a single hook. You'd extend the message list in a `ChatMiddleware`. The framework does not expose Claude Agent SDK's `additional_messages` semantics directly.
+- **Inject system messages at session start** — ✅ `ContextProvider.before_run` appending to `context.instructions` or `context.context_messages`.
+- **Expand user input** — ✅ `AgentMiddleware` (mutate `context.messages`) or `ChatMiddleware`.
+- **Mutate messages before each LLM call** — ✅ `ChatMiddleware` (runs per model call). `CompactionProvider` and the harness use this seam.
+- **Mutate tool input** — ✅ `FunctionMiddleware` (Q6.4); re-validated after mutation.
+- **Mutate tool result** — ✅ `FunctionMiddleware` setting `context.result` after `call_next()` (only `list[Content]` and `str` survive intact; other types are stringified, `_middleware.py:447-458`).
+- **Emit additional tool calls in response to a tool result** — ⚠ Not as a direct API. A tool can `enqueue_messages(ctx.session, …)` so the next model call sees extra messages (`MessageInjectionMiddleware`), and a tool can `add_tools` for the next iteration, but there is no `additional_messages`-style synthetic tool call.
 
 ### 7.4 Auto-compaction
 
-✅ Built-in: `CompactionProvider` + `ContextWindowCompactionStrategy` / `SummarizationCompactionStrategy` / `ToolResultCompactionStrategy` / `ChatReducerCompactionStrategy` / `PipelineCompactionStrategy` (Python `agent_framework/_compaction.py`, .NET `Microsoft.Agents.AI/Compaction/`). ADR `docs/decisions/0019-python-context-compaction-strategy.md`.
+✅ Built-in. Python `CompactionProvider` (`_compaction.py:2075`) with strategies `TruncationStrategy` (1185), `SlidingWindowStrategy` (1269), `SelectiveToolCallCompactionStrategy` (1315), `ToolResultCompactionStrategy` (1368), `SummarizationStrategy` (1724), `TokenBudgetComposedStrategy` (1935), `ContextWindowCompactionStrategy` (2228). Also settable per run (`compaction_strategy=`) or on the client. .NET equivalents in `dotnet/src/Microsoft.Agents.AI/Compaction/` (adds `ChatReducerCompactionStrategy`, `PipelineCompactionStrategy`). ADR `docs/decisions/0019-python-context-compaction-strategy.md`.
 
-`HarnessAgent` (.NET) wires this by default: `new CompactionProvider(new ContextWindowCompactionStrategy(maxContextWindowTokens, maxOutputTokens))` (`HarnessAgent.cs:95-116`). Triggers on context-window pressure before each chat call.
+`create_harness_agent` wires before/after compaction strategies unless `disable_compaction=True`; .NET `HarnessAgent` made compaction **opt-in** in 1.10.0 (only when `MaxContextWindowTokens` and `MaxOutputTokens` are set, `HarnessAgent.cs:35, 220`). Function-call/result pairs are kept atomic during compaction (1.13.0).
 
 ### 7.5 Prompt cache optimization
 
-No first-party prompt-cache breakpoint controller. Providers (Anthropic) handle cache via their own ChatClient (e.g., `agent-framework-anthropic` sets cache breakpoints itself). MAF does not expose a generic "stable prefix" knob.
+Provider-specific, no generic stable-prefix controller:
+- **OpenAI** (new, 1.12.1): `prompt_cache_key`, `prompt_cache_retention="24h"`, and `prompt_cache_options` with `mode="explicit"` honouring per-part breakpoints set via `Content.additional_properties["prompt_cache_breakpoint"]` (`python/packages/openai/agent_framework_openai/_chat_client.py:246-258`).
+- **Anthropic**: pass structured system blocks with `cache_control` through `instructions` (`python/packages/anthropic/agent_framework_anthropic/_chat_client.py:160-166`).
+- Cache read/write token counts surface in `UsageDetails` (`cache_creation_input_token_count`, `cache_read_input_token_count`, `_types.py:450-451`).
 
-### 7.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing
 
-`ToolResultCompactionStrategy` (`Microsoft.Agents.AI/Compaction/ToolResultCompactionStrategy.cs`) explicitly clears or summarizes tool results once they exceed a threshold. Skills follow the **progressive-disclosure** pattern (metadata-only in prompt, body loaded on demand via `load_skill`).
+✅ `ToolResultCompactionStrategy` (Python `_compaction.py:1368`, .NET `Compaction/ToolResultCompactionStrategy.cs`) replaces older tool results with bounded summaries once a threshold is crossed; `SelectiveToolCallCompactionStrategy` (`_compaction.py:1315`) drops selected tool-call groups. Both run as compaction, not as a direct "delete this result" API.
 
-### 7.7 Architectural diagram of where hooks fire
+### 7.7 Progressive disclosure
+
+- **Skills**: metadata-only catalogue in the prompt; bodies, resources and scripts fetched on demand (`load_skill`, `read_skill_resource`, `run_skill_script`; `_skills.py:2180-2184`).
+- **MCP** (new, 1.11.0): `MCPTool(use_progressive_disclosure=True, always_load=[...])` exposes discovery/loader tools and loads MCP tool schemas on demand (`_mcp.py:903-1051`, `1460-1482`).
+- **Generic tools**: `FunctionInvocationContext.add_tools` / `remove_tools` (experimental).
+- **Filesystem stash**: `FileAccessProvider` / `FileMemoryProvider` over `AgentFileStore` (ranged reads with line numbers since 1.18.0) let the agent write large content to files and re-read slices.
+
+### 7.8 Architectural diagram of where hooks fire
 
 ```
-   agent.run(messages, session, options)
+   agent.run(messages, session, tools, options, function_invocation_kwargs)
        │
        ▼
-   AgentMiddleware.process  ─── (around the whole run)
+   [AgentLoopMiddleware]  ── (optional; re-runs whole agent until evaluator done)
        │
        ▼
-   ContextProvider.before_run         (each provider in order)
+   AgentMiddleware.process (incl. agent-hooks: agent_startup / input)
        │
        ▼
-   ┌────── Tool-loop iteration ──────────┐
-   │                                      │
-   │   ContextProvider.before_chat_call   │  (each provider)
-   │      │                               │
-   │      ▼                               │
-   │   ChatMiddleware.process             │  (around the LLM call)
-   │      │                               │
-   │      ▼                               │
-   │   IChatClient / BaseChatClient       │
-   │   .get_response  / _inner_get_resp   │
-   │      │                               │
-   │      ▼                               │
-   │   ContextProvider.after_chat_call    │
-   │      │                               │
-   │      ▼                               │
-   │   ┌───── if tool_calls ─────────┐    │
-   │   │ FunctionMiddleware.process  │    │
-   │   │     │                       │    │
-   │   │     ▼                       │    │
-   │   │ FunctionTool.invoke         │    │
-   │   │     │                       │    │
-   │   │     ▼                       │    │
-   │   │ FunctionMiddleware (after)  │    │
-   │   └─────────────────────────────┘    │
-   │                                      │
-   └──────── repeat until done ───────────┘
+   ContextProvider.before_run         (each provider in order; history load)
        │
        ▼
-   ContextProvider.after_run            (reverse order)
+   ┌────── Tool-loop iteration (FunctionInvocationLayer) ─────────┐
+   │                                                              │
+   │   ChatMiddleware.process  (message injection, per-call       │
+   │      │                     persistence, compaction,          │
+   │      │                     agent-hooks pre/post_model_call)  │
+   │      ▼                                                       │
+   │   BaseChatClient.get_response (provider call)                │
+   │      │                                                       │
+   │      ▼                                                       │
+   │   approval binding / pause ─────► user_input_requests        │
+   │      │                                                       │
+   │      ▼                                                       │
+   │   ┌──── per tool call (concurrent by default) ─────┐         │
+   │   │ FunctionMiddleware.process (pre_tool_call)     │         │
+   │   │     ▼                                          │         │
+   │   │ FunctionTool.invoke                            │         │
+   │   │     ▼                                          │         │
+   │   │ FunctionMiddleware (after; post_tool_call)     │         │
+   │   └────────────────────────────────────────────────┘         │
+   │      │  limits: max_iterations / max_function_calls /        │
+   │      │          max_duration_seconds                         │
+   └──────┴──────── repeat until done ────────────────────────────┘
        │
        ▼
-   AgentMiddleware (after call_next)
+   ContextProvider.after_run          (reverse order; history save)
+       │
+       ▼
+   AgentMiddleware (after call_next; agent-hooks: output / agent_shutdown)
 ```
 
 ---
@@ -704,18 +728,15 @@ No first-party prompt-cache breakpoint controller. Providers (Anthropic) handle 
 ```python
 from datetime import date
 from agent_framework import (
-    Agent, ContextProvider, FunctionMiddleware, FunctionInvocationContext,
-    Message, SessionContext,
+    Agent, ContextProvider, FunctionInvocationContext, FunctionMiddleware, AgentSession,
 )
 from agent_framework.openai import OpenAIChatClient
 
 
-# (1) SessionStart-style hook — inject tenant/locale/date as system content
+# (1) SessionStart-style hook — inject tenant/locale/date as instructions
 class TenantContextProvider(ContextProvider):
-    source_id = "tenant_ctx"
-
     def __init__(self, tenant: str, locale: str):
-        super().__init__(self.source_id)
+        super().__init__("tenant_ctx")
         self.tenant, self.locale = tenant, locale
 
     async def before_run(self, *, agent, session, context, state):
@@ -728,13 +749,11 @@ class TenantContextProvider(ContextProvider):
 class ForceTenantOnTopicSearch(FunctionMiddleware):
     async def process(self, ctx: FunctionInvocationContext, call_next):
         if ctx.function.name == "topic_search":
-            args = dict(ctx.arguments)
-            args["tenant_id"] = ctx.kwargs.get("tenant_id")
-            ctx.arguments = args
+            ctx.arguments = {**ctx.arguments, "tenant_id": ctx.kwargs["tenant_id"]}
         await call_next()
 
 
-# (3) PostToolUse — summarize big topic_search results
+# (3) PostToolUse — summarize big topic_search results in place
 class SummarizeBigResults(FunctionMiddleware):
     async def process(self, ctx: FunctionInvocationContext, call_next):
         await call_next()
@@ -743,12 +762,13 @@ class SummarizeBigResults(FunctionMiddleware):
 
 
 agent = Agent(
-    client=OpenAIChatClient(model="gpt-4o"),
+    client=OpenAIChatClient(model="gpt-5"),
     name="brief-agent",
     tools=[topic_search],
     context_providers=[TenantContextProvider("acme", "fr-FR")],
     middleware=[ForceTenantOnTopicSearch(), SummarizeBigResults()],
 )
+await agent.run("...", session=AgentSession(), function_invocation_kwargs={"tenant_id": "acme"})
 ```
 
 ---
@@ -757,116 +777,120 @@ agent = Agent(
 
 ### 8.1 Does the framework ship an HTTP server?
 
-**Multiple options, no single canonical one:**
+**Several options, no single canonical server.**
 
 | Surface | Where | Status | Notes |
 |---|---|---|---|
-| **DevUI** | `agent-framework-devui` (Python) | `beta`, "sample app, not for production" | FastAPI, OpenAI Responses-compatible. |
-| **AG-UI** | `agent-framework-ag-ui` (Python) + `Microsoft.Agents.AI.AGUI` + `Microsoft.Agents.AI.Hosting.AGUI.AspNetCore` (.NET) | `rc` (Python), production-targeted | SSE, AG-UI protocol. |
-| **A2A** | `agent-framework-a2a` (Python), `Microsoft.Agents.AI.A2A` + `Microsoft.Agents.AI.Hosting.A2A.AspNetCore` | beta | Agent-to-Agent protocol (`MapA2A`). |
-| **Foundry Hosted Agents** | `agent-framework-foundry-hosting`, `Microsoft.Agents.AI.Foundry.Hosting` | beta | Deploy to Foundry-managed infra. |
-| **Azure Functions** | `Microsoft.Agents.AI.Hosting.AzureFunctions` | beta | HTTP/Timer/MCPTool triggers. |
-| **Generic ASP.NET Core** | `Microsoft.Agents.AI.Hosting` | released | DI + `AddAIAgent(...)` building blocks. |
+| **OpenAI Responses / Chat Completions / Conversations (.NET)** | `Microsoft.Agents.AI.Hosting.OpenAI` (`MapOpenAIResponses`, `MapOpenAIChatCompletions`, `MapOpenAIConversations`) | released package, experimental pieces | ASP.NET Core minimal-API endpoints; isolation-key aware |
+| **Hosting helpers (Python)** | `agent-framework-hosting`, `-hosting-responses`, `-hosting-a2a`, `-hosting-mcp`, `-hosting-telegram` | `alpha` | Conversion + state helpers only; **no routes, no auth** — app-owned |
+| **AG-UI** | Python `agent-framework-ag-ui` (`add_agent_framework_fastapi_endpoint`, `_endpoint.py:93`); .NET `Microsoft.Agents.AI.Hosting.AGUI.AspNetCore` (`MapAGUIServer`, `AGUIEndpointRouteBuilderExtensions.cs:46`) on external `AGUI.Server` | Python `released` | SSE, AG-UI protocol, optional A2UI |
+| **A2A** | `agent-framework-a2a`, `-hosting-a2a`; `Microsoft.Agents.AI.Hosting.A2A(.AspNetCore)` (`MapA2AHttpJson`, `MapA2AJsonRpc`, `A2AEndpointRouteBuilderExtensions.cs:34, 115`) | beta / alpha | Agent-to-Agent protocol |
+| **MCP server** | `Agent.as_mcp_server()` (`_agents.py:1812`), `agent-framework-hosting-mcp` (`AgentMCPTool`, `WorkflowMCPTool`) | core / alpha | Expose agent or workflow as MCP tool |
+| **Foundry Hosted Agents** | `agent-framework-foundry-hosting`, `Microsoft.Agents.AI.Foundry.Hosting` | beta | Agent Server Responses 2.x protocol |
+| **DevUI** | `agent-framework-devui` | beta, "sample app … not intended for production" (`README.md:6`) | FastAPI, OpenAI Responses-compatible |
+| **Generic DI hosting** | `Microsoft.Agents.AI.Hosting`, `.Hosting.AspNetCore` | released | `AddAIAgent`, isolation keys |
 
-### 8.2 HTTP streaming transport
+Azure Functions HTTP/Timer/MCP triggers moved to the durable-extension repo.
 
-- DevUI / AG-UI: SSE (`text/event-stream`).
-- A2A: per A2A spec (JSON-RPC over HTTP with SSE for streaming).
-- Foundry hosting: Responses API SSE.
+### 8.2 HTTP streaming protocol (SSE/WS)
+
+- OpenAI Responses (DevUI, .NET Hosting.OpenAI, Python hosting-responses helpers, Foundry hosting): **SSE**.
+- AG-UI: **SSE** with configurable keepalive (`keepalive_seconds=15`, `_endpoint.py:106`); .NET also supports the opt-in protobuf transport from `AGUI.Protobuf`.
+- A2A: HTTP+JSON or JSON-RPC, SSE for streaming.
+- MCP: Streamable HTTP via the MCP SDK.
+- Telegram: bot webhook/polling (Python helper).
 
 ### 8.3 HTTP endpoints that start an agent run
 
-DevUI: `POST /v1/responses` (`agent-framework-devui/_server.py:807-879`):
+DevUI: `POST /v1/responses` (`python/packages/devui/agent_framework_devui/_server.py:809`):
 ```json
 {
   "metadata": {"entity_id": "weather_agent"},
   "input": "What is the weather in Seattle?",
   "stream": true,
-  "conversation": "conv_abc123"
+  "conversation": "conv_abc123",
+  "extra_body": {"function_invocation_kwargs": {"tenant_id": "acme"}}
 }
 ```
-Headers: `Authorization: Bearer <devui-token>` (DevUI is auth-on by default).
+`extra_body.function_invocation_kwargs` is forwarded to `agent.run()` since 1.15.0 (`agent_framework_devui/_executor.py:401-412`). Note this is client-supplied, so it is not trusted identity.
 
-AG-UI Python uses `add_agent_framework_fastapi_endpoint(app, agent, "/")` (`agent-framework-ag-ui/README.md:34`). The single `POST /` accepts AG-UI thread-scoped requests.
+.NET: `POST /{agentName}/v1/responses` by default (`MapOpenAIResponses`, `dotnet/src/Microsoft.Agents.AI.Hosting.OpenAI/EndpointRouteBuilderExtensions.Responses.cs:100, 139`), standard OpenAI Responses body.
 
-### 8.4 Live agentic event stream format
+AG-UI: `add_agent_framework_fastapi_endpoint(app, agent, "/")` registers one `POST` that accepts AG-UI `RunAgentInput` (thread id, run id, messages, state, tools, context).
 
-For DevUI, the wire format is OpenAI Responses-compatible (see `python/packages/devui/README.md:252-288`). For AG-UI, it's the AG-UI protocol's typed events (`BaseEvent`, `MessageEvent`, etc.). See Q3.6 for a fuller list of frame types.
+### 8.4 Interrupt / cancel in-flight run
 
-### 8.5 Auth termination at the HTTP boundary
+- DevUI: `POST /v1/responses/{response_id}/cancel` (`_server.py:885`); client disconnect also cancels.
+- .NET Hosting.OpenAI: `POST /{agent}/v1/responses/{responseId}/cancel` (`EndpointRouteBuilderExtensions.Responses.cs:149`), plus `GET` and `DELETE /{responseId}`.
+- AG-UI Python: detached runs with `max_detached_runs` / `detached_run_timeout_seconds` (`_endpoint.py:108-110`); cancel is via the AG-UI protocol.
 
-- **DevUI**: Bearer-token auth enabled by default; `--no-auth` only allowed for loopback. `DEVUI_AUTH_TOKEN` env var (`agent-framework-devui/README.md:343-372`).
-- **AG-UI / A2A / Foundry**: BYO via the underlying ASP.NET Core / FastAPI middleware.
-- **JWT-validation, tenant scoping**: not built-in.
+### 8.5 Resume / replay endpoint
 
-### 8.6 Resume / replay endpoint
+- DevUI and .NET: re-send the same `conversation` id or `previous_response_id`; `GET /v1/conversations/{id}/items` lists history (`_server.py:1095`; .NET `EndpointRouteBuilderExtensions.Conversations.cs:101`). `GET /{agent}/v1/responses/{responseId}` fetches a stored response.
+- AG-UI: opt-in thread snapshot persistence and hydration (`snapshot_store`, `snapshot_scope_resolver`, `_endpoint.py:103-104`); workflow checkpoint resume via `checkpoint_storage`; interrupts/resume canonicalised around `RUN_FINISHED.outcome.interrupts` and `ResumeEntry` (1.11.0, BREAKING).
 
-- DevUI: re-send the same `conversation` ID → automatically pulls thread history (`README.md:175-196`).
-- AG-UI: `availableInterrupts` and `resume` metadata are propagated through `AGUIChatClient`.
+### 8.6 HITL approval workflow
 
-### 8.7 Interrupt / cancel via HTTP
+1. A tool with `approval_mode="always_require"` triggers `function_approval_request` content; the run returns with `user_input_requests` populated (paused state is observable).
+2. The client returns a `function_approval_response` (approved true/false) on the **same session/conversation**.
+3. The framework only accepts responses that match a request it recorded in the session (`_tools.py:1798-1811`); DevUI likewise rejects unknown `request_id`s and rebuilds the call from server-stored data (`_executor.py:793-838`).
 
-`POST /v1/responses/{response_id}/cancel` (DevUI, `_server.py:886-908`):
-```bash
-curl -X POST http://localhost:8080/v1/responses/resp_abc/cancel \
-  -H "Authorization: Bearer <devui-token>"
-```
-Also cancels automatically on client disconnect.
+DevUI surfaces `response.function_approval.requested` / `response.function_approval.responded`. AG-UI uses interrupts in `RUN_FINISHED.outcome.interrupts` and resume entries. .NET `ToolApprovalAgent` adds "always approve" scopes (`AlwaysApproveToolApprovalResponseContent.cs`).
 
-### 8.8 Tool-arg streaming (partial JSON)
+### 8.7 Token streaming
 
-✅ DevUI streams `response.function_call_arguments.delta` (`README.md:265`). Same for AG-UI.
+- **Text delta**: `event: response.output_text.delta` / `data: {"type":"response.output_text.delta","delta":"Hel"}`.
+- **Partial tool args**: `event: response.function_call_arguments.delta` / `data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"query\":\"mo"}` (`python/packages/devui/README.md:265`). AG-UI emits `TOOL_CALL_ARGS` deltas; streaming tool-call indices are preserved for A2UI consumers (1.15.0).
+- **Agent activity**: `event: response.output_item.added` (function_call item), `response.function_result.complete` (DevUI), workflow `executor_invoked` / `executor_completed` items; AG-UI emits `TOOL_CALL_START/END`, `STEP_*`, and workflow participant tool calls (1.12.0).
 
-### 8.9 HITL approval workflow over HTTP
+### 8.8 Authentication & Authorisation
 
-When a tool with `approval_mode="always_require"` is invoked, the agent emits `function_approval_request` content and returns. The client should:
-1. Inspect `result.user_input_requests`.
-2. Build a `function_approval_response` (`approved=True|False`).
-3. Re-invoke `agent.run(approval_response, session=session)`.
+- **DevUI**: Bearer token on by default; non-loopback binds require `DEVUI_AUTH_TOKEN` or `--auth-token` (`README.md:343-377`).
+- **.NET hosting**: authentication is the ASP.NET Core pipeline's job, but **tenant/user scoping of stored resources is now built in**: `UseClaimsBasedAgentIsolation` (`Hosting.AspNetCore/ServiceCollectionExtensions.cs:57`) registers `ClaimsIdentityAgentIsolationKeyProvider`; Responses/Conversations storage (`Conversations/IsolationKeyScopedConversationStorage.cs`, `IsolationKeyScopedAgentConversationIndex.cs`), sessions (`IsolationKeyScopedAgentSessionStore`) and A2A tasks (`IsolationKeyScopedTaskStore.cs`) are partitioned by the key, strict when a provider is registered. The doc comment on `MapOpenAIResponses` points to "endpoint authorization and caller isolation requirements" (`EndpointRouteBuilderExtensions.Responses.cs:86-88`).
+- **AG-UI Python**: `dependencies=` FastAPI auth hooks (`_endpoint.py:102`) and `snapshot_scope_resolver` to scope stored threads (empty scope results are rejected since 1.18.0).
+- **Python hosting helpers**: none; app-owned.
+- JWT validation and route-level authorization: BYO in all cases.
 
-DevUI exposes this as `response.function_approval.requested` / `response.function_approval.responded` events.
+### 8.9 Tool-call state reconstruction
 
-### 8.10 Tool-call state reconstruction
+Explicit IDs. `function_call` content has `call_id`; the matching `function_result` carries the same `call_id`. Approvals are additionally bound to a stable function-call **occurrence** id (`_generate_function_call_occurrence_id`, `_tools.py:99`) so repeated calls with the same `call_id` across resumes are distinguished. Protocol mappers carry the IDs (`call_id` / `item_id` in Responses, `toolCallId` in AG-UI); AG-UI tool-message IDs are preserved (1.15.0).
 
-Each `FunctionCallContent` has a `call_id` field. Matching `FunctionResultContent` carries the same `call_id`. DevUI's `_mapper.py` ensures the wire frames carry an explicit ID, so the client links `tool_use` → `tool_result` by matching `call_id`.
+### 8.10 Health checks / graceful shutdown
 
-### 8.11 Health checks / graceful shutdown
-
-- DevUI: `GET /health` (`_server.py:500`).
-- AG-UI / A2A / Functions: depend on host platform.
-- SIGTERM drain: DevUI registers cleanup hooks (`register_cleanup(agent, credential.close)` — `agent-framework-devui/README.md:70-87`).
+- DevUI: `GET /health` (`_server.py:502`), `GET /meta`; cleanup hooks via `register_cleanup(agent, credential.close)` (`README.md:68-87`).
+- .NET hosting / AG-UI / A2A / Python helpers: no built-in health endpoints; use ASP.NET Core health checks / your web framework. Background agents expose `release_session()` for draining per-session tasks.
 
 ---
 
-⭐ **Light usage example** (DevUI / OpenAI-compatible API):
+⭐ **Light usage example** (DevUI / OpenAI-compatible API; the .NET `MapOpenAIResponses` surface takes the same shapes under `/{agent}/v1/responses`):
 
 ```bash
-# Start agent run
+# 1. Start agent run (DevUI does not read X-Tenant-Id; pass identity as kwargs, or use .NET isolation keys)
 curl -N -X POST http://localhost:8080/v1/responses \
-  -H "Authorization: Bearer $DEVUI_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEVUI_AUTH_TOKEN" -H "Content-Type: application/json" \
   -H "X-Tenant-Id: acme" \
-  -d '{"metadata":{"entity_id":"brief_agent","tenant_id":"acme"},"input":"Build me an audience","stream":true}'
+  -d '{"metadata":{"entity_id":"brief_agent"},"input":"Build me an audience","stream":true,
+       "conversation":"conv_abc","extra_body":{"function_invocation_kwargs":{"tenant_id":"acme"}}}'
 
-# Response (SSE):
+# 2. SSE stream (abridged)
 # event: response.created
 # data: {"type":"response.created","response":{"id":"resp_abc","status":"in_progress"}}
-#
 # event: response.output_item.added
 # data: {"type":"response.output_item.added","item":{"type":"function_call","name":"topic_search","call_id":"call_1"}}
-#
+# event: response.function_approval.requested
+# data: {"type":"response.function_approval.requested","request_id":"req_1","function_call":{"name":"audience_create",...}}
 # event: response.completed
 # data: {"type":"response.completed","response":{"id":"resp_abc","status":"completed"}}
 
-# Cancel run
-curl -X POST http://localhost:8080/v1/responses/resp_abc/cancel \
-  -H "Authorization: Bearer $DEVUI_AUTH_TOKEN"
+# 3. Cancel the run mid-flight
+curl -X POST http://localhost:8080/v1/responses/resp_abc/cancel -H "Authorization: Bearer $DEVUI_AUTH_TOKEN"
 
-# Send HITL approval
-# (Resume the conversation with a function_approval_response item)
-curl -X POST http://localhost:8080/v1/conversations/conv_abc/items \
-  -H "Authorization: Bearer $DEVUI_AUTH_TOKEN" \
-  -d '{"items":[{"type":"function_approval_response","call_id":"call_1","approved":true}]}'
+# 4. HITL approval: new run on the same conversation carrying a function_approval_response item
+curl -N -X POST http://localhost:8080/v1/responses \
+  -H "Authorization: Bearer $DEVUI_AUTH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"metadata":{"entity_id":"brief_agent"},"conversation":"conv_abc","stream":true,
+       "input":[{"type":"message","role":"user","content":[
+         {"type":"function_approval_response","request_id":"req_1","approved":true}]}]}'
 ```
 
 ---
@@ -875,42 +899,50 @@ curl -X POST http://localhost:8080/v1/conversations/conv_abc/items \
 
 ### 9.1 Mechanism
 
-Two complementary mechanisms:
+Three mechanisms:
 
-1. **`agent.as_tool()`** — turn any agent into a `FunctionTool` (`_agents.py:478-572`). The parent LLM sees `FunctionTool` with a `task: str` argument. Returns the sub-agent's final text.
-2. **`SubAgentsProvider`** (.NET, `dotnet/src/Microsoft.Agents.AI/Harness/SubAgents/SubAgentsProvider.cs:39-100`) — a `ContextProvider` that exposes six tools to the parent: `SubAgents_StartTask`, `SubAgents_WaitForFirstCompletion`, `SubAgents_GetTaskResults`, `SubAgents_GetAllTasks`, `SubAgents_ContinueTask`, `SubAgents_ClearCompletedTask`. Each sub-task runs in its own session **concurrently**.
+1. **`agent.as_tool()`** — wrap any agent as a `FunctionTool` with a `task: str` argument (`_agents.py:641-700`).
+2. **`BackgroundAgentsProvider`** (renamed from `SubAgentsProvider`; now in **both** Python `_harness/_background_agents.py:269` and .NET `Harness/BackgroundAgents/BackgroundAgentsProvider.cs:53`) — a `ContextProvider` exposing `background_agents_start_task`, `…_wait_for_first_completion`, `…_get_task_results`, `…_get_all_tasks`, `…_continue_task`, `…_clear_completed_task` (`_background_agents.py:476-657`). Each task runs in its own session, concurrently.
+3. **Orchestrations** (`agent-framework-orchestrations`, released): `SequentialBuilder` (`_sequential.py:66`), `ConcurrentBuilder` (`_concurrent.py:180`), `HandoffBuilder` (`_handoff.py:628`), `GroupChatBuilder` (`_group_chat.py:606`), `MagenticBuilder` (`_magentic.py:1383`). Workflows can be exposed as agents (`Workflow.as_agent`, `_workflows/_workflow.py:1560`).
 
 ### 9.2 Configuration
 
-- `as_tool()`: object inlined per call. No markdown file.
-- `SubAgentsProvider`: `new SubAgentsProvider(new[] { agentA, agentB, … }, options)` — statically registered list of agents.
-- Workflows: declared via `WorkflowBuilder` with executors and edges; can also be defined declaratively via YAML (`agent-framework-declarative`).
+- `as_tool()`: object inlined per call.
+- `BackgroundAgentsProvider(agents=[...], wait_timeout_seconds=300)`: statically registered list (names must be unique) (`_background_agents.py:296-330`). `create_harness_agent(background_agents=[...])` wires it.
+- Orchestrations / workflows: builders in code, or declarative YAML (`agent-framework-declarative`, released).
 
 ### 9.3 LLM-generated configs
 
-✗ The parent LLM cannot create a brand-new sub-agent with a custom system prompt at runtime. Sub-agents must be registered ahead of time. Workaround: implement a custom tool that constructs an `Agent` from a dict and invokes it (BYO).
+✗ The parent LLM cannot create a new sub-agent with a custom system prompt at runtime; agents must be registered ahead of time. Workaround: a custom tool that builds an `Agent` from arguments (BYO).
 
 ### 9.4 Output handling
 
-- `as_tool`: the parent receives a string (final response text) as the `function_result` content. The wrapping function awaits `stream.get_final_response()` (`_agents.py:560`). If `stream_callback` is set, intermediate updates can be observed. Linked to parent via the `FunctionCallContent.call_id` of the wrapping tool call.
-- `SubAgentsProvider`: results are pulled from `SubAgents_GetTaskResults`. State (running/completed/failed) lives in `SubAgentState` (`SubAgentState.cs`) and `SubAgentRuntimeState`.
+- `as_tool`: the parent receives the child's final text as `function_result`, linked by the wrapping call's `call_id`. Child approval requests are **not** propagated to the parent (the docstring recommends `ToolApprovalMiddleware` rules on the child or a workflow, `_agents.py:671-681`).
+- `BackgroundAgentsProvider`: results pulled via `background_agents_get_task_results`; task state persisted in the session (`BackgroundTaskInfo`, `_background_agents.py:57`).
+- Orchestrations: terminal output standardised as `AgentResponse` (1.2.2) plus workflow events.
 
 ### 9.5 Concurrency model
 
-`SubAgentsProvider` is **concurrent**: `StartTask` is non-blocking, and `WaitForFirstCompletion` blocks until any of a list completes. The actual parallelism is implemented in the `Task.Run` calls inside `SubAgents_StartTask` (in `SubAgentsProvider.cs`).
-
-For Python, `agent.as_tool()` with multiple sub-agent tools relies on the LLM's ability to **call multiple tools in parallel** in a single turn — which providers like OpenAI/Anthropic do support; MAF's `_execute_function_calls` (`_tools.py:1781`) iterates them sequentially in code but tools could be `await asyncio.gather`'d in a custom implementation.
+- `as_tool` sub-agents: concurrent when the model emits several tool calls in one response — the function loop runs the batch with `asyncio.gather` by default (`_tools.py:2542-2545`; the May report incorrectly said this was sequential). Set `allow_concurrent_invocation=False` to serialise. .NET requires opting in (`AllowConcurrentInvocation`).
+- `BackgroundAgentsProvider`: `asyncio.create_task(...)` (`_background_agents.py:492`) / `Task.Run(...)` (`BackgroundAgentsProvider.cs:599`); `wait_for_first_completion` blocks with a configurable timeout (1.16.0 / .NET 1.20.0).
+- `ConcurrentBuilder`: fan-out/fan-in edges in the workflow graph.
 
 ### 9.6 Context isolation
 
-- `as_tool(propagate_session=False)`: sub-agent gets a fresh session — context isolated (`_agents.py:485-501`).
-- `as_tool(propagate_session=True)`: parent's session is forwarded; they share state.
-- `SubAgentsProvider`: each sub-task runs in its own session by default.
+- `as_tool(propagate_session=False)` (default): child gets a private session.
+- `as_tool(propagate_session=True)`: child receives a copy of the parent state minus approval and budget keys; application-state changes propagate back (`_agents.py:752-777`). Parent and child `ToolApprovalMiddleware` must use distinct `source_id`s or the call raises.
+- `BackgroundAgentsProvider`: each task gets its own sub-session.
+- `as_tool` forwards `function_invocation_kwargs` to the child (`_agents.py:784`); background agents do not (`_background_agents.py:492`).
 
 ### 9.7 Lifecycle events
 
-- `as_tool`: yes if `stream_callback` is provided (`_agents.py:558-559`). Otherwise the parent only sees the final string.
-- `SubAgentsProvider`: status retrievable via `SubAgents_GetAllTasks`; not a streaming lifecycle.
+- `as_tool`: if `stream_callback` is set, the parent host observes the child's released updates (`_agents.py:785-797`); otherwise only the final result.
+- `BackgroundAgentsProvider`: status via `background_agents_get_all_tasks`; not streamed.
+- Orchestrations: `group_chat`, `handoff_sent`, `magentic_orchestrator`, `executor_*` workflow events.
+
+### 9.8 Sub-agent model override
+
+✅ Each sub-agent is an `Agent` with its own `client` (and `default_options`), so a GPT-5 or Sonnet supervisor with cheaper workers is plain composition. .NET can also switch model per session with `RoutePersistingRoutingChatClient` (Q15).
 
 ---
 
@@ -920,31 +952,29 @@ For Python, `agent.as_tool()` with multiple sub-agent tools relies on the LLM's 
 from agent_framework import Agent
 from agent_framework.openai import OpenAIChatClient
 
-client = OpenAIChatClient(model="gpt-4o")
+supervisor_client = OpenAIChatClient(model="gpt-5")
+worker_client = OpenAIChatClient(model="gpt-5-mini")      # (9.8) cheaper model for workers
 
-# (1) Define three persona sub-agents
+# (1) Three persona sub-agents
 def make_persona(name: str, persona: str) -> Agent:
-    return Agent(
-        client=client,
-        name=name,
-        instructions=f"You are {persona}. Respond using {persona}'s perspective.",
-        tools=[topic_search],
-    )
+    return Agent(client=worker_client, name=name,
+                 instructions=f"You are {persona}. Answer from that perspective.",
+                 tools=[topic_search])
 
-young_mom = make_persona("persona-young-mom", "a 28-year-old urban mom")
-tech_bro = make_persona("persona-tech-bro", "a Silicon Valley tech bro in his 30s")
-retiree = make_persona("persona-retiree", "a 70-year-old suburban retiree")
+personas = [
+    make_persona("persona-young-mom", "a 28-year-old urban mom"),
+    make_persona("persona-tech-bro", "a Silicon Valley tech worker in his 30s"),
+    make_persona("persona-retiree", "a 70-year-old suburban retiree"),
+]
 
-# Convert to tools (parallel-invokable by the LLM)
-parent = Agent(
-    client=client,
-    name="brief-coordinator",
-    instructions="Call all three personas in parallel and synthesize.",
-    tools=[young_mom.as_tool(), tech_bro.as_tool(), retiree.as_tool()],
-)
+# (2) Parent invokes them; the three tool calls in one model turn run concurrently (asyncio.gather)
+parent = Agent(client=supervisor_client, name="brief-coordinator",
+               instructions="Call all three personas in parallel, then synthesize.",
+               tools=[p.as_tool() for p in personas])
 
-# (2)+(3) The parent invokes them; results arrive as separate function_result content items
-result = await parent.run("Describe how each persona would react to this brief.")
+# (3) Each result arrives as a function_result content item linked by call_id
+result = await parent.run("How would each persona react to this brief?",
+                          function_invocation_kwargs={"tenant_id": "acme"})  # forwarded to children
 print(result.text)
 ```
 
@@ -954,19 +984,17 @@ print(result.text)
 
 ### 10.1 First-class concept?
 
-✅ **First-class.** Python: `agent_framework._skills` (3269 lines). .NET: `Microsoft.Agents.AI/Skills/` (10 files). Aligned with the **agentskills.io** spec (`docs/decisions/0021-agent-skills-design.md`).
-
-Still marked **experimental** at the package level (`@experimental(feature_id=ExperimentalFeature.SKILLS)` — `_skills.py:544`).
+✅ **First-class and now stable.** Python `agent_framework/_skills.py` (5,570 lines); .NET `dotnet/src/Microsoft.Agents.AI/Skills/` plus MCP skills in `Microsoft.Agents.AI.Mcp/Skills/`. Aligned with the **agentskills.io** spec; ADR `docs/decisions/0037-agent-skills-design.md` (renumbered from `0021` when ADR numbers were deduplicated). The experimental marker was removed in Python 1.11.0 (`python/CHANGELOG.md:412`) and .NET 1.13.0. MCP-based skills (`MCPSkillsSource`) remain experimental (`MCP_SKILLS`).
 
 ### 10.2 File format
 
-`SKILL.md` with YAML frontmatter (`SkillFrontmatter`, `_skills.py:545-603`):
+`SKILL.md` with YAML frontmatter (`SkillFrontmatter`, `_skills.py:936-998`):
 ```yaml
 ---
-name: generate-audience-from-brief        # lowercase, hyphenated, ≤64 chars
-description: Generate an audience target from a brief
+name: generate-audience-from-brief        # lowercase letters/digits/hyphens, ≤64 chars
+description: Generate an audience target from a brief   # ≤1024 chars
 license: MIT
-compatibility: agent-framework>=1.0
+compatibility: agent-framework>=1.0       # ≤500 chars
 allowed_tools: topic_search iab_search audience_create
 metadata:
   owner: dailymotion-data
@@ -976,51 +1004,41 @@ metadata:
 … instructions go here …
 ```
 
-Fields validated in `_skills.py:606-656` (`_validate_skill_name`, `_validate_skill_description`, `_validate_compatibility`).
+Validators: `_validate_skill_name` (`_skills.py:999`), `_validate_skill_description` (1019), `_validate_compatibility` (1037). `metadata` is `dict[str, str]`; invalid entries are skipped with warnings.
 
-Directory layout (spec-defined):
+Directory layout:
 ```
 my-skill/
 ├── SKILL.md
-├── references/   # .md, .json, .yaml, .csv, .xml, .txt
+├── references/   # resources (configurable extensions)
 ├── assets/
-└── scripts/      # .py by default
+└── scripts/      # scripts (configurable extensions)
 ```
+Nested `SKILL.md` files are treated as part of the parent skill, not as separate skills (1.11.0). Skill content now explicitly lists `available_resources` and `available_scripts` (1.10.0).
 
 ### 10.3 Loader mechanism
 
-- **Filesystem**: `SkillsProvider.from_paths("./skills", script_runner=runner)` (`_skills.py:1785`). Recursively discovers `SKILL.md` files. .NET: `AgentFileSkillsSource`.
-- **Programmatic**: `InlineSkill`, `ClassSkill` instances passed to `SkillsProvider([...])`.
-- **Composition**: `AggregatingSkillsSource`, `FilteringSkillsSource`, `DeduplicatingSkillsSource` (`_skills.py:1688-1697`).
+- **Filesystem**: `SkillsProvider.from_paths("./skills", search_depth=…, script_filter=…, resource_filter=…)` (`_skills.py:2420-2440`) → `FileSkillsSource` (`_skills.py:3099`), depth-based discovery with predicate filters; paths are revalidated before use and Windows junctions rejected. .NET: `AgentFileSkillsSource`.
+- **Programmatic**: `InlineSkill` (`_skills.py:1152`), `ClassSkill` (1465), `InMemorySkillsSource` (4059).
+- **MCP** (experimental): `MCPSkillsSource` (`_skills.py:5315`) fetches `skill-md` or ZIP archive skills from an MCP server (digest-verified, ZIP-only since 1.19.0). .NET `AgentMcpSkillsSource`.
+- **Composition**: `AggregatingSkillsSource` (4426), `FilteringSkillsSource` (4198), `DeduplicatingSkillsSource` (4142), `CachingSkillsSource` (4249), `DelegatingSkillsSource` (4103) for custom decorators.
 
 ### 10.4 Invocation
 
-Three tools surfaced to the LLM (progressive disclosure, `docs/decisions/0021-agent-skills-design.md:24-34`):
-- `load_skill(skill_name)` — fetch full `SKILL.md` content.
-- `read_skill_resource(skill_name, resource_name)` — read a supplementary file.
-- `run_skill_script(skill_name, script_name, arguments?)` — execute a script (only registered when at least one skill has scripts).
+Tool calls (progressive disclosure), names at `_skills.py:2180-2184`:
+- `load_skill(skill_name)` — full `SKILL.md` body.
+- `read_skill_resource(skill_name, resource_name)` — supplementary file.
+- `run_skill_script(skill_name, script_name, arguments?)` — run a script via a `SkillScriptRunner` (`_skills.py:1942`).
+
+**All three require approval by default** since 1.10.0 (`_skills.py:2113-2127`). Opt out per tool with `disable_load_skill_approval` / `disable_read_skill_resource_approval` / `disable_run_skill_script_approval` (`_skills.py:2287-2297`), or auto-approve via `ToolApprovalMiddleware(auto_approval_rules=[SkillsProvider.read_only_tools_auto_approval_rule])` (`_skills.py:2214`).
 
 ### 10.5 Loading mode
 
-**Lazy.** Skill names + descriptions go into the system prompt (~100 tokens per skill). Bodies are fetched on demand via `load_skill`.
+**Lazy.** Names + descriptions go into the system prompt; bodies, resources and scripts are fetched on demand.
 
-### 10.6 Runtime scoping (global / tenant / user)
+### 10.6 Skill composition
 
-Not first-class. You construct **a different `SkillsProvider` per tenant** by composing sources:
-```python
-provider = SkillsProvider(
-    FilteringSkillsSource(
-        AggregatingSkillsSource([base_source, tenant_source]),
-        predicate=lambda s: tenant_id in s.frontmatter.metadata.get("tenants", "").split(),
-    )
-)
-```
-
-### 10.7 Skill composition
-
-A skill can ship resources (`references/`, `assets/`) and scripts (`scripts/*.py`) alongside its `SKILL.md`. Resources are fetched lazily via `read_skill_resource`. Scripts execute through a pluggable `SkillScriptRunner` (`_skills.py:1420`). Scripts can be gated by `require_script_approval=True` which routes them through the HITL approval flow.
-
-A skill can reference another skill only by mentioning it in instructions — no `extends:` mechanism.
+A skill bundles resources and scripts alongside `SKILL.md`, fetched lazily. Scripts run through a pluggable runner; inline scripts support custom argument parsing (1.11.0). A skill can reference another skill or a sub-agent only through its instructions; there is no `extends:` / include mechanism.
 
 ---
 
@@ -1038,30 +1056,29 @@ metadata:
 ---
 
 # Generate Audience From Brief
-
 1. Call topic_search for each subtopic.
 2. Map to IAB taxonomy via iab_search.
 3. Compose audience via audience_create.
 """
 
-# 2. Loading at runtime
+# 2. Loading at runtime (filesystem source, cached, read-only tools auto-approved)
 from agent_framework import Agent, SkillsProvider
 from agent_framework.openai import OpenAIChatClient
 
 provider = SkillsProvider.from_paths(
     "./skills",
-    require_script_approval=False,  # set True to gate scripts behind HITL
+    disable_load_skill_approval=True,             # skill tools require approval by default since 1.10.0
+    disable_read_skill_resource_approval=True,
 )
 
 agent = Agent(
-    client=OpenAIChatClient(model="gpt-4o"),
+    client=OpenAIChatClient(model="gpt-5"),
     name="brief-agent",
     context_providers=[provider],
     tools=[topic_search, iab_search, audience_create],
 )
 
-# 3. Invocation: LLM sees `load_skill`, `read_skill_resource` tools and
-#    the skills catalog in the system prompt.
+# 3. The LLM sees the skill catalogue in its instructions plus load_skill / read_skill_resource tools
 await agent.run("Build me an audience using the generate-audience-from-brief skill")
 ```
 
@@ -1071,85 +1088,83 @@ await agent.run("Build me an audience using the generate-audience-from-brief ski
 
 ### 11.1 First-class Resource Manager?
 
-✗ **No first-party Resource Manager** (no draft/active/retired lifecycle, no publishing workflow, no RBAC). The `SkillsSource` abstraction does provide **loader** primitives, but nothing above them.
+✗ **No first-party Resource Manager** (no registry service, no draft/active/retired lifecycle, no publishing workflow, no RBAC). The `SkillsSource` pipeline gives **loader and decorator** primitives, now context-aware, but nothing above them.
 
 ### 11.2 Loading sources
-
-Skill loading sources currently shipped:
 
 | Source | Python | .NET |
 |---|---|---|
 | Local filesystem | `FileSkillsSource` / `SkillsProvider.from_paths(…)` | `AgentFileSkillsSource` |
-| In-memory programmatic | `InMemorySkillsSource` | `AgentInMemorySkillsSource` |
-| Aggregating (multi-source) | `AggregatingSkillsSource` | `AggregatingAgentSkillsSource` |
-| Filtering | `FilteringSkillsSource` | `FilteringAgentSkillsSource` |
+| In-memory programmatic | `InMemorySkillsSource`, `InlineSkill`, `ClassSkill` | `AgentInMemorySkillsSource`, `AgentInlineSkill`, `AgentClassSkill` |
+| **MCP server** (new, experimental) | `MCPSkillsSource` (skill-md or ZIP archives; Foundry Toolbox integration) | `AgentMcpSkillsSource` |
+| Aggregating | `AggregatingSkillsSource` | `AggregatingAgentSkillsSource` |
+| Filtering | `FilteringSkillsSource` (predicate gets `SkillsSourceContext`) | `FilteringAgentSkillsSource` |
 | Deduplicating | `DeduplicatingSkillsSource` | `DeduplicatingAgentSkillsSource` |
-| Caching | (implicit; toggle via `disable_caching`) | `CachingAgentSkillsSource` |
-| Custom (Git, S3, HTTP, DB) | BYO via `SkillsSource` subclass | BYO via `AgentSkillsSource` |
+| Caching | `CachingSkillsSource` (TTL + isolation key) | `CachingAgentSkillsSource` (`CacheIsolationKeySelector`, `CachingAgentSkillsSourceOptions.cs:32`) |
+| Git / S3 / GCS / Azure Blob / OCI / DB / HTTP | BYO `SkillsSource` subclass | BYO `AgentSkillsSource` |
 
-No first-class **Git**, **S3/GCS/Azure Blob**, **OCI**, or **vendor-managed registry** source.
+An MCP server is the only first-party remote source, so a Git- or blob-backed catalogue can be exposed through an MCP server you run.
 
 ### 11.3 Source composition / priority
 
-Aggregating + Deduplicating preserves **first-occurrence** when names clash. Filtering applies after aggregation. No declarative priority/override (`local > tenant > global`); you choose by ordering sources in the aggregator.
+`AggregatingSkillsSource` concatenates sources in order; `DeduplicatingSkillsSource` keeps the **first occurrence** on name clashes; `FilteringSkillsSource` applies a predicate. Priority = ordering. No declarative `local > tenant > global` policy.
 
 ### 11.4 Versioning model
 
-Skills have no version field beyond `SkillFrontmatter.compatibility` (free-form text). No semver / content-hash / immutable refs / rollback.
+None. `SkillFrontmatter.compatibility` is free text and `metadata` is string pairs. MCP archive skills are digest-verified on fetch, but there is no semver, pinning, immutable ref or rollback.
 
-### 11.5 Scoping at the registry layer
+### 11.5 Scoping
 
-✗ Resources are filtered at **runtime** via `FilteringSkillsSource(predicate=…)`. No publish-time tenant tag — you would encode tenancy in `metadata.tenants` and filter against it.
+⚠ Runtime-only. Since 1.11.0 every source receives `SkillsSourceContext(agent, session)` (`_skills.py:3040-3057`), so a `FilteringSkillsSource` predicate can read `context.session.state["tenant_id"]` and a `CachingSkillsSource(cache_isolation_key_selector=lambda c: …)` keeps per-tenant caches (`_skills.py:4249-4330`). There is no publish-time scope: tenancy has to be encoded in skill `metadata` (or in which source/MCP server the skill comes from) and enforced by your predicate.
 
-### 11.6 Publishing workflow
+### 11.6 Deployment workflow
 
-✗ Not provided. There is no draft → active → retired model.
+✗ Not provided. No draft → review → publish → promote, no environments, no approval gates.
 
 ### 11.7 Lifecycle / governance
 
-✗ Not provided. No RBAC, no lifecycle states.
+✗ Not provided. No lifecycle states, no RBAC. Governance is limited to source trust (the `SkillsSource` docstring calls each source "a trust boundary", `_skills.py:3072-3090`) and per-tool approval.
 
 ### 11.8 Programmatic API
 
-`SkillsSource.get_skills_async()` (`_skills.py` and ADR doc) returns an `IList<AgentSkill>` / `list[Skill]`. You can list skills, filter, deduplicate. No "search" / "pin" APIs.
+`await source.get_skills(SkillsSourceContext(agent=agent, session=session))` returns `list[Skill]` (`_skills.py:3086`); compose with the decorators above. No search, pin or sync API.
 
 ### 11.9 Caching & sync model
 
-`SkillsProvider(disable_caching=True)` re-queries the source on every run (`_skills.py:1701-1705`); default caches after first load. No file-watcher-based hot reload at the framework level (DevUI has its own `--reload`).
+`SkillsProvider` wraps file/in-memory sources in `CachingSkillsSource` unless `disable_caching=True`; `cache_refresh_interval` makes cached lists expire (`_skills.py:2292-2345`). Concurrent callers for the same key share one fetch; failed refreshes keep the previous list. MCP skill sources accept a `session_provider` so cached skills survive reconnects (1.12.0). No file watcher.
 
 ---
 
-⭐ **Light usage example** (Python — best-effort: tenant-priority via aggregator ordering + filter predicate):
+⭐ **Light usage example** (Python — best-effort; Git and S3 sources are BYO):
 
 ```python
 from agent_framework import (
-    SkillsProvider, AggregatingSkillsSource,
-    FilteringSkillsSource, DeduplicatingSkillsSource,
+    AgentSession, AggregatingSkillsSource, CachingSkillsSource, DeduplicatingSkillsSource,
+    FilteringSkillsSource, SkillsProvider, SkillsSourceContext,
 )
-# Hypothetical custom sources (not first-party):
-from my_extensions import GitSkillsSource, S3SkillsSource
+from my_extensions import GitSkillsSource, S3SkillsSource   # BYO SkillsSource subclasses
 
-git_source = GitSkillsSource("https://github.com/dailymotion/predict-skills")  # BYO
-s3_source  = S3SkillsSource("s3://predict-skills/tenants/acme/")               # BYO
+git_source = GitSkillsSource("https://github.com/dailymotion/predict-skills")
+s3_source = S3SkillsSource("s3://predict-skills/tenants/acme/")
 
-# Tenant source first → DeduplicatingSkillsSource keeps the S3 (tenant) skill
-# when a name collision occurs with the Git (global) source.
-source = DeduplicatingSkillsSource(
-    AggregatingSkillsSource([s3_source, git_source])
+# (1) S3 first → DeduplicatingSkillsSource keeps the tenant copy on a name clash
+merged = DeduplicatingSkillsSource(AggregatingSkillsSource([s3_source, git_source]))
+
+# (2) "Promote to active for acme only" = metadata convention enforced at runtime
+def visible(skill, ctx: SkillsSourceContext) -> bool:
+    tenant = (ctx.session.state.get("tenant_id") if ctx.session else None)
+    meta = skill.frontmatter.metadata or {}
+    return tenant in meta.get("tenants", "").split() and meta.get("status", "active") == "active"
+
+tenant_source = CachingSkillsSource(
+    FilteringSkillsSource(merged, predicate=visible),
+    cache_isolation_key_selector=lambda ctx: ctx.session.state.get("tenant_id") if ctx.session else None,
 )
+provider = SkillsProvider(tenant_source)
 
-# (2) "Promote draft → active for acme only" — modelled as a metadata tag
-def is_visible_to_acme(skill):
-    tenants = (skill.frontmatter.metadata or {}).get("tenants", "")
-    status  = (skill.frontmatter.metadata or {}).get("status", "active")
-    return "acme" in tenants.split() and status == "active"
-
-acme_source = FilteringSkillsSource(source, predicate=is_visible_to_acme)
-provider = SkillsProvider(acme_source)
-
-# (3) List all active skills visible to acme
-skills = await acme_source.get_skills_async()
-for s in skills:
+# (3) List active skills visible to tenant acme
+session = AgentSession(); session.state["tenant_id"] = "acme"
+for s in await tenant_source.get_skills(SkillsSourceContext(agent=agent, session=session)):
     print(s.frontmatter.name, s.frontmatter.description)
 ```
 
@@ -1159,81 +1174,84 @@ for s in skills:
 
 ### 12.1 Where tokens are surfaced
 
-- On `AgentResponse.usage_details` (`UsageDetails`, `_types.py:393-409`): `input_token_count`, `output_token_count`, `total_token_count`, plus arbitrary extra integer fields.
-- On every `ChatResponse.usage_details`.
-- On `Message.contents` as `Content.from_usage(...)` (`_types.py:921`).
-- As OTel attributes `gen_ai.usage.input_tokens` / `gen_ai.usage.output_tokens` (`observability.py:197-198`).
-- As an OTel histogram `gen_ai.client.token.usage` (`observability.py:220, 1164`).
+- `AgentResponse.usage_details` / `ChatResponse.usage_details` — `UsageDetails` TypedDict (`_types.py:431-452`): `input_token_count`, `output_token_count`, `total_token_count`, `cache_creation_input_token_count`, `cache_read_input_token_count`, `reasoning_output_token_count`, plus provider-specific integer extras.
+- `usage` content items in message contents (`Content.from_usage`, `_types.py:1037`).
+- OTel span attributes `gen_ai.usage.input_tokens` / `output_tokens` / `cache_creation.input_tokens` / `cache_read.input_tokens` / `reasoning.output_tokens` (`observability.py:250-254`).
+- OTel histogram `gen_ai.client.token.usage` (`observability.py:276, 1879`).
 
 ### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
-- **Per chat-client call**: `INNER_USAGE_CAPTURED_FIELD` + `INNER_ACCUMULATED_USAGE` (`observability.py:102-106`) accumulate usage across all inner chat-client invocations within an agent run.
-- **Per agent run**: the outer `invoke_agent` span gets `_apply_accumulated_usage` written into it (`observability.py:2094`).
-- **Per session**: not aggregated; observable via your trace backend.
-- **Per tenant**: BYO via OTel attributes you set yourself.
+- **Per model call**: `chat` span + `usage_details` on each `ChatResponse`.
+- **Per agent run**: inner usage is accumulated in the `INNER_ACCUMULATED_USAGE` context var (`observability.py:129`) and written onto the `invoke_agent` span by `_apply_accumulated_usage` (`observability.py:3500`). .NET aggregates usage across looping agents and chat clients since 1.18.0.
+- **Per session / per tenant**: not aggregated; BYO via span attributes and your backend.
 
 ### 12.3 USD cost computation
 
-✗ Not built-in. Tokens only. You'd compute cost in a downstream OTel processor or evaluator.
+✗ Not built-in. Tokens only.
 
 ### 12.4 Per-tenant / per-conversation cost
 
-BYO. Add a `tenant_id` attribute on the span (via a `ChatMiddleware` or `enable_instrumentation` configuration) and aggregate downstream.
+BYO. Stamp `tenant_id` on spans (middleware) or use OTel resource attributes (programmatic service metadata and resource attributes since 1.16.0), then aggregate downstream.
 
 ### 12.5 LLM / tool tracing
 
-✅ OpenTelemetry GenAI semantic conventions. `enable_instrumentation()` (`observability.py:83`) wires the tracer/meter/logger. Spans: `invoke_agent`, `chat`, `execute_tool` (Compaction emits its own spans too — `CompactionTelemetry.cs`).
-
-Compatible with Azure Monitor / Application Insights / Jaeger / any OTel collector.
+✅ OpenTelemetry GenAI semantic conventions, **enabled by default** since 1.6.0 (BREAKING); disable with `ENABLE_INSTRUMENTATION=false` (`observability.py:1014, 1064, 1107`). `enable_instrumentation(enable_sensitive_data=…, enable_message_events=…)` (`observability.py:1556`). Stable vs latest-experimental semconv modes (1.15.0). Spans: `invoke_agent`, `chat`, `execute_tool`, embeddings, workflow spans, MCP client spans (1.8.1), compaction spans; tool definitions are serialised in OTel GenAI format; context-provider instructions are captured (1.9.0). .NET: `OpenTelemetryAgent` (`DefaultSourceName` public since 1.22.0); `execute_tool` spans emitted by placing OTel below `FunctionInvokingChatClient` (1.11.0). Works with Azure Monitor, Aspire (DevUI shows Aspire traces since 1.19.0), Jaeger, any OTLP collector.
 
 ### 12.6 Audit logging (who / when / what)
 
-Trace data is the audit substrate; no separate tamper-evident audit log. The `security.py` module's `LabelTrackingFunctionMiddleware` (`security.py:793`) records which labelled content flowed through which tools — useful for prompt-injection audit but not a general audit log.
+No dedicated tamper-evident audit log. Traces are the audit substrate. FIDES security labelling (`LabelTrackingFunctionMiddleware`, `security.py:1257`) records label flow through tools; agent-hooks interceptors see every input/model/tool/output point and are a natural audit sink (BYO).
 
 ### 12.7 Canonical "where do I read token counts" code path
 
-`python/packages/core/agent_framework/observability.py:2085-2106`:
+`python/packages/core/agent_framework/observability.py:3482-3507`:
 ```python
-if response.usage_details:
+def _mark_inner_response_telemetry_captured(response: ChatResponse | AgentResponse) -> None:
+    captured_fields = INNER_RESPONSE_TELEMETRY_CAPTURED_FIELDS.get()
+    ...
+    if response.usage_details:
+        captured_fields.add(INNER_USAGE_CAPTURED_FIELD)
+        accumulated = INNER_ACCUMULATED_USAGE.get()
+        if accumulated is not None:
+            from ._types import add_usage_details
+            INNER_ACCUMULATED_USAGE.set(add_usage_details(accumulated, response.usage_details))
+
+
+def _apply_accumulated_usage(attributes: dict[str, Any], captured_fields: set[str]) -> None:
+    if INNER_USAGE_CAPTURED_FIELD not in captured_fields:
+        return
     accumulated = INNER_ACCUMULATED_USAGE.get()
-    if accumulated is not None:
-        from ._types import add_usage_details
-        INNER_ACCUMULATED_USAGE.set(add_usage_details(accumulated, response.usage_details))
-…
-input_tokens = accumulated.get("input_token_count")
-output_tokens = accumulated.get("output_token_count")
+    if not accumulated:
+        return
+    _apply_usage_attributes(attributes, accumulated)
 ```
 
-For the agent invoke span: `_apply_accumulated_usage(response_attributes, captured_fields)` writes `OtelAttr.INPUT_TOKENS` and `OtelAttr.OUTPUT_TOKENS`.
+For application code the canonical read is `response.usage_details` (`UsageDetails`, `_types.py:431`).
 
 ---
 
 ⭐ **Light usage example** (Python):
 
 ```python
-from agent_framework import Agent, enable_instrumentation
+from agent_framework import Agent, ChatMiddleware
 from agent_framework.openai import OpenAIChatClient
-from opentelemetry import metrics
-
-# (1) Enable OTel
-enable_instrumentation()  # picks up env vars OTEL_EXPORTER_OTLP_ENDPOINT etc.
-
-agent = Agent(client=OpenAIChatClient(model="gpt-4o"), name="brief-agent")
-
-response = await agent.run("hello")
-usage = response.usage_details  # UsageDetails TypedDict
-print(usage["input_token_count"], usage["output_token_count"])
-# (USD cost is BYO: multiply by your provider's price-per-1k-tokens.)
-
-# (2) Per-tenant metric sink: register a ChatMiddleware that stamps tenant_id
-#     on the OTel span, then a Datadog OTel exporter picks it up.
 from opentelemetry.trace import get_current_span
 
+# Instrumentation is on by default (set ENABLE_INSTRUMENTATION=false to disable);
+# exporters come from OTEL_EXPORTER_OTLP_* env vars or programmatic configuration.
+
+# (2) Stamp tenant on every chat span → Datadog/OTel backend aggregates per tenant
 class TenantTagger(ChatMiddleware):
     async def process(self, ctx, call_next):
-        span = get_current_span()
-        span.set_attribute("dm.tenant_id", ctx.kwargs.get("tenant_id", "unknown"))
+        get_current_span().set_attribute("dm.tenant_id", ctx.function_invocation_kwargs.get("tenant_id", "unknown"))
         await call_next()
+
+agent = Agent(client=OpenAIChatClient(model="gpt-5"), name="brief-agent", middleware=[TenantTagger()])
+
+# (1) Read usage for one completed run
+response = await agent.run("hello", function_invocation_kwargs={"tenant_id": "acme"})
+u = response.usage_details or {}
+tokens_in, tokens_out = u.get("input_token_count"), u.get("output_token_count")
+cost_usd = None   # BYO: multiply by your price table (cache_read / reasoning counts are also available)
 ```
 
 ---
@@ -1242,63 +1260,56 @@ class TenantTagger(ChatMiddleware):
 
 ### 13.1 Built-in tools shipped in the box
 
-The framework itself ships **few** generic tools; most come bundled with provider adapters or specific harness providers.
-
 | Tool | Source | Notes |
 |---|---|---|
-| `load_skill` / `read_skill_resource` / `run_skill_script` | `SkillsProvider` | Progressive disclosure for skills |
-| `SubAgents_StartTask` / …`WaitForFirstCompletion` / `GetTaskResults` / `GetAllTasks` / `ContinueTask` / `ClearCompletedTask` | `SubAgentsProvider` | Concurrent sub-agent delegation |
-| `Todo_*` tools | `TodoProvider` (.NET) / `_harness/_todo.py` (Python) | In-loop todo list |
-| `Memory_*` tools | `_harness/_memory.py` | Session-scoped memory |
-| `FileAccess_*` (read/write/list/search) | `FileAccessProvider` (.NET, `Harness/FileAccess/`) | File access mediated through `AgentFileStore` |
-| Mode switch tools | `AgentModeProvider` (`_harness/_mode.py`) | Agent operates in distinct modes for long-running tasks |
-| `HostedWebSearchTool`, `HostedCodeInterpreterTool`, `HostedFileSearchTool`, `HostedMCPTool` | Microsoft.Extensions.AI / provider adapters | Provider-hosted tools (OpenAI, Foundry) |
-| `LocalShellExecutor` / `DockerShellExecutor` | `Microsoft.Agents.AI.Tools.Shell` (.NET) | Shell execution with policy & sandboxing |
-| `Hyperlight` Wasm sandbox tool | `Microsoft.Agents.AI.Hyperlight` / `agent-framework-hyperlight` | Hardware-backed code sandbox |
+| `load_skill` / `read_skill_resource` / `run_skill_script` | `SkillsProvider` | Progressive disclosure; approval required by default |
+| `background_agents_*` (start, wait_for_first_completion, get_task_results, get_all_tasks, continue_task, clear_completed_task) | `BackgroundAgentsProvider` (Python + .NET) | Concurrent background delegation |
+| Todo tools | `TodoProvider` (`_harness/_todo.py`, .NET `Harness/Todo/`) | Structured todo list in session state; drives `todos_remaining()` loop evaluator |
+| Mode tools | `AgentModeProvider` (`_harness/_mode.py`) | Plan/execute style modes; per-tool exposure controls (1.19.0) |
+| File access tools (read, ranged read, write, delete, ls, replace/edit lines, grep, glob) | `FileAccessProvider` (`_harness/_file_access.py:2033-2169`, .NET `Harness/FileAccess/`) over `AgentFileStore` | Opt-in in harness; **write tools require approval**, read-only tools auto-approvable; path traversal / junction protections |
+| File memory tools | `FileMemoryProvider` (`_harness/_file_memory.py`) | File-backed long-term notes |
+| Shell | Python `agent-framework-tools`: `LocalShellTool` (`shell/_tool.py:65`), `DockerShellTool` (`shell/_docker.py:352`), `ShellPolicy` (`shell/_policy.py:121`); .NET `Microsoft.Agents.AI.Tools.Shell` (`LocalShellExecutor`, `DockerShellExecutor`, `ShellPolicy`) | Persistent sessions, env snapshot provider, head-tail output buffering; **approval required by default** |
+| CodeAct | Python `agent-framework-monty` and `agent-framework-hyperlight`; .NET `Microsoft.Agents.AI.LocalCodeAct` (`LocalCodeActProvider`), `Microsoft.Agents.AI.Hyperlight` | Model writes code that calls registered tools; sandboxed (Hyperlight) or local subprocess with OS validation and approval |
+| Web search | `client.get_web_search_tool()` (auto-added by `create_harness_agent` unless `disable_web_search=True`, `_harness/_agent.py:636-642`) | Provider-hosted |
+| Hosted tools: code interpreter, file search, image generation, hosted MCP, shell, computer use | Provider clients (OpenAI, Foundry; Foundry tool helpers under `FOUNDRY_TOOLS` / `FOUNDRY_PREVIEW_TOOLS`) | Provider-executed; marked `informational_only` in transcripts |
 
-### 13.2 Built-in tool quality
+Agent-aware patterns: file tools return line-numbered ranged reads with a contract on `AgentFileStore` (1.18.0) and literal line replacement; shell tools keep a persistent session and truncate output head/tail; skills tools follow the spec. These are more than thin wrappers.
 
-- `FileAccessProvider` mediates all access through `AgentFileStore` (`Harness/FileStore/`) which supports `FileSystemAgentFileStore`, `InMemoryAgentFileStore`. Has built-in `FileSearchMatch`/`FileSearchResult` for search-style operations.
-- `LocalShellExecutor` / `DockerShellExecutor` have `ShellPolicy`, environment sanitization, container-user controls, network mode, head-tail buffering — substantially more than thin wrappers.
-- `TodoProvider` persists todo state in the session state bag and gives the model a structured list to track work.
-- Skills tools mirror the agentskills.io spec.
+### 13.2 Tool authoring API
 
-### 13.3 Tool authoring API
-
-Python (`_tools.py:1135-1187`):
+Python (`_tools.py:1583-1600`):
 ```python
 @tool
 def get_weather(location: str, unit: str = "celsius") -> str:
     """Get current weather for a location."""
     return f"{location}: 72°{unit}"
 
-# Or via class with Pydantic input model:
 class WeatherInput(BaseModel):
     location: str
-    unit: Literal["celsius","fahrenheit"] = "celsius"
+    unit: Literal["celsius", "fahrenheit"] = "celsius"
 
-@tool(input_model=WeatherInput, approval_mode="never_require")
-def get_weather2(args: WeatherInput) -> str: ...
+@tool(schema=WeatherInput, approval_mode="never_require", max_invocations=10)
+def get_weather2(location: str, unit: str = "celsius") -> str: ...
 ```
+JSON schema is generated from the signature or Pydantic model; `Literal` annotations supported (1.19.0). Sync tools run off the event loop (1.8.0). `FunctionTool` (`_tools.py:498`) also takes `kind`, `max_invocation_exceptions`, `result_parser`.
 
-.NET — define an `AIFunction` (from `Microsoft.Extensions.AI`):
+.NET — `AIFunctionFactory.Create(...)` from `Microsoft.Extensions.AI`:
 ```csharp
 [Description("Get current weather.")]
-static string GetWeather([Description("Location to query")] string location)
-    => $"{location}: 72°F";
-// Passed to ChatClientAgent ctor via `tools: [AIFunctionFactory.Create(GetWeather)]`
+static string GetWeather([Description("Location to query")] string location) => $"{location}: 72°F";
+// tools: [AIFunctionFactory.Create(GetWeather)]
 ```
 
-### 13.4 Typed tool I/O
+### 13.3 Streaming tools
 
-- Python: Pydantic-based validation (`_validate_arguments_against_schema`, `_tools.py:1084`). Invalid args raise `ValidationError`. Tools can declare `input_model: type[BaseModel]` for strict schema.
-- .NET: `AIFunctionFactory` infers a JSON schema from C# parameter metadata. Validation happens at deserialization.
+Tools cannot stream partial results back to the model; the model receives one `function_result`. A tool can enqueue messages into the running session (`enqueue_messages`, picked up at the next model call) and MCP long-running tasks can be polled, but there is no tool-side progress stream to the model. Host UIs see tool activity through the agent stream (and `as_tool(stream_callback=…)` for sub-agents).
 
-### 13.5 Streaming tools
+### 13.4 Tool sandboxing / permission model
 
-Tools cannot yield partial results to the model mid-execution (the LLM expects a single `function_result` content). Within the **agent loop**, a tool can update session state which the next chat call will read — but no real-time streaming back to a single tool call.
-
-The .NET `FunctionInvocationDelegatingAgent` does expose progress events to the surrounding agent stream (`FunctionInvocationDelegatingAgent.cs:74`), so a UI can render in-flight tool progress.
+- **Default posture**: custom `@tool` functions are **default-allow** (`approval_mode` defaults to `"never_require"`, `_tools.py:667`). Framework-shipped risky tools are now **default-deny/approval**: skills tools (1.10.0), file-access write tools (1.10.0), shell (`approval_mode="always_require"`, `shell/_tool.py:154`; `never_require` requires `acknowledge_unsafe=True`, line 160), LocalCodeAct approval (.NET 1.21.0). MCP server-initiated sampling is denied by default with `sampling_approval_callback` / limits (1.9.0).
+- **Approval engine**: `ToolApprovalMiddleware` (Python, stable) / `ToolApprovalAgent` (.NET, stable) with standing rules (`ToolApprovalRule`, `_harness/_tool_approval.py:104`), auto-approval callbacks and name-collision warnings for auto-approved tools. Approval responses are bound to recorded requests.
+- **Allow/deny lists**: register only allowed tools; `allowed_tools` in `tool_choice`; MCP `allowed_tools`; `FunctionMiddleware` raising `MiddlewareTermination` for `canUseTool`-style denial; agent-hooks `pre_tool_call` deny.
+- **Sandbox providers**: Hyperlight (hardware-isolated micro-VM sandbox), Docker shell (`ContainerUser`, `DockerNetworkMode`), Monty (Python CodeAct), LocalCodeAct (subprocess with isolated environment). No E2B/Daytona/Modal integrations.
 
 ---
 
@@ -1306,28 +1317,25 @@ The .NET `FunctionInvocationDelegatingAgent` does expose progress events to the 
 
 ### 14.1 MCP client support
 
-✅ First-class. Python `MCPTool` base class (`_mcp.py:188`) with concrete subclasses:
-- `MCPStdioTool` (`_mcp.py:1337`)
-- `MCPStreamableHTTPTool` (`_mcp.py:1472`)
-- `MCPWebsocketTool`
-
-.NET: `Microsoft.Agents.AI.Workflows.Declarative.Mcp` and MCP support via `Microsoft.Extensions.AI` + ModelContextProtocol SDK.
+✅ First-class. Python `MCPTool` base (`_mcp.py:871`) with `MCPStdioTool` (3499), `MCPStreamableHTTPTool` (3709), `MCPWebsocketTool` (4318). Features: progressive disclosure (Q7.7), long-running tasks (`MCPTaskOptions`, `_mcp.py:749`, experimental), sampling guardrails, OTel client spans, automatic security labelling of MCP results (FIDES). .NET uses the ModelContextProtocol C# SDK with `Microsoft.Agents.AI.Mcp` adding task-aware functions (`TaskAwareMcpClientAIFunction.cs`) and MCP skills.
 
 ### 14.2 MCP server support
 
-✅ The framework supports **exposing tools as an MCP server** (referenced in `_mcp.py` and `dev.md` MCP triggers). Azure Functions has explicit `McpToolTriggerOptions` (`HostingAzureFunctions/McpToolTriggerOptions.cs`).
+✅ `Agent.as_mcp_server(server_name=…)` exposes an agent as a single MCP tool (`_agents.py:1812-1842`). `agent-framework-hosting-mcp` (alpha) adds `AgentMCPTool` / `WorkflowMCPTool` helpers for app-owned MCP servers (`hosting-mcp/agent_framework_hosting_mcp/_agent_tool.py:22`, `_workflow_tool.py:23`). The Azure Functions MCP tool trigger moved to the durable-extension repo.
 
 ### 14.3 Transports
 
-stdio, streamable HTTP, WebSocket (Python). HTTP/SSE in .NET.
+stdio, Streamable HTTP, WebSocket (Python). stdio and HTTP/SSE in .NET via the MCP C# SDK.
 
 ### 14.4 In-process MCP
 
-Yes — `Microsoft.Agents.AI.Workflows.Declarative.Mcp` and the Python `_mcp.py` allow registering a function as an MCP tool without spawning a subprocess.
+Not as an in-process MCP transport. Python functions are surfaced directly as `FunctionTool`s (no MCP needed); `as_mcp_server()` builds an MCP `Server` object you can serve over any transport, including in-memory streams from the `mcp` SDK.
 
 ### 14.5 Auth / lifecycle
 
-`MCPStreamableHTTPTool` accepts custom HTTP transport with auth headers (`_mcp.py:1472`). Reconnection: tools use lazy initialization (DevUI README:64-66 documents the gotcha). Health/version negotiation handled by the underlying `mcp` SDK.
+- `MCPStreamableHTTPTool(header_provider=…)` derives per-request headers from host runtime kwargs, never from model arguments (`_mcp.py:3854-3862`); headers are scoped to transport requests and applied to initialization requests too (1.13.0, 1.18.0). Cookie persistence is explicit (1.19.0, BREAKING). Provider-backed MCP sessions are scoped per invocation (1.19.0 / .NET 1.22.0).
+- .NET: per-run refreshable MCP auth headers sample; Foundry Toolbox OAuth consent support.
+- Lifecycle: lazy connect, surfaced initialization errors (1.17.0), cleanup of failed HTTP connections; version negotiation by the MCP SDK.
 
 ---
 
@@ -1335,57 +1343,52 @@ Yes — `Microsoft.Agents.AI.Workflows.Declarative.Mcp` and the Python `_mcp.py`
 
 ### 15.1 Multi-provider support
 
-| Provider | Python package | .NET package |
+| Provider | Python package | .NET |
 |---|---|---|
-| OpenAI | `agent-framework-openai` | `Microsoft.Agents.AI.OpenAI` |
-| Azure Foundry | `agent-framework-foundry` | `Microsoft.Agents.AI.Foundry` |
+| OpenAI (Responses + Chat Completions) | `agent-framework-openai` (released) | `Microsoft.Agents.AI.OpenAI` |
+| Microsoft Foundry / Azure OpenAI | `agent-framework-foundry` (released) | `Microsoft.Agents.AI.Foundry` |
 | Foundry Local | `agent-framework-foundry-local` | – |
 | Anthropic | `agent-framework-anthropic` | `Microsoft.Agents.AI.Anthropic` |
-| Bedrock | `agent-framework-bedrock` | – |
-| Gemini | `agent-framework-gemini` (alpha) | – |
-| Ollama | `agent-framework-ollama` | – |
-| Claude (Code-style) | `agent-framework-claude` | – |
-| GitHub Copilot SDK | `agent-framework-github-copilot` | `Microsoft.Agents.AI.GitHub.Copilot` |
+| Bedrock | `agent-framework-bedrock` | via `AWS.Bedrock.MEAI` `IChatClient` |
+| Gemini | `agent-framework-gemini` (beta) | via MEAI `IChatClient` |
+| Mistral (new) | `agent-framework-mistral` (official Mistral SDK) | via MEAI |
+| Ollama | `agent-framework-ollama` | via MEAI |
+| TypeSafe AI (new, alpha) | `agent-framework-typesafe` | – |
+| Claude Agent SDK (agent wrapper) | `agent-framework-claude` | – |
+| GitHub Copilot SDK (agent wrapper) | `agent-framework-github-copilot` (released) | `Microsoft.Agents.AI.GitHub.Copilot` (stable) |
 | Copilot Studio | `agent-framework-copilotstudio` | `Microsoft.Agents.AI.CopilotStudio` |
-| Hyperlight (Wasm sandbox runtime) | `agent-framework-hyperlight` | `Microsoft.Agents.AI.Hyperlight` |
 
-### 15.2 Per-task model selection
+Native adapters, not LiteLLM. Any `IChatClient` works on .NET.
 
-✗ No first-party gateway/router. You instantiate a different `ChatClient` per agent and select at construction time. For dynamic routing, BYO via a custom `IChatClient` decorator.
+### 15.2 Automatic fallback chain
 
-### 15.3 Automatic fallback chain
+✗ Not in MAF. No retry-on-another-model configuration in Python. On .NET, `RoutePersistingRoutingChatClient` explicitly defers "content-based or failover routing" to "the routing clients provided by `Microsoft.Extensions.AI` directly" (`dotnet/src/Microsoft.Agents.AI/ChatClient/RoutePersistingRoutingChatClient.cs:54-55`), so failover is an upstream MEAI concern.
 
-✗ Not provided. The `Microsoft.Extensions.AI` ecosystem has some `DistributedCachingChatClient` and `LoggingChatClient` decorators, and other community decorators for fallback exist, but MAF itself does not ship one.
+### 15.3 Mid-stream model switching
 
-### 15.4 Mid-stream model switching
-
-✗ Not supported. Model is set at agent/run boundary via `ChatOptions.Model` or via a different `ChatClient` instance.
-
-### 15.5 Sub-agent model overrides
-
-✅ Implicit — each sub-agent can be constructed with its own `ChatClient` (so Sonnet supervisor + Haiku workers is straightforward via `agent_as_tool` composition).
+- **.NET** (new, 1.19.0, experimental): `RoutePersistingRoutingChatClient` (`RoutePersistingRoutingChatClient.cs:64`) holds named inner clients and stores the active route in the session's state bag; `SetActiveRoute` switches model **between turns** while history (client-side) is preserved (`.cs:17-35`).
+- **Python**: per-run `options={"model": …}` (`ChatOptions.model`, `_types.py:4337`) or a different client per agent; switching at a turn boundary works with client-side history. No switch inside a single streamed response.
 
 ---
 
 ## 16. Chat UI Layer
 
-### 16.1 Streaming chat hook
+### 16.1 Generative UI components
 
-- **DevUI** ships a React frontend (`python/packages/devui/frontend/`) that consumes the OpenAI-Responses-compatible API. Not portable.
-- **AG-UI**: there is an established AG-UI React/Next.js ecosystem (CopilotKit), and MAF's `agent-framework-ag-ui` integrates with it via the AG-UI protocol.
-- **ChatKit**: `agent-framework-chatkit` integrates with OpenAI ChatKit. ADR `docs/decisions/` covers integration patterns.
+- **A2UI** (new, 1.15.0): `agent-framework-ag-ui` adds optional A2UI (agent-generated UI) support — `A2UIAgent`, `enable_a2ui`, `plan_a2ui_injection` (`python/packages/ag-ui/agent_framework_ag_ui/_a2ui/__init__.py`), configured via `a2ui_config` on the FastAPI endpoint (`_endpoint.py:107`). Requires the separate `ag-ui-a2ui-toolkit`.
+- DevUI custom output items (`ResponseOutputImage`, `ResponseOutputFile`, `ResponseOutputData`, `python/packages/devui/README.md:300-312`) — DevUI only.
 
 ### 16.2 Tool call rendering primitives
 
-Provided through AG-UI / ChatKit ecosystems. Not in core.
+Not in core. Provided by the AG-UI ecosystem (CopilotKit renders `TOOL_CALL_*` events) and ChatKit (`agent-framework-chatkit`). DevUI renders tool calls in its own React frontend.
 
-### 16.3 Generative UI components
+### 16.3 Streaming chat hook
 
-DevUI has its own custom item types: `ResponseOutputImage`, `ResponseOutputFile`, `ResponseOutputData` for rich rendering (DevUI README:298-316).
+No first-party React hook. Use AG-UI clients (CopilotKit), OpenAI ChatKit (`agent-framework-chatkit`), or any OpenAI Responses-compatible client against DevUI / .NET `MapOpenAIResponses`. DevUI ships a React frontend (`python/packages/devui/frontend/`) that is not packaged for reuse.
 
 ### 16.4 BYO pattern
 
-For your own frontend, consume DevUI's OpenAI-compatible SSE stream or the AG-UI protocol via `AGUIChatClient`.
+Expose the agent over AG-UI (Python `add_agent_framework_fastapi_endpoint`, .NET `MapAGUIServer`) and use an AG-UI client, or over OpenAI Responses SSE and map `response.*` events into your own React state keyed by `call_id`.
 
 ---
 
@@ -1393,44 +1396,29 @@ For your own frontend, consume DevUI's OpenAI-compatible SSE stream or the AG-UI
 
 ### 17.1 Long-term memory / semantic recall
 
-- **Mem0**: `agent-framework-mem0`, `Microsoft.Agents.AI.Mem0` (`Mem0Provider.cs`) — first-party adapter, `beta`.
-- **Harness memory provider**: `_harness/_memory.py` (`MemoryFileStore` and `MemoryStore` abstractions, experimental — added 1.3.0).
-- **Azure AI Search**: `agent-framework-azure-ai-search` — vector store integration as a context provider.
-- **TextSearchProvider** (.NET): `dotnet/src/Microsoft.Agents.AI/TextSearchProvider.cs` — generic text-search context provider with `TextSearchProviderOptions`.
+- **Mem0**: `agent-framework-mem0` / `Microsoft.Agents.AI.Mem0` (`Mem0Provider.cs`, `Mem0ProviderScope.cs`); since 1.14.0 storage scope (`application_id` / `agent_id` / `user_id`) is separate from search scope (`search_*`), so agent-wide recall must be requested explicitly (`python/packages/mem0/agent_framework_mem0/_context_provider.py:52-75`).
+- **Azure Cosmos semantic memory** (new, alpha): `CosmosMemoryContextProvider` with fact extraction and user profiles (`python/packages/azure-cosmos-memory/agent_framework_azure_cosmos_memory/_context_provider.py:75`).
+- **File memory**: `FileMemoryProvider` (harness, stable since 1.12.0; .NET `Harness/FileMemory/`).
+- **Harness memory store** (`_harness/_memory.py`, experimental).
 
 ### 17.2 RAG / knowledge retrieval integration
 
-`TextSearchProvider` (.NET) is the generic primitive. For semantic search, plug it into Azure AI Search or any IR backend via `IVectorStore` (Microsoft.Extensions.AI.Vector).
+✅ New since May (experimental `VECTOR_STORES`): shared vector-store abstractions in core — `BaseVectorStore` / `BaseVectorCollection` / `BaseVectorSearch` (`_vectors.py:1500, 1183, 1577`), portable filters (`_vector_filters.py`), an `InMemoryStore` (`_in_memory.py:438`), and a retrieval context provider `VectorCollectionContextProvider` (`_vectors.py:3250`). Connectors: Azure AI Search (beta), Redis HASH/JSON (beta), Cosmos NoSQL (beta), Qdrant, Postgres/pgvector, MongoDB, Azure DocumentDB, DuckDB, SQL Server (all alpha). .NET: `TextSearchProvider` (`dotnet/src/Microsoft.Agents.AI/TextSearchProvider.cs`) over `Microsoft.Extensions.VectorData` stores. Feature doc: `docs/features/vector-stores-and-embeddings/README.md`.
 
 ### 17.3 Per-tenant memory scoping
 
-Memory adapters expose **scope** options (e.g., `Mem0ProviderScope` — `Mem0ProviderScope.cs`) — typically `User`, `Session`, `Global`. Tenancy = scope-by-user with your tenant ID encoded into the user. Not deeper.
+Scope-by-identifier: Mem0 `user_id`/`agent_id`/`application_id`, Cosmos memory user profiles, vector filters on a tenant field. .NET's isolation key is documented as reusable for memory "when they require the same isolation boundary", but registering a provider "does not automatically partition application-owned memory" (`AgentIsolationKeyProvider.cs:15-24`). Namespacing is still yours.
 
 ---
 
-## 18. Safety, Guardrails & Tool Sandboxing
+## 18. Safety & Policy
 
 ### 18.1 Input/output guardrails
 
-- **Prompt-injection defense (information-flow control)**: `security.py` ships `IntegrityLabel`, `ConfidentialityLabel`, `ContentLabel`, `LabeledMessage`, `LabelTrackingFunctionMiddleware`, `PolicyEnforcementFunctionMiddleware`, `SecureAgentConfig`, `ContentVariableStore` (`security.py:78, 95, 114, 479, 793, 1529, 1929, 309`). ADR `docs/decisions/0024-prompt-injection-defense.md`.
-- **Purview integration**: `Microsoft.Agents.AI.Purview` — for Microsoft Purview compliance/sensitivity labels.
-- PII redaction: BYO via middleware.
-
-### 18.2 Tool sandboxing / permission model
-
-- **`approval_mode`** on `FunctionTool` and `@tool` decorator: `"always_require"` / `"never_require"` (`_tools.py:302, 393`). ADR `docs/decisions/0006-userapproval.md`.
-- **`ToolApprovalAgent` (.NET)**: standing-approval rules via `ToolApprovalRule` and `ToolApprovalState` — record "always allow `X` for the rest of session" type policies (`Harness/ToolApproval/ToolApprovalAgent.cs`).
-- **Allow/deny lists**: via tool filtering in `ContextProvider` (skills' `allowed_tools` frontmatter, or runtime filter middleware).
-- **`canUseTool`-style**: implemented via `FunctionMiddleware` that raises `MiddlewareTermination` for disallowed calls.
-
-### 18.3 Sandbox provider integrations
-
-- **Hyperlight**: `Microsoft.Agents.AI.Hyperlight` / `agent-framework-hyperlight` — Microsoft's hardware-isolated Wasm sandbox.
-- **Docker shell**: `DockerShellExecutor` (`Microsoft.Agents.AI.Tools.Shell/DockerShellExecutor.cs`) — runs shell commands inside Docker with `ContainerUser`, `DockerNetworkMode`, `ShellPolicy`.
-
-### 18.4 Default-deny vs. default-allow
-
-Tools are **default-allow** (`approval_mode` defaults to `"never_require"` — `_tools.py:393`). Shell tools default to a `ShellPolicy` that denies unless explicitly allowed.
+- **Prompt-injection defence (FIDES information-flow control)**, experimental: `IntegrityLabel` (`security.py:186`), `ConfidentialityLabel` (203), `ContentLabel` (222), `ContentVariableStore` (461), `LabeledMessage` (631), `LabelTrackingFunctionMiddleware` (1257), `PolicyEnforcementFunctionMiddleware` (2351), `SecureAgentConfig` (3051), `SecureMCPToolProxy` (4316). MCP servers are auto-labelled from hints (1.10.0); FIDES state is isolated per session and approvals are bound to exact invocation occurrences (1.18.0). ADR `docs/decisions/0024-prompt-injection-defense.md`, summary `docs/features/FIDES_IMPLEMENTATION_SUMMARY.md`.
+- **Agent-hooks enforcement** (experimental, both languages): external interceptors can deny or transform at input, model, tool and output points, fail-closed (`_agent_hooks.py:1-60`; .NET `Microsoft.Agents.AI.AgentHooks`).
+- **Purview** (`agent-framework-purview`, `Microsoft.Agents.AI.Purview`): Microsoft Purview policy evaluation on prompts/responses, token-principal user identity.
+- **PII redaction / hallucination detection**: BYO (middleware or agent-hooks interceptor). Samples include deterministic action-boundary validation middleware (1.11.0).
 
 ---
 
@@ -1438,21 +1426,19 @@ Tools are **default-allow** (`approval_mode` defaults to `"never_require"` — `
 
 ### 19.1 Golden datasets / regression suites
 
-`_evaluation.py` (1941 lines, experimental — `@experimental(feature_id=ExperimentalFeature.EVALS)`). Concepts:
-- `EvalItem` (`_evaluation.py:~726`) and `LocalEvaluator` (`_evaluation.py:1343`).
-- `evaluate_agent`, `evaluate_workflow`, `evaluate_traces`, `evaluate_foundry_target` (`docs/decisions/0023-foundry-evals-integration.md`).
+`_evaluation.py` (experimental `EVALS`): `EvalItem` (`_evaluation.py:183`), `ExpectedToolCall` (141), `EvalResults` (374), `LocalEvaluator` (1488), `evaluate_agent` (1600), `evaluate_workflow` (1804), conversation splitters. Foundry evaluation (`FoundryEvals`, `evaluate_traces`, `evaluate_foundry_target`) moved into `agent-framework-foundry` (1.18.0); Foundry Adaptive Evals (rubric generation) added in 1.8.0 / 1.10.0 and .NET 1.11.0. No built-in dataset file format beyond lists of `EvalItem`.
 
 ### 19.2 LLM-as-judge scoring
 
-Yes — `Evaluator` protocol (`_evaluation.py:507`) supports both pre-built checks (`keyword_check`, `tool_calls_present`, `tool_call_args_match`, …) and custom LLM-judge functions.
+✅ `Evaluator` protocol (`_evaluation.py:684`) with `RubricScore` (653); pre-built deterministic checks `keyword_check` (1025), `tool_called_check` (1053), `tool_calls_present` (1142), `tool_call_args_match` (1184); LLM judges via custom evaluators or Foundry. The harness also has an AI-judge loop evaluator (`AIJudgeLoopEvaluator`, .NET; `JudgeVerdict`, Python `_harness/_loop.py:108`) used for looping, not scoring.
 
 ### 19.3 CI eval gates / pre-merge
 
-Not packaged — you wire it yourself into your CI (run `evaluate_agent` and fail on score). `FoundryEvals` provides a managed-service alternative.
+Not packaged. `EvalNotPassedError` (`_evaluation.py:70`) makes it straightforward to fail a pytest/CI job; wiring is yours.
 
 ### 19.4 Trace replay for skill iteration
 
-OTel traces are exportable to any backend (Foundry, Application Insights, Jaeger). No first-party local trace replay UI — DevUI shows traces inline.
+No local trace replay. OTel traces go to any backend; DevUI shows traces inline and now Aspire traces (1.19.0).
 
 ---
 
@@ -1460,19 +1446,19 @@ OTel traces are exportable to any backend (Foundry, Application Insights, Jaeger
 
 ### 20.1 Local agent runner
 
-**DevUI** (`agent-framework-devui`) — `pip install agent-framework-devui --pre`, then `devui ./agents --port 8080`. Auto-discovers agents/workflows in a directory, hot-reloads, browse OpenAI-compatible API + a debug web UI. Sample app, not for production.
+**DevUI** (`agent-framework-devui`, beta; .NET `Microsoft.Agents.AI.DevUI` + `Aspire.Hosting.AgentFramework.DevUI`) — `devui ./agents --port 8080`. Auto-discovers agents/workflows, OpenAI-compatible API + debug web UI, deployment endpoints (`_server.py:711-797`). Sample app, not for production. Harness console samples (Python and .NET) give a TUI for harness agents.
 
 ### 20.2 Trace inspection
 
-DevUI surfaces OTel traces via `--instrumentation` flag and a trace viewer panel. ADR `docs/decisions/0003-agent-opentelemetry-instrumentation.md`.
+DevUI `--instrumentation` and trace viewer panel; Aspire dashboard integration (1.19.0). ADR `docs/decisions/0003-agent-opentelemetry-instrumentation.md`.
 
 ### 20.3 Tenant / org switching
 
-Not built-in. You'd start DevUI with different env vars / directories per tenant. The OpenAI-Proxy mode (DevUI README:199-214) keeps the OpenAI API key server-side but does not provide multi-tenant role switching.
+Not built-in. DevUI forwards `extra_body.function_invocation_kwargs` (1.15.0), so a tester can switch `tenant_id` per request, but there is no tenant picker or role switching.
 
 ### 20.4 Hot reload
 
-`devui ./agents --reload` and `POST /v1/entities/{entity_id}/reload`. Skill caching can be turned off (`disable_caching=True`).
+`devui ./agents --reload` and `POST /v1/entities/{entity_id}/reload` (`_server.py:669`). Skill caching can be disabled (`disable_caching=True`) or given a short `cache_refresh_interval`.
 
 ---
 
@@ -1482,79 +1468,72 @@ Not built-in. You'd start DevUI with different env vars / directories per tenant
 flowchart TB
   subgraph host[Your host process]
     direction TB
-    subgraph api[HTTP/network surface]
-      DevUI[agent-framework-devui<br/>FastAPI, OpenAI Responses-compat]
-      AGUI[Microsoft.Agents.AI.Hosting.AGUI.AspNetCore<br/>MapAGUI]
-      A2A[Microsoft.Agents.AI.Hosting.A2A.AspNetCore<br/>MapA2A]
-      AzF[Microsoft.Agents.AI.Hosting.AzureFunctions<br/>HTTP/Timer/MCPTool triggers]
-      ASP[Microsoft.Agents.AI.Hosting<br/>AddAIAgent, AIHostAgent, AgentSessionStore]
+    subgraph api[HTTP / network surface]
+      OAI[Microsoft.Agents.AI.Hosting.OpenAI<br/>MapOpenAIResponses / ChatCompletions / Conversations]
+      AGUI[AG-UI: Python FastAPI endpoint<br/>.NET MapAGUIServer on AGUI.Server]
+      A2A[A2A: MapA2AHttpJson / JsonRpc<br/>agent-framework-hosting-a2a]
+      MCPS[MCP server: as_mcp_server<br/>agent-framework-hosting-mcp]
+      PYH[Python hosting helpers alpha<br/>AgentState, SessionStore, responses_to_run]
+      DevUI[DevUI sample<br/>FastAPI, Responses-compatible]
+      ISO[.NET AgentIsolationKeyProvider<br/>ClaimsIdentity → isolation partition]
     end
 
     api --> Agent
+    ISO -.scopes.-> Sess
 
-    subgraph Agent[ChatClientAgent / Agent]
-      AM[AgentMiddleware]
-      CP[ContextProviders<br/>Skills, Memory, Compaction, SubAgents, Todo, Mode, FileAccess, Security]
-      CM[ChatMiddleware]
+    subgraph Agent[Agent / ChatClientAgent / HarnessAgent]
+      LOOP[AgentLoopMiddleware / LoopAgent]
+      AM[AgentMiddleware + ToolApprovalMiddleware]
+      HOOKS[Agent-hooks enforcement bundle]
+      CP[ContextProviders<br/>Skills, Compaction, Todo, Mode, FileAccess,<br/>FileMemory, BackgroundAgents, Memory, Vector RAG]
+      CM[ChatMiddleware<br/>message injection, per-call persistence]
       FM[FunctionMiddleware]
-      FIC[FunctionInvokingChatClient<br/>/ _try_execute_function_calls]
+      FIC[FunctionInvocationLayer /<br/>FunctionInvokingChatClient]
     end
 
     Agent --> Tools
-
     subgraph Tools[Tools]
       FT[FunctionTool / AIFunction]
-      MCP[MCP Tools: stdio, HTTP, WS]
-      HT[Hosted: web search, code interp, file search, MCP server tools]
-      SH[Shell: Local, Docker, Hyperlight]
-      SUB[SubAgents]
+      MCP[MCP client tools: stdio, HTTP, WS<br/>progressive disclosure]
+      HT[Hosted: web search, code interp, file search,<br/>image gen, hosted MCP, computer use]
+      SH[Shell local/Docker, CodeAct: Monty,<br/>Hyperlight, LocalCodeAct]
+      BG[background_agents_* / as_tool]
     end
 
     Agent --> Sess
     subgraph Sess[Sessions & Persistence]
-      AS[AgentSession + StateBag]
+      AS[AgentSession + state / StateBag]
       HP[HistoryProvider / ChatHistoryProvider]
-      ST[AgentSessionStore]
+      ST[SessionStore / AgentSessionStore<br/>AgentSessionStoreKey partitions]
     end
+    Sess --> Stores[(InMemory / File / Redis / Valkey /<br/>Cosmos / Azure Blob / Foundry)]
 
-    Sess --> Stores[(InMemory / File JSONL / Redis / CosmosNoSql / Foundry threads)]
-
-    Agent -.-> OTel[OpenTelemetry<br/>gen_ai.* semantic conventions<br/>histograms, spans]
-
-    Agent --> LLM[(LLM Provider:<br/>Azure OpenAI / OpenAI / Anthropic / Bedrock /<br/>Gemini / Ollama / Foundry / Copilot Studio)]
+    Agent -.-> OTel[OpenTelemetry on by default<br/>gen_ai.* spans + token histograms]
+    Agent --> LLM[(OpenAI / Foundry / Anthropic / Bedrock /<br/>Gemini / Mistral / Ollama / Copilot)]
   end
 
-  WF[Workflow runtime<br/>WorkflowBuilder, Executors, Edges, Checkpoints<br/>RequestInfoExecutor for HITL] -.uses.-> Agent
-  DT[Microsoft.Agents.AI.DurableTask<br/>DurableAIAgent, AgentEntity] -.replays.-> Agent
+  WF[Workflow runtime + orchestrations<br/>Sequential, Concurrent, Handoff, GroupChat, Magentic<br/>CheckpointStorage] -.uses.-> Agent
+  DT[agent-framework-durable-extension repo<br/>Durable Task, Azure Functions] -.hosts.-> WF
 ```
 
 ---
 
 ## Appendix — Files worth reading first
 
-- `python/packages/core/agent_framework/_agents.py:271-300` — Python `agent.run()` signature.
-- `python/packages/core/agent_framework/_clients.py:217` — `BaseChatClient` (the LLM round-trip layer).
-- `python/packages/core/agent_framework/_tools.py:240, 1135, 1411, 1622, 1781` — `FunctionTool`, `@tool`, auto-invoke, tool map, fan-out.
-- `python/packages/core/agent_framework/_middleware.py:357, 416, 480` — three middleware layers.
-- `python/packages/core/agent_framework/_sessions.py:151, 348, 410, 711` — `SessionContext`, `ContextProvider`, `HistoryProvider`, `AgentSession`.
-- `python/packages/core/agent_framework/_skills.py:487, 545, 1644, 1785` — Skill, SkillFrontmatter, SkillsProvider, `from_paths`.
-- `python/packages/core/agent_framework/_types.py:331-363, 1672, 2036` — content types, Message, ChatResponse.
-- `python/packages/core/agent_framework/observability.py:197-220, 1160-1183, 2085-2106` — OTel attribute/metric names and token aggregation.
-- `python/packages/core/agent_framework/_workflows/_workflow_builder.py:42, 180, 232, 506, 559` — `WorkflowBuilder` API.
-- `python/packages/core/agent_framework/security.py:78, 793, 1529, 1929` — labelling, policy enforcement, secure agent config.
-- `dotnet/src/Microsoft.Agents.AI.Abstractions/AIAgent.cs:38, 251, 334, 464` — abstract base agent, `RunAsync`, `RunStreamingAsync`.
-- `dotnet/src/Microsoft.Agents.AI.Abstractions/AgentSession.cs:59-85` — .NET session base.
-- `dotnet/src/Microsoft.Agents.AI/ChatClient/ChatClientAgent.cs:39` — concrete agent over `IChatClient`.
-- `dotnet/src/Microsoft.Agents.AI.Harness/HarnessAgent.cs:38-128` — pre-built pipeline (function invoke + per-call persistence + compaction).
-- `dotnet/src/Microsoft.Agents.AI/Harness/SubAgents/SubAgentsProvider.cs:39` — concurrent sub-agent provider.
-- `dotnet/src/Microsoft.Agents.AI/Skills/AgentSkill.cs` + neighbours — .NET skills system.
-- `dotnet/src/Microsoft.Agents.AI.Hosting/AgentHostingServiceCollectionExtensions.cs:25-79` — DI hosting API.
-- `dotnet/src/Microsoft.Agents.AI.Hosting/AIHostAgent.cs:24-72` + `AgentSessionStore.cs:16-46` — session-store abstraction.
-- `dotnet/src/Microsoft.Agents.AI.DurableTask/DurableAIAgent.cs` + `AgentEntity.cs` — durable orchestration agent.
-- `dotnet/src/Microsoft.Agents.AI.CosmosNoSql/CosmosChatHistoryProvider.cs` + `CosmosCheckpointStore.cs` — Cosmos persistence.
-- `python/packages/devui/agent_framework_devui/_server.py:807-908, 994-1138` — DevUI HTTP surface.
-- `docs/decisions/0021-agent-skills-design.md` — skills design ADR.
-- `docs/decisions/0024-prompt-injection-defense.md` — security-labelling ADR.
-- `docs/decisions/0006-userapproval.md` — HITL approval design.
-- `python/CHANGELOG.md` — release history.
-- `python/PACKAGE_STATUS.md` — per-package maturity matrix.
+- `python/packages/core/agent_framework/_agents.py:1182-1194, 641-800, 1812` — `Agent.run()` signature, `as_tool()` (session propagation, kwargs forwarding), `as_mcp_server()`.
+- `python/packages/core/agent_framework/_tools.py:1755-1846, 2379-2560, 4888` — `FunctionInvocationConfiguration` (limits, concurrency, approval binding), concurrent dispatch, `FunctionInvocationLayer`.
+- `python/packages/core/agent_framework/_middleware.py:86, 428-600, 838, 910, 1001` — `MiddlewareFailure`, `FunctionInvocationContext` (+ progressive tools), three middleware layers.
+- `python/packages/core/agent_framework/_sessions.py:516, 752-830, 987, 1415-1600, 1843-2040` — `SessionContext`, `ContextProvider`, `HistoryProvider`, message injection, per-call persistence, `AgentSession`, `SessionStore`.
+- `python/packages/core/agent_framework/_skills.py:936, 2080-2440, 3040-3100, 4198-4430, 5315` — frontmatter, `SkillsProvider` (approval defaults), `SkillsSourceContext`, decorators, `MCPSkillsSource`.
+- `python/packages/core/agent_framework/_harness/_agent.py:312` — `create_harness_agent` (what "batteries included" wires).
+- `python/packages/core/agent_framework/_harness/_background_agents.py:269-660` — background sub-agents.
+- `python/packages/core/agent_framework/_agent_hooks.py:1-60` — agent-hooks enforcement contract.
+- `python/packages/core/agent_framework/observability.py:250-276, 1014-1107, 3482-3507` — OTel attributes, default-on instrumentation, usage accumulation.
+- `python/packages/hosting/README.md` + `agent_framework_hosting/_state.py:74, 193` — Python app-owned hosting model.
+- `dotnet/src/Microsoft.Agents.AI.Abstractions/AgentSessionStore.cs:20` + `AgentSessionStoreKey.cs:27` — .NET session store with partitioned keys.
+- `dotnet/src/Microsoft.Agents.AI.Hosting/AgentIsolationKeyProvider.cs:32` + `IsolationKeyScopedAgentSessionStore.cs:17` + `Microsoft.Agents.AI.Hosting.AspNetCore/ClaimsIdentityAgentIsolationKeyProvider.cs:48` — tenant/user isolation.
+- `dotnet/src/Microsoft.Agents.AI.Hosting.OpenAI/EndpointRouteBuilderExtensions.Responses.cs:89-160` — .NET OpenAI Responses endpoints.
+- `dotnet/src/Microsoft.Agents.AI.Harness/HarnessAgent.cs:127-285` — .NET harness pipeline.
+- `dotnet/src/Microsoft.Agents.AI/ChatClient/RoutePersistingRoutingChatClient.cs:17-64` — per-session model routing.
+- `docs/decisions/0037-agent-skills-design.md`, `0024-prompt-injection-defense.md`, `0006-userapproval.md`, `0031-hosted-per-user-session-storage-isolation.md`, `0039-shared-agent-session-store.md`, `0032-durable-azure-functions-extraction.md`, `0035-dotnet-agent-hooks-enforcement.md` — design intent.
+- `python/CHANGELOG.md`, `python/PACKAGE_STATUS.md` — release history and per-package maturity.
