@@ -24,7 +24,7 @@
 	url = https://github.com/cloudwego/eino-ext
 [submodule "frameworks/genkit"]
 	path = frameworks/genkit
-	url = https://github.com/firebase/genkit
+	url = https://github.com/genkit-ai/genkit
 [submodule "frameworks/langgraph"]
 	path = frameworks/langgraph
 	url = https://github.com/langchain-ai/langgraph
@@ -46,18 +46,15 @@
 [submodule "frameworks/rig"]
 	path = frameworks/rig
 	url = https://github.com/0xPlaygrounds/rig
-[submodule "frameworks/strands-agents-sdk-python"]
-	path = frameworks/strands-agents-sdk-python
-	url = https://github.com/strands-agents/sdk-python
 [submodule "frameworks/strands-agents-tools"]
 	path = frameworks/strands-agents-tools
 	url = https://github.com/strands-agents/tools
-[submodule "frameworks/strands-agents-sdk-typescript"]
-	path = frameworks/strands-agents-sdk-typescript
-	url = https://github.com/strands-agents/sdk-typescript
 [submodule "frameworks/vercel-ai"]
 	path = frameworks/vercel-ai
 	url = https://github.com/vercel/ai
 [submodule "frameworks/microsoft-agent-framework"]
 	path = frameworks/microsoft-agent-framework
 	url = https://github.com/microsoft/agent-framework
+[submodule "frameworks/strands-agents-harness-sdk"]
+	path = frameworks/strands-agents-harness-sdk
+	url = https://github.com/strands-agents/harness-sdk
