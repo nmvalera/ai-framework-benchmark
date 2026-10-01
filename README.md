@@ -75,8 +75,8 @@ Current selected framework set:
 | [Claude Agent SDK TypeScript](https://github.com/anthropics/claude-agent-sdk-typescript) | TypeScript | Anthropic's TypeScript wrapper around the same Claude Code binary as the Python SDK, with a ~200 MB native binary spawned per session. |
 | [CrewAI Python](https://github.com/crewAIInc/crewAI) | Python | Multi-agent-first Python framework built around "Crews" (sequential or hierarchical task teams) and event-driven "Flows". |
 | [Eino Go](https://github.com/cloudwego/eino) | Go | Go-native library combining a graph orchestration engine with a higher-level agent toolkit shipping prebuilt ReAct, workflow, and supervisor patterns. |
-| [Genkit Go](https://github.com/firebase/genkit) | Go | Firebase's flow-centric, in-process Go library with a dev-only reflection server consumed by the JS-based Genkit CLI. |
-| [LangGraph Python](https://github.com/langchain-ai/langgraph) | Python | Python graph-based agent runtime with first-class Postgres/SQLite checkpointers; the production HTTP server is a separate closed-source paid component. |
+| [Genkit Go](https://github.com/genkit-ai/genkit) | Go | Firebase's flow-centric, in-process Go library with a dev-only reflection server consumed by the JS-based Genkit CLI. |
+| [LangGraph Python](https://github.com/langchain-ai/langgraph) | Python | Python graph-based agent runtime with first-class Postgres/SQLite checkpointers; the production HTTP server is a separate source-available (Elastic License 2.0) component that needs a paid licence. |
 | [LlamaIndex Python](https://github.com/run-llama/llama_index) | Python | Large Python ecosystem (~300 packages) whose agent layer sits on top of an event-driven workflow engine; historically focused on RAG and ingestion. |
 | [Mastra TypeScript](https://github.com/mastra-ai/mastra) | TypeScript | Full-stack TypeScript framework where the agent loop is itself a workflow, with first-class skills, resource manager, and broad platform tooling. |
 | [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) | Python + .NET | Microsoft's dual-language library that converges Semantic Kernel and AutoGen, with a graph-based workflow runtime and optional hosted Azure runtimes. |
@@ -84,8 +84,8 @@ Current selected framework set:
 | [OpenAI Agents TypeScript](https://github.com/openai/openai-agents-js) | TypeScript | Thin in-process TypeScript SDK exposing `Agent` / `Runner` classes; no bundled server, no subprocess, no hosted runtime. |
 | [Pydantic AI](https://github.com/pydantic/pydantic-ai) | Python | Provider-agnostic, library-first Python agent built as a typed Pydantic-graph state machine that runs in your process. |
 | [Rig Rust](https://github.com/0xPlaygrounds/rig) | Rust | Rust library where the agent loop runs as plain async functions in your Tokio runtime; no bundled server or sidecar. |
-| [Strands Agents Python](https://github.com/strands-agents/sdk-python) | Python | Model-driven, in-process Python SDK whose agent loop is a pure async generator; the host owns the entire runtime. |
-| [Strands Agents TypeScript](https://github.com/strands-agents/sdk-typescript) | TypeScript | Library-only, in-process TypeScript SDK with an optional Express adapter that exposes agents over the A2A protocol. |
+| [Strands Agents Python](https://github.com/strands-agents/harness-sdk) | Python | Model-driven, in-process Python SDK whose agent loop is a pure async generator; the host owns the entire runtime. |
+| [Strands Agents TypeScript](https://github.com/strands-agents/harness-sdk/tree/main/strands-ts) | TypeScript | Library-only, in-process TypeScript SDK with an optional Express adapter that exposes agents over the A2A protocol. |
 | [Vercel AI SDK TypeScript](https://github.com/vercel/ai) | TypeScript | TypeScript library providing the agent-loop primitives to mount on your own HTTP handler, plus first-party React/Vue/Svelte/Angular hooks. |
 
 ## Skills

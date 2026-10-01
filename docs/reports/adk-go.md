@@ -1,36 +1,36 @@
 # ADK Go — Benchmark Analysis
 
 > **Repo**: https://github.com/google/adk-go
-> **Commit analysed**: `3f835cd3ba3ed801d36a68bfac16e35e125aea17`
+> **Commit analysed**: `cb96cf16de065650b07ef504e317ace86a9e06b7` (v2.5.0 + 3 commits)
 > **Branch**: `main`
 > **Framework path**: `frameworks/adk-go/`
-> **Analysed on**: 2026-05-19
-> **Commit message**: `feat(live): Add core bidirectional streaming support (#833)` — committed 2026-05-15
+> **Analysed on**: 2026-10-01
 
 ## TL;DR
 
-- ⭐ **What this is architecturally**: Google's official **Go-native** Agent SDK + framework + first-party HTTP/WebSocket/A2A server + embedded Web UI binary. Library mode (`runner.New(...)`) and bundled launcher mode (`full.NewLauncher().Execute(...)`) live in the **same module** (`google.golang.org/adk`). The agent loop runs **in-process in your Go binary** — no subprocess, no sidecar, no Python bridge. This is unlike Claude Agent SDK Py (subprocesses a Node binary) or LangGraph Py (offloads HTTP to a separate `langgraph_api` cloud package).
-- **Ecosystem** — **Go**. The Python and Java siblings (`adk-python`, `adk-java`) are independent ports of the same agent model. Go is the implementation language end-to-end here; no Python/Node binaries bundled.
-- **Open-source / license / support**: Apache 2.0, maintained by Google (`github.com/google/adk-go`). No paid commercial support specific to adk-go; Google Cloud (Vertex AI, Agent Engine, Cloud Run) is the natural commercial counterpart for hosting.
-- **Strongest fit for our use case (multi-tenant long-running agent piloted by skills on GKE/Vertex)**: Pure Go binary, fits Dailymotion's stack. Native `gorilla/mux` server with **SSE + WebSocket + A2A** transports. First-class **`session.Service` with `database`** (GORM → Postgres/Spanner/SQLite) and **`vertexai`** (Agent Engine reasoning-engine) backends. Event-sourced session model with **app/user/session-scoped state** prefixes (`app:`, `user:`, `temp:`) baked into the session store (`session/database/service.go:481-503`). Native **Vertex AI / Gemini** integration via `google.golang.org/genai`. Skills v1.2 (`agentskills.io` spec) shipped April 2026 as a first-class `tool/skilltoolset` + filesystem source with merged-source priority (`tool/skilltoolset/skill/merged_source.go:32`). MCP first-class via `tool/mcptoolset` over the official `modelcontextprotocol/go-sdk`. HITL `toolconfirmation` GA on every tool with `RequireConfirmation` / `RequireConfirmationProvider` config flags (`tool/functiontool/function.go:52-67`).
-- **Biggest gap for our use case**: **No tenant-scoped filtering primitives, no per-tenant budget caps, no allow/deny tool sandbox, no eval framework in Go**. Eval endpoints are stubbed as `controllers.Unimplemented` (`server/adkrest/internal/routers/eval.go:30-46`). The eval story is **Python-only** (verified). Tool sandboxing is **not provided — BYO**: tools execute as raw Go code with no allow/deny list. Per-tenant budget/USD cap is **not provided — BYO**: no rate-limiter, no cost computation, only token counts in `genai.GenerateContentResponseUsageMetadata` (`session/database/storage_session.go:89`).
-- **Most surprising finding**: Despite being "model-agnostic" per README, the **only first-party model implementations are `gemini` and `apigee` (a Vertex/Gemini proxy)** — there is no OpenAI, Anthropic, Bedrock, or LiteLLM adapter shipped (`model/gemini/`, `model/apigee/`). The `model.LLM` interface is open and you *can* BYO providers, but the framework's request/response types embed `google.golang.org/genai` directly (`model/llm.go:32-68`) — every part is a `genai.Part`, every content is `genai.Content`. Switching to a non-Gemini provider means adapting through Gemini's content shape. This is a meaningful Vertex/Gemini lock-in despite the broad provider-agnostic positioning.
-- **Second surprise**: The framework ships a **`replayplugin`** (`internal/configurable/conformance/replayplugin/`) that records and replays LLM responses + tool calls for conformance testing — gold for snapshot-style regression testing — but it's gated under `internal/` so you can't import it directly. There's no public stable equivalent.
-- **Per-stack one-liners**:
-  - **Sessions/persistence**: First-class event-sourced model. Three backends: `InMemoryService`, `database.NewSessionService` (GORM → Postgres/Spanner/SQLite), `vertexai.NewSessionService` (Vertex Agent Engine). Persistence per-event via `AppendEvent` (`session/service.go:31`). State has `app:`/`user:`/`temp:` prefixes with auto-routing into separate storage tables.
-  - **Skills**: First-class. Loads `SKILL.md` from `fs.FS`. `MergedSource` for priority composition. Loader-mode is **lazy**: metadata-only in prompt, body fetched via `load_skill` tool (`tool/skilltoolset/toolset.go:31-44`).
-  - **Resource manager**: BYO. `Source` interface (`tool/skilltoolset/skill/source.go:41`) is the only abstraction; no versioning, no scoping at registry layer, no publishing workflow, no governance.
-  - **Sub-agents**: Three first-class primitives: `agenttool.New(agent)` (agents-as-tools), `workflowagents/{parallel,sequential,loop}agent`, and `transfer_to_agent` (delegation via LLM-emitted function call). Parallel via `errgroup` (`agent/workflowagents/parallelagent/agent.go:67-128`). Context isolation per `Branch` field. Configs are **statically registered at boot only** — no LLM-generated sub-agent configs.
-  - **Multi-tenancy**: Tenant is **not** a first-class field on `session.Session`. Closest workaround is `UserID` + `AppName` (used as the natural namespace for sessions, memory, artifacts) and the `State` map with `app:` / `user:` prefixes. **No `tenant_id`-aware tool-arg forcing** out of the box. `BeforeToolCallback` can mutate args in place (`agent/llmagent/llmagent.go:303-313`) — you build forced-args yourself.
-  - **Hooks**: Rich. 11 callback types per `plugin.Config` (`plugin/plugin.go:26-48`): user-message, event, before/after run, before/after agent, before/after model, on-model-error, before/after tool, on-tool-error. Per-agent variants on `llmagent.Config`. Plugin-level callbacks fire **before** per-agent.
-  - **API**: First-party REST server in `server/adkrest/`. SSE for streaming (`/run_sse`), WebSocket for live bidi (`/run_live`). A2A protocol via `server/adka2a/v2/`. Pub/Sub + Eventarc trigger controllers under `server/adkrest/controllers/triggers/`.
-  - **Observability**: Native OTel with GenAI semantic conventions (`telemetry/setup_otel.go`, `internal/telemetry/telemetry.go`). Tokens via `genai.GenerateContentResponseUsageMetadata`. **No USD cost** computation. No per-tenant rollup helper.
-- **Production-readiness for multi-tenant server-side deployment**: **Conditional Yes**. ADK Go is production-ready as a Go binary for single-tenant deployments and works well for multi-tenant by namespacing via `AppName`/`UserID`. But for our long-running-agent case, three gaps need glue code:
-  1. **Tenant scoping** — no first-class `tenant_id`; you reuse `UserID` and `AppName` as composite, or stuff `tenant_id` into `Session.State` with the `app:` prefix.
-  2. **Forced tool args / tool sandbox** — implement via `BeforeToolCallback` (in-place args mutation) and a wrapping `Toolset`. No declarative allow/deny.
-  3. **Eval** — entirely Python-side (`adk-python`). REST endpoints in adk-go are `Unimplemented` stubs.
+- ⭐ **What this is architecturally**: Google's official **Go-native** agent SDK + framework + first-party HTTP/WebSocket/A2A server + embedded Web UI. Library mode (`runner.New(...)`) and bundled launcher mode (`full.NewLauncher().Execute(...)`) live in the **same module**, which moved to **`google.golang.org/adk/v2`** with the v2.0.0 release (2026-06-30). The agent loop runs **in-process in your Go binary**: no subprocess, no sidecar, no Python bridge. Since v2, an `LlmAgent` root is executed through a new **graph workflow engine** (`workflow/`) wrapped as a single-node graph (`runner/run_node.go:136-143`); the ReAct loop itself is still `internal/llminternal/base_flow.go`.
+- **Ecosystem** — **Go** (go.mod `go 1.26.6`). Python, Java, Kotlin and TypeScript ADKs are separate ports of the same agent model; nothing is bundled from them.
+- **Open-source / license / support**: Apache 2.0, maintained by Google. No paid support specific to adk-go; Google Cloud (Vertex AI, Agent Engine, Cloud Run, Agent Registry) is the commercial counterpart.
+- **Maturity / adoption (2026-10-01)**: 8,837 stars, 1,024 forks, ~111 contributors, repo created 2025-05-05. v1.0.0 shipped 2026-03-23, v2.0.0 on 2026-06-30, v2.5.0 on 2026-09-30. Two release lines are maintained in parallel (`main` = 2.x, `v1` = 1.x backports, latest v1.7.0). Roughly weekly-to-biweekly minor releases, CI guards the exported API against accidental breaks (`.github/workflows/apidiff.yml`).
+- **Strongest fit for our use case**: Pure Go binary that fits a GKE/Cloud Run stack. First-party REST server with SSE + WebSocket + A2A, now with **pluggable authentication and per-user authorization** (`server/authn`, `server/authz`, v2.4.0+), `/health`, `/version`, request-size limits and an origin/DNS-rebinding guard. Event-sourced `session.Service` with GORM (Postgres/SQLite/Spanner) and Vertex Agent Engine backends. **Built-in context compaction** (sliding-window and token-threshold tail retention, `session/compaction/`, v2.3.0). Lazy `SKILL.md` skills. MCP client with per-request credential providers (`tool/mcptoolset/set.go:122`). A graph workflow engine with fan-out/fan-in, per-node retry/timeout and HITL pause/resume.
+- **Biggest gap for our use case**: still **no tenant-scoped primitives, no per-tenant budget caps, no allow/deny tool policy, no Go eval framework**. The eval REST routes now answer a deliberate 501 that says "Use adk-python for eval workflows" (`server/adkrest/internal/routers/eval.go:23-35`). No USD cost. Workflow pause/resume is reconstructed from session history for HITL interrupts only; there is no crash-resume of a half-finished graph (`workflow/persistence.go:60-80`).
+- **Most surprising finding**: the root agent no longer runs on the "classic" agent path. Every `LlmAgent` root is wrapped in a synthetic `START -> node` workflow so that all execution goes through one graph engine (`runner/run_node.go:130-143`). That gives uniform HITL/resume semantics, but it means the hot path now includes the scheduler (`workflow/scheduler.go`), and a few behaviours differ between root types (for example compaction and HITL resume are wired in both paths separately, `runner/runner.go:568-626`).
+- **Second surprise**: provider lock-in eased but did not disappear. An **experimental OpenAI model** (`model/openaimodel/`, Responses and Chat Completions APIs, any OpenAI-compatible `BaseURL`) and a name-based model registry (`model/registry.go`) shipped in v2.1–v2.5. There is still **no native Anthropic adapter** (open issues #225, #1097), and every request/response is still a `genai.Content`.
+- **Per-capability one-liners**:
+  - **Sessions/persistence**: First-class event-sourced model. Three backends: in-memory, GORM (`database.NewSessionService` / `NewSessionServiceFromDB`), Vertex Agent Engine. Synchronous persistence per non-partial event (`runner/runner.go:764-770`). `app:`/`user:`/`temp:` state prefixes. Schema changes need `database.AutoMigrate` on every startup (v2.5 added two columns).
+  - **Skills**: First-class `tool/skilltoolset` (agentskills.io spec), lazy (`list_skills` metadata in prompt, `load_skill` body on demand). Unchanged in substance since v1.2.
+  - **Resource manager**: BYO. `skill.Source` + `MergedSource` only. New `agentregistry` package is a read-only client for Google Cloud Agent Registry (agents, MCP servers, model endpoints), not a skill registry.
+  - **Sub-agents**: Four mechanisms: `agenttool` (agent-as-tool, isolated in-memory session), `transfer_to_agent`, **new `Mode`** on `llmagent` (`ModeSingleTurn` and `ModeTask` sub-agents become tools on the parent, `agent/llmagent/llmagent.go:138-180`), and the **new graph workflow** (`workflow/` + `agent/workflowagent`). Legacy `workflowagents/{parallel,sequential,loop}agent` still ship. Static registration only.
+  - **Multi-tenancy**: No `tenant_id` field. Identity is `(AppName, UserID, SessionID)`, now exposed as a typed `agent.Identity` (`agent/common_context.go:57-70`). The REST server can authenticate a caller (`authn.Caller{UserID, Claims}`) and enforce caller == path user (`authz.NewStrict()`), but tenant claims and forced tool args are still hand-wired via `BeforeToolCallback`.
+  - **Hooks**: 12 plugin callbacks + per-agent callbacks; plugin callbacks short-circuit agent-level ones. No `additional_messages`-style emission.
+  - **API**: `server/adkrest` (REST + SSE `/run_sse` + WS `/run_live`), A2A (`server/adka2a/v2`), Agent Engine emulator, Pub/Sub + Eventarc triggers. No cancel endpoint; cancel = close the connection.
+  - **Observability**: OTel GenAI semconv spans (`invoke_agent`, `invoke_node`, `generate_content`, `execute_tool`), opt-in prompt/response content on spans, new **BigQuery Agent Analytics plugin** (`plugin/agentanalytics`, separate Go module). Tokens only, no USD.
+- **Production-readiness for multi-tenant server-side deployment**: **Conditional Yes**, stronger than at v1.2. The HTTP edge is now production-shaped (authn/authz seams, health, size limits, origin guard). Remaining glue for our case:
+  1. **Tenant scoping**: no first-class tenant; put tenant in an authenticated claim (`authn.Caller.Claims`) or in a context value, and read it in callbacks/toolsets.
+  2. **Forced tool args / tool policy**: `BeforeToolCallback` in-place mutation plus a wrapping `Toolset`. No declarative allow/deny, no hidden-arg annotation. Streaming tools bypass tool callbacks entirely (`internal/llminternal/base_flow.go:1359-1411`).
+  3. **Eval**: Python-only.
 
-  Vertex/GCP affinity: the SDK works against any LLM that you wrap behind `model.LLM`, but the entire content type system is `google.golang.org/genai`, and the recommended deployment target named in launchers and docs is **Cloud Run + Agent Engine + Vertex AI**. Not GCP-locked, but heavily GCP-pulled.
+  Vertex/GCP affinity: still optimised for Gemini/Vertex (genai types, Agent Engine, Agent Registry, IAP/OIDC authenticators, BigQuery analytics, Cloud Run deploy CLI). Not GCP-locked, but GCP-pulled.
 
 ---
 
@@ -38,70 +38,79 @@
 
 ### 0.1 What is this stack?
 
-A **hybrid library + framework + bundled server**. As a library, you import `google.golang.org/adk/runner` and embed the loop in your own HTTP server. As a framework, you import `google.golang.org/adk/cmd/launcher/full` and let ADK ship the REST server, A2A server, and Web UI on a single port. README (line 26-28): "code-first Go toolkit for building, evaluating, and deploying sophisticated AI agents… ideal for developers building cloud-native agent applications, leveraging Go's strengths in concurrency and performance."
+A **hybrid library + framework + bundled server**. As a library, you import `google.golang.org/adk/v2/runner` and embed the loop in your own HTTP server. As a framework, you import `google.golang.org/adk/v2/cmd/launcher/full` and let ADK serve the REST API, A2A server and Web UI on one port. README: "An open-source, code-first Go toolkit for building, evaluating, and deploying sophisticated AI agents with flexibility and control."
+
+v2.0.0 added a **graph-based workflow engine** ("Agent workflows — a new graph-based orchestration engine", v2.0.0 release notes) and **collaboration agents** (`chat` / `task` / `single_turn` modes on `LlmAgent`), so ADK Go is now also a lightweight orchestration framework in the LangGraph sense, though without durable mid-run checkpointing.
 
 ### 0.2 Ecosystem
 
-**Go** (Go 1.25.0, `go.mod` line 3). Module: `google.golang.org/adk`.
+**Go** (`go.mod:3`, `go 1.26.6`). Module: `google.golang.org/adk/v2` (`go.mod:1`). The BigQuery analytics plugin is a separate module, `google.golang.org/adk/plugin/agentanalytics` (`plugin/agentanalytics/go.mod:1`).
 
-Sibling ports exist in Python (`google/adk-python`) and Java (`google/adk-java`) but they are **independent codebases** with separate release cadence — adk-go is not a wrapper. The agent model is shared across the three languages; the Go binary subprocesses nothing.
+Sibling ports exist in Python (`google/adk-python`), Java (`google/adk-java`), Kotlin (`google/adk-kotlin`) and TypeScript (`google/adk-js`) (README.md:18-24). They are **independent codebases**; adk-go subprocesses nothing. Several v2 features are explicit ports of adk-python behaviour (for example `workflow/persistence.go:60-80` cites `_rehydration_utils.py`).
 
 ### 0.3 Project status & governance
 
-- **License**: Apache 2.0 (`LICENSE`).
-- **Owner / maintainer**: Google. The repo is under `github.com/google/adk-go`; Issues and PRs are reviewed by Google engineers (CONTRIBUTING.md requires Google CLA).
-- **Commercial backing**: Indirect — Google Cloud (Vertex AI, Agent Engine, Cloud Run) is the natural commercial counterpart. No specific paid support tier for adk-go; you get Google Cloud support if you run sessions on Vertex Agent Engine.
-- **Community support model**: GitHub issues, Reddit community at `r/agentdevelopmentkit` (README.md:6 badge). No Discord / Slack of record.
+- **License**: Apache 2.0 (`LICENSE`), with an exception for `internal/httprr` (README.md).
+- **Owner / maintainer**: Google. `.github/CODEOWNERS` was added in this period; PRs need a linked issue (`.github/workflows/require-linked-issue.yml`) and Google CLA.
+- **Commercial backing**: Indirect, via Google Cloud (Vertex AI, Agent Engine, Cloud Run, Agent Registry, BigQuery). No adk-go-specific paid support.
+- **Community support model**: GitHub issues, Reddit `r/agentdevelopmentkit` (README.md:6). No Discord/Slack of record.
 
 ### 0.4 Project maturity / age
 
-- **First commit / initial public release**: The git log on this clone shows only `2026-05-15` (the framework was shallow-cloned, so older commits aren't visible). Per upstream history (GitHub releases) the project is recent — adk-go is the Go port of `adk-python` which was open-sourced in 2024.
-- **Current version**: No tagged `v1.x` release shipped in this clone; the module path is `google.golang.org/adk` (no major version suffix), which by Go module convention is `v0.x`-style.
-- **Stability**: README/CONTRIBUTING do not mark APIs as `experimental` / `beta` / `stable`; `internal/` packages (e.g. `internal/configurable`, `internal/llminternal`) are by Go convention unstable. The `agent`, `runner`, `session`, `model`, `tool`, `plugin` packages are the public stable surface.
-- **Recent feature signal**: The HEAD commit (`feat(live): Add core bidirectional streaming support (#833)`) shows the project is still adding major capabilities (bidi WebSocket streaming for Gemini Live) — not in maintenance mode.
+- **Repository created**: 2025-05-05 (GitHub API). First GitHub release: v0.2.0 (2025-11-21); `v0.1.0` tag exists.
+- **Current versions**: **v2.5.0** (2026-09-30) on `main`; **v1.7.0** (2026-09-14) on the `v1` maintenance branch. v1.0.0 shipped 2026-03-23, v2.0.0 on 2026-06-30. `internal/version/version.go:21` reads `2.5.0`.
+- **Stability**: Public packages follow semver under the `/v2` module path; an `apidiff` CI job guards against accidental breaking changes (`.github/workflows/apidiff.yml`, `.github/scripts/apidiff.sh`). Some packages are marked experimental in their docs, notably `model/openaimodel` ("EXPERIMENTAL: This package is experimental", `model/openaimodel/doc.go:17-18`). `internal/` packages (`internal/configurable`, `internal/llminternal`, `internal/workflowinternal`) are unstable by Go convention.
+- **Breaking-change policy in practice**: v2.0.0 moved the module path and changed `session.NewEvent` and the context types (README-v2.md:6-80). v2.5.0 still shipped breaking changes in a minor release (new DB columns, loopback default bind, cross-origin refusal, request size limits; see 1.7).
 
 ### 0.5 Adoption & community signal
 
-- GitHub stars / forks / contributor count: not captured live during this analysis (no offline `gh` query was run; the in-repo data does not include these numbers). The sister Python ADK has tens of thousands of stars; the Go fork is materially smaller but actively maintained (HEAD is May 2026).
-- Release cadence: judged by the HEAD commit and PR numbering (`#833`), several hundred PRs have shipped against `main`. Frequent commits to `agent/`, `tool/skilltoolset/`, `session/`, `server/adka2a/v2/` confirm active development.
-- **Maintainer responsiveness**: Google engineers respond on issues; not measured here.
-- **Snapshot date**: 2026-05-19 (date of this analysis).
+Captured **2026-10-01** via `gh api repos/google/adk-go`:
+
+| Signal | Value |
+|---|---|
+| Stars | 8,837 |
+| Forks | 1,024 |
+| Watchers | 106 |
+| Contributors | ~111 (contributors API, anonymous included) |
+| Open issues + PRs | 204 |
+| Commits between previous analysis (v1.2.0+13, 2026-05-15) and this one | 276 |
+| Commits in September 2026 | 100+ |
+| Releases since 2026-05-19 | v1.3.0, v1.4.0, v1.5.0, v1.5.1, v1.6.0, v1.6.1, v1.7.0, v2.0.0, v2.1.0, v2.2.0, v2.3.0, v2.4.0, v2.5.0 |
+
+Release automation is release-please (`.github/workflows/release.yml`, `.github/release-please-config.json`), with an automated `v1-needed` backport flow (`.github/workflows/backport.yml`, CONTRIBUTING.md:53-70). Maintainers are active: release notes show many first-time contributors per release, and PR review conventions are codified in `AGENTS.md` and `.agents/skills/adk-go-self-review/SKILL.md`.
 
 ### 0.6 Ecosystem fit
 
-- **Module**: `google.golang.org/adk` (Go module, `go.mod:1`). Install with `go get google.golang.org/adk` (README.md:42-44).
-- **Registry**: pkg.go.dev — `https://pkg.go.dev/google.golang.org/adk`.
-- **Binary name**: `cmd/adkgo/adkgo.go` builds an `adkgo` CLI binary.
-- **Examples / templates**: `examples/` directory contains 14 runnable example directories with `main.go` entrypoints.
-- **Primary usage modes**: (a) **library** — `runner.New(...)` embedded in your own HTTP server; (b) **framework with bundled launcher** — `full.NewLauncher().Execute(...)`; (c) **CLI** — `adkgo` walks the current directory for `root_agent.yaml` files and launches the bundled stack.
+- **Module**: `google.golang.org/adk/v2`. Install with `go get google.golang.org/adk/v2` (README.md:47).
+- **Registry**: https://pkg.go.dev/google.golang.org/adk/v2
+- **CLI**: `cmd/adkgo` (deploy to Cloud Run / Agent Engine, `cmd/adkgo/internal/deploy/`) and `cmd/internal/adkcli` (scans for `root_agent.yaml`, `cmd/internal/adkcli/main.go:57-81`).
+- **Examples**: 41 runnable `main.go` examples under `examples/` (workflow, multi-agent collaboration, compaction, OpenAI, agent registry, bidi streaming, MCP, skills, telemetry, tool confirmation, REST, web).
+- **Usage modes**: (a) library (`runner.New`), (b) bundled launcher (`full.NewLauncher()`), (c) CLI/YAML (`root_agent.yaml` via `internal/configurable`, still internal).
+- **Docs for coding agents**: `adk.dev/llms.txt` and `adk.dev/llms-full.txt` (README.md:50-56).
 
 ### 0.7 Documentation depth & cross-team contributor accessibility
 
-- Official docs: `https://google.github.io/adk-docs/` (referenced from README line 18). The same site covers Python + Go + Java; Go-specific examples are increasing but Python remains the language with the most documentation.
-- Go API reference auto-generated: `https://pkg.go.dev/google.golang.org/adk`.
-- Examples folder is rich (14 example directories with runnable `main.go` files).
-- Code is heavily commented in Go style with full docstrings. The `agent/context.go:25-58` block is a textbook example: defines what "invocation", "agent call", "step" mean with ASCII diagrams.
+- Official docs: https://google.github.io/adk-docs/ (README.md:18), with the newer `adk.dev` domain used for llms.txt and graph docs (`workflow/run_node.go` links `https://adk.dev/graphs/dynamic/`). One site covers Python, Go, Java, Kotlin, TypeScript; Python remains the most complete.
+- Go API reference: https://pkg.go.dev/google.golang.org/adk/v2.
+- In-code documentation is unusually thorough. Godoc comments explain design trade-offs at length (for example `session/compaction/compaction.go:15-40`, `server/adkrest/handler.go:155-260`).
+- Per-example READMEs were added for the workflow samples (`examples/workflow/*/README.md`).
 
-**Cross-team accessibility**: Authoring an agent requires writing Go. **A non-engineer cannot meaningfully contribute** an LLM workflow change without engineering hand-holding. Skills are the partial exception: SKILL.md files are markdown with YAML frontmatter, and a non-engineer **can** write a skill body, but the toolset glue is Go. There is a YAML config path (`internal/configurable/`) intended for declarative agent definitions, but it's `internal/` and not yet stable.
+**Cross-team accessibility**: authoring an agent still means writing Go. Skills are the exception: a non-engineer can write a `SKILL.md`, but the toolset wiring is Go. The YAML path (`root_agent.yaml`, `internal/configurable/`, now including `configurable_workflow.go`) is still `internal/`.
 
 ### 0.8 Documentation entry points ⭐
 
-Required URLs (verified from in-repo references):
-
-- **Official docs landing page**: https://google.github.io/adk-docs/ (README.md:18)
-- **Quickstart / getting-started**: https://google.github.io/adk-docs/get-started/ (general docs root → Get Started)
-- **API reference**: https://pkg.go.dev/google.golang.org/adk (README.md:4 badge)
-- **Hosting / deployment guide**: https://google.github.io/adk-docs/deploy/ (docs section)
+- **Official docs landing page**: https://google.github.io/adk-docs/ (README.md:18); LLM-oriented index: https://adk.dev/llms.txt
+- **Quickstart / getting-started**: https://google.github.io/adk-docs/get-started/
+- **API reference**: https://pkg.go.dev/google.golang.org/adk/v2 (README.md:4 badge)
+- **Hosting / deployment guide**: https://google.github.io/adk-docs/deploy/
 - **Examples / demos**: https://github.com/google/adk-go/tree/main/examples (README.md:19)
-- **Changelog / release notes**: https://github.com/google/adk-go/releases (GitHub releases tab; no in-repo `CHANGELOG.md`)
+- **Changelog / release notes**: no in-repo `CHANGELOG.md`; v1→v2 migration notes in https://github.com/google/adk-go/blob/main/README-v2.md
 - **GitHub Releases**: https://github.com/google/adk-go/releases
-- **GitHub issues tracker**: https://github.com/google/adk-go/issues — relevant issue categories to watch: anything tagged `multi-tenant`, `scaling`, `eval`.
-- **Reddit community**: https://www.reddit.com/r/agentdevelopmentkit/ (README.md:6 badge)
-- **Sister Python repo**: https://github.com/google/adk-python (the language of record for new features — adk-go typically catches up)
-- **Sister Java repo**: https://github.com/google/adk-java
-- **ADK Web UI repo**: https://github.com/google/adk-web
-- **A2A protocol spec**: https://github.com/a2aproject/a2a-go (the underlying A2A library)
-- **Skills v1.2 spec (referenced in code)**: https://agentskills.io/specification (`tool/skilltoolset/skill/frontmatter.go:36`)
+- **GitHub issues tracker**: https://github.com/google/adk-go/issues — relevant open issues: #225 (Claude model support), #1097 (V1/V2 parity and OpenAI/Anthropic endpoint support), #540 (skills support, open although `skilltoolset` ships).
+- **Reddit community**: https://www.reddit.com/r/agentdevelopmentkit/ (README.md:6)
+- **Sister repos**: https://github.com/google/adk-python, https://github.com/google/adk-java, https://github.com/google/adk-kotlin, https://github.com/google/adk-js, https://github.com/google/adk-web
+- **A2A Go SDK**: https://github.com/a2aproject/a2a-go (`go.mod:9,50`, v0.3.15 and v2.5.0)
+- **Skills spec (referenced in code)**: https://agentskills.io/specification (`tool/skilltoolset/skill/frontmatter.go:37`)
 
 ---
 
@@ -113,144 +122,149 @@ Required URLs (verified from in-repo references):
 flowchart LR
   subgraph host["Go binary (your process)"]
     direction TB
-    rt["runner.Runner<br/>(runner/runner.go:113)"]
-    rt --> flow["llminternal.Flow<br/>(internal/llminternal/base_flow.go:62)"]
-    flow --> agentRun["agent.Agent.Run<br/>iter.Seq2[*session.Event,error]"]
-    agentRun --> tools["tool.Tool dispatch<br/>(parallel via sync.WaitGroup)"]
+    rt["runner.Runner<br/>(runner/runner.go:224)"]
+    rt --> wf["workflow engine<br/>(single-node wrapper for LlmAgent roots,<br/>runner/run_node.go:136)"]
+    wf --> flow["llminternal.Flow<br/>(internal/llminternal/base_flow.go:127)"]
+    flow --> tools["tool dispatch<br/>(platform.RunTasks, goroutine per call)"]
     rt --> sessSvc["session.Service"]
+    rt --> compact["compaction<br/>(session/compaction)"]
     rt --> artSvc["artifact.Service"]
     rt --> memSvc["memory.Service"]
-    rt --> plugins["pluginManager (N plugins)"]
+    rt --> plugins["plugin manager"]
     flow --> tracer["OTel tracer<br/>(internal/telemetry)"]
   end
 
   subgraph servers["First-party HTTP servers (optional, same process)"]
-    rest["adkrest.Server<br/>(gorilla/mux on :8080)"]
-    a2a["adka2a.Executor<br/>(A2A protocol)"]
+    authn["authn / authz middleware<br/>(server/authn, server/authz)"]
+    rest["adkrest.Server<br/>(gorilla/mux)"]
+    a2a["adka2a/v2 executor"]
     webui["webui (embed.FS)"]
+    trig["Pub/Sub + Eventarc triggers"]
   end
-
+  authn --> rest
   rest --> rt
   a2a --> rt
+  trig --> rt
   webui --> rest
 
   subgraph providers["LLM providers"]
     gemini["model/gemini<br/>(google.golang.org/genai)"]
-    apigee["model/apigee<br/>(Vertex via proxy)"]
+    apigee["model/apigee"]
+    oai["model/openaimodel<br/>(experimental)"]
     byo["BYO: implement model.LLM"]
   end
   flow --> gemini
   flow --> apigee
+  flow --> oai
   flow --> byo
 
-  subgraph stores["Session/Memory backends"]
+  subgraph stores["Session/Memory/Artifact backends"]
     inmem["session.InMemoryService"]
-    pg["session/database<br/>(GORM → Postgres/SQLite/Spanner)"]
-    vert["session/vertexai<br/>(Agent Engine reasoning-engine)"]
-    memInmem["memory.InMemoryService"]
+    pg["session/database<br/>(GORM: Postgres/SQLite/Spanner)"]
+    vert["session/vertexai<br/>(Agent Engine)"]
     memVert["memory/vertexai"]
     gcs["artifact/gcsartifact"]
   end
   sessSvc --> inmem
   sessSvc --> pg
   sessSvc --> vert
-  memSvc --> memInmem
   memSvc --> memVert
   artSvc --> gcs
 
   subgraph external["External (optional)"]
     vertex["Vertex AI / Gemini API"]
-    mcp["MCP servers<br/>(stdio/SSE/HTTP)"]
+    openai["OpenAI or OpenAI-compatible API"]
+    mcp["MCP servers<br/>(stdio / streamable HTTP)"]
+    reg["Google Cloud Agent Registry"]
+    bq["BigQuery (agent analytics)"]
   end
   gemini --> vertex
   apigee --> vertex
+  oai --> openai
   tools --> mcp
+  rt -.-> reg
+  plugins -.-> bq
 ```
 
-**Important**: every box inside the "Go binary" runs in the **same OS process**. There is no subprocess, no sidecar, no JSON-RPC bridge. This is the simplest deployment shape of any of the stacks benchmarked.
+**Important**: every box inside the "Go binary" runs in the **same OS process**. There is no subprocess, no sidecar, no JSON-RPC bridge. MCP stdio servers are the only subprocesses, and only if you configure them.
 
 ### 1.1 Where does the agent loop *actually* execute?
 
-**In your Go process.** The loop is `internal/llminternal/base_flow.go:101-127` (`Flow.Run`), called by `agent/llmagent/llmagent.go:386-393` (`llmAgent.run`), driven by `runner/runner.go:131-268` (`Runner.Run`). This is plain Go (`iter.Seq2[*session.Event, error]`), no subprocess. When `gemini.NewModel(...)` is called, the `genai.Client` is created in-process and calls Google's REST API over HTTPS directly.
+**In your Go process.** `runner.Runner.Run` (`runner/runner.go:536`) resolves the session, and for an `LlmAgent` root hands off to `runNode` (`runner/runner.go:568-626`), which wraps the agent in a single-node `workflow.Workflow` (`runner/run_node.go:136-143`) and drives it through `workflow.Workflow.Run` / `Resume` (`runner/run_node.go:182-194`). The workflow node calls the agent, whose ReAct loop is still `internal/llminternal/base_flow.go:127-176` (`Flow.Run`). Non-LLM roots (e.g. a legacy `sequentialagent`) run on the older direct path (`runner/runner.go:632-788`).
 
-There is no sister-repo runtime, no vendor cloud doing the loop on your behalf. The only thing that runs outside your binary is the LLM provider itself. (Contrast Claude Agent SDK Py, which subprocesses a Node binary.)
+Everything is plain Go (`iter.Seq2[*session.Event, error]`). The only thing outside your binary is the LLM provider (Gemini via `google.golang.org/genai`, or OpenAI via `openai-go`).
 
 ### 1.2 Runtime dependencies
 
-`go.mod` (lines 3, 16-37):
+- **Go 1.26.6** (`go.mod:3`). v2.0 release notes say "requires Go 1.25+", but the module now declares 1.26.6.
+- **LLM provider**: Gemini API / Vertex AI, or OpenAI / any OpenAI-compatible endpoint (experimental), or BYO `model.LLM`.
+- Optional **Postgres / SQLite / MySQL / Spanner** for `session/database` (you must run `database.AutoMigrate` on every startup, `session/database/service.go:74-94`).
+- Optional **Vertex Agent Engine** (`session/vertexai`, `memory/vertexai`), **GCS** (`artifact/gcsartifact`), **BigQuery** (`plugin/agentanalytics`), **Google Cloud Agent Registry** (`agentregistry`).
+- Optional external **MCP servers** (stdio subprocess or streamable HTTP).
 
-- **Go 1.25.0** (very recent)
-- Required vendor services: **Vertex AI / Gemini API** for LLM calls (or any BYO provider you implement)
-- Optional: **Postgres / SQLite / MySQL / Spanner** for `session/database` backend
-- Optional: **Vertex Agent Engine** (`session/vertexai`, `memory/vertexai`) — GCP-only
-- Optional: **GCS bucket** for `artifact/gcsartifact`
-- Optional: external **MCP servers** (subprocess via stdio, or remote SSE/HTTP) consumed by `tool/mcptoolset`
-
-No bundled binaries. No native libs. No mandatory Postgres unless you use `session/database`. No mandatory Vertex — you can run with `gemini` API key only.
+No bundled binaries, no native libs.
 
 ### 1.3 Recommended deployment topology
 
-`README.md` line 38: "Easily containerize and deploy agents, with strong support for cloud-native environments like Google Cloud Run."
+README.md:40: "Easily containerize and deploy agents, with strong support for cloud-native environments like Google Cloud Run." `adkgo deploy` generates Dockerfiles and deploys to Cloud Run or Agent Engine (`cmd/adkgo/internal/deploy/cloudrun/cloudrun.go`, `cmd/adkgo/internal/deploy/agentengine/agentengine.go`).
 
-The `cmd/launcher/full/full.go` composes the full launcher (web UI + REST API + A2A + agent-engine local emulator). The standard pattern is **one Go binary per agent app, deployed as a Cloud Run service or GKE deployment**, with sessions persisted to Cloud SQL (Postgres) or Vertex Agent Engine. The `webLauncher.Run` (`cmd/launcher/web/web.go:151-220`) starts a single `http.Server` with a `mux.Router` and runs gracefully shutdown on `SIGTERM`.
+The natural shape is **one Go binary per agent app** (Cloud Run service or GKE deployment), sessions in Cloud SQL Postgres or Agent Engine, **one process serving many users/tenants**. The REST server's godoc now explicitly says that a server reachable over a network "needs an Authenticator" (`server/adkrest/handler.go:203-210`), and v2.5 changed the web launcher to bind `127.0.0.1` by default (`cmd/launcher/web/web.go:367`): you must pass `-host 0.0.0.0` in a container.
 
-Multi-tenant is achieved by namespacing on `(AppName, UserID, SessionID)` — the schema's composite primary key (`session/database/storage_session.go:30-39`). One process, many tenants is the natural shape.
+Multi-tenant namespacing is still the composite key `(AppName, UserID, SessionID)` (`session/database/storage_session.go:31-41`).
 
 ### 1.4 Cold-start cost & instance footprint
 
-Go binary cold-start is the fastest of any benchmarked stack:
+Unchanged in kind:
 
-- **Startup**: sub-second from `main()` to first `r.Run(...)` (Go binary linking + a `genai.NewClient` HTTPS handshake on first call).
-- **RAM baseline**: tens of MB (Go runtime + gorilla/mux + genai client). No JVM, no Python interpreter, no Node runtime, no bundled vendor binary.
-- **Disk baseline**: ~20-40 MB binary depending on whether you embed the Web UI (`go:embed distr/*` in `cmd/launcher/web/webui/webui.go:88`).
+- **Startup**: sub-second (Go binary + a lazy HTTPS client on first model call).
+- **RAM baseline**: tens of MB.
+- **Disk baseline**: tens of MB, larger with the embedded Web UI (`cmd/launcher/web/webui/webui.go:92`, `//go:embed distr/*`). The embedded UI bundle was refreshed in this period and accounts for ~12% of the changed files.
 
-No equivalent of Claude Agent SDK's open issue #333 (20-30s startup) — adk-go has none of that overhead.
+No equivalent of the 20–30 s startups seen in subprocess-based SDKs. Not measured in this analysis.
 
 ### 1.5 Vendor lock-in
 
 | Axis | Lock-in | Notes |
 |---|---|---|
-| LLM provider | **Medium → High (de facto)** | `model.LLM` interface is open, but `LLMRequest.Contents` is `[]*genai.Content`, `LLMResponse` embeds `*genai.Content` directly (`model/llm.go:32-68`). Only first-party impls: `gemini`, `apigee` (Vertex proxy). BYO providers must adapt to/from `genai.Part` shape. |
-| Hosting platform | **Low → Medium** | Runs anywhere Go runs. README and launchers explicitly mention Cloud Run. Agent Engine session backend is GCP-only. |
-| Session backend | **Low** | Three implementations ship; pluggable interface (`session.Service`). Can BYO any backend that satisfies 5 methods. |
-| Eval platform | **N/A in adk-go** | Eval is Python-only (see Q19). |
-| Observability | **Low** | Standard OTel. Works with any backend (Datadog, GCP Cloud Trace, LangSmith, Jaeger). |
+| LLM provider | **Medium** (was Medium→High) | `LLMRequest.Contents` is still `[]*genai.Content` and `LLMResponse` embeds genai types (`model/llm.go:32-67`). First-party impls are now `gemini`, `apigee` and the **experimental** `openaimodel` (Responses + Chat Completions, any OpenAI-compatible `BaseURL`, `model/openaimodel/openaimodel.go:47-59`). No native Anthropic/Bedrock adapter. Gemini-only config fields are rejected by `openaimodel` (`model/openaimodel/doc.go:43-56`). |
+| Hosting platform | **Low → Medium** | Runs anywhere Go runs. Deploy CLI, IAP/OIDC authenticators, Agent Engine backends and Agent Registry are GCP-specific but optional. |
+| Session backend | **Low** | Three implementations; `session.Service` is 5 methods (`session/service.go:46-77`). |
+| Eval platform | **N/A in adk-go** | Eval is Python-only (Q19). |
+| Observability | **Low** | Standard OTel. The BigQuery analytics plugin is optional and GCP-specific. |
 
 ### 1.6 Framework weight / footprint
 
-**Heavy.** Bundles:
+**Heavy, and heavier than at v1.2.** The diff from the previous analysis is 878 files, +156k/−8.7k lines (including tests and the embedded UI). Bundles:
 
 - Run loop (`internal/llminternal/`)
-- Session store (in-memory, GORM, Vertex)
-- Memory service (in-memory, Vertex RAG)
-- Artifact store (in-memory, GCS)
-- REST API server (`server/adkrest/`)
-- A2A protocol server (`server/adka2a/`)
-- Agent Engine REST emulator (`server/agentengine/`)
-- Web UI (embedded via `go:embed`)
-- Telemetry stack (OTel, GCP Cloud exporters)
-- Plugin system (11 callback hooks)
-- Skill loader (`tool/skilltoolset/`)
-- MCP client (`tool/mcptoolset/`)
-- Configurable YAML loader (`internal/configurable/`)
-- Replay plugin for conformance testing (`internal/configurable/conformance/replayplugin/`)
-- CLI binary (`cmd/adkgo/`)
+- **Graph workflow engine** (`workflow/`, ~5k non-test lines) and `agent/workflowagent`
+- Session store (in-memory, GORM, Vertex) + **compaction** (`session/compaction`, `internal/compactioninternal`)
+- Memory (in-memory, Vertex), artifacts (in-memory, GCS)
+- REST server (`server/adkrest/`) with **authn/authz** (`server/authn`, `server/authz`) and origin guard (`internal/originguard`)
+- A2A server (`server/adka2a/`, `server/adka2a/v2/`), Agent Engine emulator (`server/agentengine/`)
+- **Outbound auth** (`auth/`, `auth/gcp/`)
+- **Agent Registry client** (`agentregistry/`)
+- Model adapters (`model/gemini`, `model/apigee`, `model/openaimodel`) + name registry (`model/registry.go`)
+- Plugins: `loggingplugin`, `retryandreflect`, `functioncallmodifier`, `agentanalytics` (BigQuery, separate module)
+- Telemetry (OTel, GCP exporters), skills, MCP client, YAML config loader, record/replay plugins (internal)
+- `platform/` seams for time, UUID and task fan-out (deterministic replay support)
+- Web UI (embedded), CLI
 
-Not a thin SDK. Comparable in scope to Mastra. Heavier than Vercel AI SDK. Lighter than LangGraph (which adds a graph runtime).
+Comparable to Mastra in scope. Lighter than LangGraph Platform (no durable checkpoint store), heavier than Vercel AI SDK.
 
 ### 1.7 Release-history signal
 
-The repo ships **no in-repo `CHANGELOG.md`**; release notes live on GitHub Releases (https://github.com/google/adk-go/releases).
+No in-repo `CHANGELOG.md`. Sources: GitHub Releases and `README-v2.md` (migration guide).
 
-Signals visible from the HEAD commit and recent codebase:
+- **v1.3.0 (2026-05-19) / v1.4.0 (2026-05-29)**: Gemini Live bidi streaming (session resumption, streaming tools, sequential live run), a2a-go/v2, structured A2A errors, conformance record plugin.
+- **v2.0.0 (2026-06-30)**: module path `google.golang.org/adk/v2`; graph **workflow engine** (static/dynamic graphs, conditional routing, fan-out/fan-in via `JoinNode`, parallel workers, per-node retries/timeouts, schema validation, HITL pause/resume); **collaboration agents** (`chat`/`task`/`single_turn`); **context unification** (`ToolContext` + `CallbackContext` → `agent.Context`, `agent.StrictContextMock`). Breaking: `session.NewEvent(ctx, invocationID)` (README-v2.md:8-43), mocks must implement the unified context (README-v2.md:45-80).
+- **v2.1.0**: `platform.WithTaskRunner` (caller-controlled tool fan-out), model registry (`model.Register`/`NewLLM`), public `toolutils.PackTool`, `runner.NewInMemory`, Agent Registry client, `auth` package, MCP per-request auth (`mcptoolset.Config.Auth`), BigQuery Agent Analytics plugin, first OpenAI support (#1178).
+- **v2.2.0**: h2c on the web launcher, Vertex `DeleteSession` ownership check, consistent `Event` JSON encoding.
+- **v2.3.0**: `/health` endpoint, **context compaction** (sliding window + token-threshold), compaction available on every serving surface, opt-in GenAI content on spans.
+- **v2.4.0**: **REST authentication and authorization** (#1561), `NewSessionServiceFromDB`, `session.ErrNotFound`, REST endpoints aligned with ADK Web.
+- **v2.5.0 (2026-09-30)**: Google OIDC authenticator, GCP credential provider + `CredentialStore`, OpenAI Chat Completions, DNS-rebinding/cross-origin refusal, 10 MiB request-body limit, debug-only agent graph routes. Breaking items listed in the release: two new nullable columns on `events` (must run `AutoMigrate`), web launcher binds loopback by default, cross-origin browser requests refused, size limits, `gcp.Client.RetrieveCredential` return type, `artifact.SaveRequest` no longer comparable; telemetry `gen_ai.usage.input_tokens` now includes tool-use prompt tokens.
 
-- HEAD commit (`#833 feat(live): Add core bidirectional streaming support`) shows recent investment in **Gemini Live bidirectional streaming** (`agent/live.go`, `Runner.RunLive`). This is the most recent architectural addition.
-- The **Skills v1.2** loader (`tool/skilltoolset/`) is dated to spring 2026 based on the `agentskills.io/specification` URL referenced in `frontmatter.go:36` — a major recent addition.
-- The **A2A v2** server (`server/adka2a/v2/`) coexists with `server/adka2a/` — both still in tree, suggesting a recent protocol upgrade with the v1 path kept for compatibility.
-- `internal/configurable/conformance/replayplugin/` is the youngest meaningful subsystem — a record-and-replay plugin for tests.
-- No deprecations visible in tree; `internal/` is the natural place to find churn.
-
-No in-repo file lists breaking changes with line numbers; the GitHub Releases page is the canonical source of truth.
+Fast-moving areas: workflow engine, compaction, server hardening, auth, OpenAI adapter. Breaking changes still land in minor releases, so pin versions and read each release's "Breaking changes" section.
 
 ---
 
@@ -258,19 +272,19 @@ No in-repo file lists breaking changes with line numbers; the GitHub Releases pa
 
 ### Architectural overview
 
-The harness is a **two-level event-driven iterator stack** built on Go 1.23+ `iter.Seq2`:
+The harness is now a **three-level iterator stack** built on Go `iter.Seq2`:
 
-1. **Outer level (`runner.Runner.Run`)** — coordinates session lookup/creation, plugin lifecycle, agent selection (`findAgentToRun`), and per-event session persistence.
-2. **Inner level (`llmagent` → `llminternal.Flow.Run`)** — the actual ReAct-style loop: preprocessing → LLM call → postprocessing → tool dispatch → repeat-until-final.
+1. **Runner (`runner.Runner.Run`)** — session lookup/creation, plugin lifecycle (`BeforeRun`/`AfterRun`/`OnEvent`), per-event persistence, post-invocation compaction.
+2. **Workflow engine (`workflow.Workflow`)** — new in v2. For an `LlmAgent` root the runner builds a synthetic `START -> agentNode` graph (`runner/run_node.go:130-143`). The scheduler runs each node in its own goroutine and a single consumer goroutine applies state, yields events and schedules successors (`workflow/workflow.go:277-289`). HITL pauses become `NodeWaiting` and are resumed on a later turn.
+3. **LLM flow (`llminternal.Flow.Run`)** — the ReAct loop: request processors → LLM call → response processors → tool dispatch → repeat until final (`internal/llminternal/base_flow.go:127-176`).
 
-Tool dispatch is **parallel by default** via `sync.WaitGroup` (`internal/llminternal/base_flow.go:893-980`). HITL pauses are realized as "long-running tool" responses with `ErrConfirmationRequired` (`tool/tool.go:36, 274`). The loop yields **`*session.Event`** to the runner, which is also the canonical persisted unit.
+Tool dispatch is **parallel by default** through `platform.RunTasks` (`internal/llminternal/base_flow.go:1320-1501`), which runs one goroutine per call unless the caller installs its own `platform.TaskRunner` (`platform/exec.go:21-48`). The loop yields `*session.Event`, which is also the persisted unit.
 
 ### 2.1 Run loop entrypoint(s)
 
-`runner/runner.go:131-268`:
+`runner/runner.go:536`:
 
 ```go
-// Runner.Run returns iter.Seq2[*session.Event, error]
 func (r *Runner) Run(
     ctx context.Context,
     userID, sessionID string,
@@ -280,80 +294,86 @@ func (r *Runner) Run(
 ) iter.Seq2[*session.Event, error]
 ```
 
-Inputs: `userID`, `sessionID`, the user `*genai.Content`, a `RunConfig` (streaming mode + blob handling), and options (`WithStateDelta(map[string]any)`).
-Output: a Go 1.23 range-over-iterator yielding `(*session.Event, error)` pairs.
+Inputs: `userID`, `sessionID`, the user `*genai.Content`, `agent.RunConfig` (`StreamingMode`, `SaveInputBlobsAsArtifacts`, `agent/run_config.go:29-34`), and options: `WithStateDelta(map[string]any)` and, new, `WithYieldUserMessage()` (`runner/runner.go:89-111`).
+Output: a range-over-func iterator of `(*session.Event, error)`.
 
-Live (bidi) entrypoint: `Runner.RunLive(ctx, userID, sessionID, agent.LiveRunConfig, opts...)` returns `(agent.LiveSession, iter.Seq2[*session.Event, error], error)` (`runner/runner.go:328-531`). The `LiveSession` exposes `Send(LiveRequest)` and `Close()` for bidi streaming (`agent/live.go:21-25`).
+Other entrypoints:
+
+- `runner.NewInMemory(appName, agent)` — convenience constructor with in-memory session/artifact/memory services (`runner/runner.go:210-221`).
+- `Runner.RunLive(ctx, userID, sessionID, agent.LiveRunConfig, opts...)` → `(agent.LiveSession, iter.Seq2[*session.Event, error], error)` for Gemini Live bidi streaming (`runner/runner.go:850`, `agent/live.go:22-48`).
+- `workflow.Workflow.Run(ctx agent.InvocationContext)` and `Resume(...)` when you drive a graph yourself (`workflow/workflow.go:289`, `workflow/resume.go:73`). Usually you wrap the graph with `workflowagent.New(...)` and give it to a runner (`agent/workflowagent/workflow.go:45-60`).
 
 ### 2.2 Per-iteration behavior
 
-One "tick" of `Flow.runOneStep` (`internal/llminternal/base_flow.go:419-541`):
+One "step" of `Flow.runOneStep` (`internal/llminternal/base_flow.go:742-878`):
 
-1. **Preprocessing**: 11 ordered `RequestProcessor`s run (`base_flow.go:77-94`):
+1. **Preprocessing** (`base_flow.go:754`): 14 ordered request processors (`base_flow.go:86-105`):
    - `basicRequestProcessor` — fills `req.Config`
-   - `toolProcessor` — packs tool declarations from agent's `Tools` + `Toolsets`
+   - `toolProcessor` — packs declarations from `Tools` + `Toolsets`
    - `authPreprocessor` — auth tool
-   - `RequestConfirmationRequestProcessor` — packs the HITL `adk_request_confirmation` tool
-   - `instructionsRequestProcessor` — injects agent + global instructions, templating session state (`{key}`)
-   - `identityRequestProcessor` — adds agent name to system prompt
-   - `ContentsRequestProcessor` — appends conversation history (gated by `IncludeContents`)
-   - `nlPlanningRequestProcessor` — planner support
-   - `codeExecutionRequestProcessor` — code-execution support
-   - `outputSchemaRequestProcessor` — forces structured-output schema
-   - `AgentTransferRequestProcessor` — packs `transfer_to_agent` tool
-2. **LLM call**: `f.callLLM(...)` (`base_flow.go:609-687`) — runs `BeforeModelCallback`s, then `m.GenerateContent(ctx, req, useStream)`, then `AfterModelCallback`s.
-3. **Postprocessing**: ordered `ResponseProcessor`s — `nlPlanningResponseProcessor`, `codeExecutionResponseProcessor`.
-4. **Tool dispatch** (`base_flow.go:878-980`): for each function call in the response, spawn a goroutine; on completion merge results into one `*session.Event` with all `FunctionResponse` parts. If `IsLongRunning()` true, the tool's `ID` is added to `event.LongRunningToolIDs` and the loop pauses.
-5. **Agent transfer**: if `event.Actions.TransferToAgent != ""`, the loop hands off to the target agent and yields its events.
-6. **Loop continuation**: outer `Flow.Run` (`base_flow.go:101-127`) loops until `lastEvent.IsFinalResponse()` returns true (no function calls + no function responses + not partial + no trailing code-execution result, per `session/session.go:124-130`).
+   - `RequestConfirmationRequestProcessor` — HITL `adk_request_confirmation` handling
+   - `instructionsRequestProcessor` — agent + global instructions with `{state}` templating
+   - `identityRequestProcessor` — agent name/description
+   - **`CompactionRequestProcessor`** (new) — token-threshold compaction before history is assembled
+   - `ContentsRequestProcessor` — history, filtered by branch and `IsolationScope`
+   - `nlPlanningRequestProcessor`, `codeExecutionRequestProcessor`, `outputSchemaRequestProcessor`
+   - `AgentTransferRequestProcessor` — packs `transfer_to_agent`
+   - `removeDisplayNameIfExists`
+2. **LLM call** (`base_flow.go:772`, `callLLM` at `base_flow.go:945`): plugin `BeforeModelCallback`, then agent `BeforeModelCallbacks`, then `model.GenerateContent(ctx, req, stream)` inside a `generate_content` span (`base_flow.go:1039-1090`), then `AfterModelCallbacks` / `OnModelErrorCallbacks`.
+3. **Postprocessing** (`base_flow.go:777`): `nlPlanningResponseProcessor`, `codeExecutionResponseProcessor`.
+4. **Tool dispatch** (`base_flow.go:813`, `handleFunctionCalls` at `base_flow.go:1306`): one task per function call, merged into one event. Long-running tools and "deferred" tools return no response and pause the step (`base_flow.go:1424-1431`).
+5. **Agent transfer** (`base_flow.go:848-860`): if `Actions.TransferToAgent` is set, run the target agent and yield its events.
+6. **Loop continuation** (`base_flow.go:127-176`): repeat until `lastEvent.IsFinalResponse()` (`session/session.go:218-232`). New guards: a model that keeps producing thought-only turns is cut off after 10 in a row (`maxConsecutiveThoughtOnlyTurns`, `base_flow.go:125`), and a step that ends on a partial event stops with a warning (`base_flow.go:164-174`).
 
 ### 2.3 ReAct loop
 
-**Yes, built-in.** `llmagent.New` wires the standard `llminternal.Flow` which is the ReAct loop (call → tool → call → repeat). You do not assemble the loop yourself — you configure agent + tools + callbacks and the framework runs ReAct under the hood.
+**Yes, built-in.** `llmagent.New` wires `llminternal.Flow`. You configure agent + tools + callbacks; the framework runs the loop. v2 adds per-placement **modes** (`agent/llmagent/llmagent.go:343-367`): `ModeChat` (default at a runner root), `ModeTask` (multi-turn with the user until it calls `finish_task`), `ModeSingleTurn` (default at a workflow node; completes without chatting). The runner rejects a non-chat root (`runner/runner.go:577-582`).
 
 ### 2.4 Tool dispatch + result handling
 
-`internal/llminternal/base_flow.go:878-980` (`Flow.handleFunctionCalls`):
+`internal/llminternal/base_flow.go:1306-1507` (`Flow.handleFunctionCalls`), abridged:
 
 ```go
 fnResponseEvents := make([]*session.Event, len(fnCalls))
-var wg sync.WaitGroup
 
+// Tool calls run via the context's task runner: concurrent goroutines by
+// default, or a caller-installed runner (platform.WithTaskRunner).
+tasks := make([]func(context.Context), len(fnCalls))
 for i, fnCall := range fnCalls {
-    wg.Add(1)
-    go func(i int, fnCall *genai.FunctionCall) {
-        defer wg.Done()
-        ...
-        toolCtx := toolinternal.NewToolContext(toolCallCtx, fnCall.ID,
+    tasks[i] = func(taskCtx context.Context) {
+        sctx, span := telemetry.StartExecuteToolSpan(taskCtx, ...)
+        defer span.End()
+        toolCallCtx := ctx.WithContext(sctx)
+        toolCtx := agent.NewToolContext(toolCallCtx, fnCall.ID,
             &session.EventActions{StateDelta: make(map[string]any)}, confirmation)
         ...
-        curTool, found := toolsDict[fnCall.Name]
-        if !found {
-            err := newToolNotFoundError(fnCall.Name, toolNames)
-            result, err = f.runOnToolErrorCallbacks(...)
-        } else {
+        curTool, found = toolsDict[fnCall.Name]
+        switch {
+        case !found:            // OnToolErrorCallback chain on "tool not found"
+        case streaming tool:    // RunStream: chunks to live session, or concatenated
+        default:
             result = f.callTool(toolCtx, funcTool, fnCall.Args)
         }
-        ev := session.NewEvent(ctx.InvocationID())
-        ev.LLMResponse = model.LLMResponse{Content: &genai.Content{
-            Role: "user",
-            Parts: []*genai.Part{{ FunctionResponse: &genai.FunctionResponse{
-                ID: fnCall.ID, Name: fnCall.Name, Response: result }}},
-        }}
+        ev := session.NewEvent(ctx, ctx.InvocationID())
+        ev.LLMResponse = model.LLMResponse{Content: &genai.Content{Role: "user",
+            Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{
+                ID: fnCall.ID, Name: fnCall.Name, Response: result}}}}}
         fnResponseEvents[i] = ev
-    }(i, fnCall)
+    }
 }
-wg.Wait()
+platform.RunTasks(ctx, tasks)
 mergedEvent, err = mergeParallelFunctionResponseEvents(fnResponseEvents)
 ```
 
-Results are matched back to LLM-generated tool calls by `FunctionCall.ID` (genai-populated or fallback via `utils.PopulateClientFunctionCallID`). All parallel-completed responses are merged into **one** `*session.Event` with multiple `Part.FunctionResponse` entries. `callTool` wraps the dispatch with `BeforeToolCallback` → tool.Run → `AfterToolCallback` / `OnToolErrorCallback` chains.
+Results are matched to calls by `FunctionCall.ID` (filled by `utils.PopulateClientFunctionCallID` when the provider leaves it empty, `base_flow.go:999, 1164`). Parallel responses are merged into **one** event (`base_flow.go:1614`). `callTool` (`base_flow.go:1520-1566`) runs plugin `BeforeToolCallback` → agent `BeforeToolCallbacks` → `tool.Run` → `OnToolErrorCallback` chain → plugin `AfterToolCallback` → agent `AfterToolCallbacks`.
+
+New in v2.1: `platform.WithTaskRunner(ctx, runner)` lets the host bound concurrency or run tool calls sequentially (`platform/exec.go:35-48`).
 
 ### 2.5 Explicit turn concept
 
-A **turn boundary** is `event.IsFinalResponse()` returning true (`session/session.go:124-130`). `Flow.Run` loops until the last event from `runOneStep` is final. An "invocation" is the outer cycle from one user message to one final agent response — modeled by `invocationID` plumbed through every event.
+A **turn boundary** is `event.IsFinalResponse()` (`session/session.go:218-232`): true when the event has no function calls/responses, is not partial and has no trailing code-execution result, or when it sets `SkipSummarization` or `LongRunningToolIDs`. Compaction events are explicitly *not* final (`session/session.go:219-225`). An **invocation** is one user message to one final response, carried by `InvocationID` on every event.
 
-`agent/context.go:55-58` ASCII diagram:
+`agent/context.go:55-58`:
 
 ```
 ┌─────────────────────── invocation ──────────────────────────┐
@@ -362,11 +382,11 @@ A **turn boundary** is `event.IsFinalResponse()` returning true (`session/sessio
 [call_llm] [call_tool] [call_llm] [transfer]
 ```
 
+In a workflow, a node activation is an additional unit: node events carry `NodeInfo.Path` (`session/session.go:148-172`).
+
 ### 2.6 Event emission mechanism (in-process)
 
-**Go 1.23 `iter.Seq2[*session.Event, error]` everywhere.** No EventEmitter, no channel, no callback hell — idiomatic Go range-over-func iteration. Every layer (agent, runner, flow, sub-agents) returns the same type, composable via `for ev, err := range agent.Run(ctx) { ... }`.
-
-For the bidi `RunLive` path, the layer below the runner is a channel (`liveSessionImpl.inputCh`/`outputCh`, `internal/llminternal/base_flow.go:130-196`) wrapped back into `iter.Seq2` for downstream consumers.
+**`iter.Seq2[*session.Event, error]` at every layer** (runner, workflow, node, agent, flow). The workflow scheduler internally uses a buffered channel fed by per-node goroutines and drained by one consumer goroutine, then re-exposes an `iter.Seq2` (`workflow/workflow.go:277-289`, `workflow/scheduler.go:358-405`). `RunLive` uses channels underneath (`internal/llminternal/base_flow.go:261-318`) and re-wraps them as `iter.Seq2`.
 
 ---
 
@@ -374,115 +394,113 @@ For the bidi `RunLive` path, the layer below the runner is a channel (`liveSessi
 
 ### 3.1 Message layers
 
-Three vocabularies:
+Three vocabularies, unchanged in shape:
 
-1. **LLM provider layer** — `*genai.Content` / `*genai.Part` / `*genai.FunctionCall` / `*genai.FunctionResponse` from `google.golang.org/genai`. This is the **canonical content shape** of the framework.
-2. **Internal/persistence layer** — `*session.Event` (`session/session.go:92-118`) which embeds `model.LLMResponse` (`model/llm.go:42-68`) + `EventActions` + bookkeeping (`ID`, `Timestamp`, `InvocationID`, `Branch`, `Author`, `LongRunningToolIDs`). Persisted as `storageEvent` rows (`session/database/storage_session.go:70-100`) with marshaled JSON for `Content`, `Actions`, `GroundingMetadata`, `UsageMetadata`, `CitationMetadata`.
-3. **Wire layer (REST)** — `models.Event` (`server/adkrest/internal/models/event.go:36-56`) — almost a 1:1 mirror of `session.Event` flattened for JSON. There is also `models.RunAgentRequest` (`server/adkrest/internal/models/runtime.go:23-35`) for the input side.
-
-Conversion: `models.FromSessionEvent` / `models.ToSessionEvent` (`event.go:59-120`).
-
-Diagram:
+1. **LLM provider layer** — `genai.Content` / `genai.Part` / `genai.FunctionCall` / `genai.FunctionResponse`. Canonical for every provider; `openaimodel` translates to and from OpenAI shapes (`model/openaimodel/internal/shared/contents.go`).
+2. **Internal/persistence layer** — `session.Event` (`session/session.go:100-149`) embeds `model.LLMResponse` (`model/llm.go:42-67`) plus `EventActions` and bookkeeping. v2 added workflow fields: `IsolationScope`, `Routes`, `RequestedInput`, `Output`, `NodeInfo`. Persisted as `storageEvent` rows (`session/database/storage_session.go:73-109`) with JSON columns, including new `RoutesJSON`, `OutputJSON`, `NodeInfoJSON`, `RequestedInputJSON`, `IsolationScope`, `InputTranscription`, `OutputTranscription`.
+3. **Wire layer (REST)** — `models.Event` (`server/adkrest/internal/models/event.go:39-64`), converted by `ToSessionEvent` / `FromSessionEvent` (`event.go:67, 113`). Request side: `models.RunAgentRequest` (`server/adkrest/internal/models/runtime.go:23-40`).
 
 ```
-HTTP body                  in-memory                      DB row
-RunAgentRequest  ──json──> *session.Event ──gorm──>   storageEvent
-    └─ NewMessage:                ├─ LLMResponse              ├─ Content (JSON)
+HTTP body                  in-memory                       DB row
+RunAgentRequest  ──json──> *session.Event ──gorm──>    storageEvent
+    └─ NewMessage:                ├─ LLMResponse               ├─ Content (JSON)
        genai.Content              │  └─ Content: *genai.Content
-                                  ├─ Actions: EventActions    ├─ Actions (JSON bytes)
-                                  ├─ Author, ID,...           ├─ Author, ID,...
-                                  └─ LongRunningToolIDs       └─ LongRunningToolIDsJSON
+                                  ├─ Actions: EventActions     ├─ Actions (JSON bytes)
+                                  │   └─ Compaction (v2.3)     │
+                                  ├─ NodeInfo / Output (v2)    ├─ NodeInfoJSON / OutputJSON
+                                  └─ LongRunningToolIDs        └─ LongRunningToolIDsJSON
 ```
 
 ### 3.2 Concrete message types
 
 | Type | File | 1-line purpose |
 |---|---|---|
-| `genai.Content` | `genai` SDK | LLM-layer content (role + parts) |
-| `genai.Part` | `genai` SDK | One typed atom: Text \| InlineData \| FunctionCall \| FunctionResponse \| CodeExecutionResult \| Thought \| FileData |
-| `genai.FunctionCall` | `genai` SDK | LLM-emitted tool call with `Name`/`Args map[string]any`/`ID` |
-| `genai.FunctionResponse` | `genai` SDK | Tool result fed back to the model |
-| `model.LLMRequest` | `model/llm.go:32` | Internal request shape (Model + Contents + Config + Tools) |
-| `model.LLMResponse` | `model/llm.go:42` | Internal response (Content + tokens + Partial flag + grounding/citation/usage) |
-| `session.Event` | `session/session.go:92` | Persistable record (LLMResponse + Author + Actions + Branch + InvocationID + ID + LongRunningToolIDs) |
-| `session.EventActions` | `session/session.go:143-160` | Side effects: StateDelta, ArtifactDelta, RequestedToolConfirmations, SkipSummarization, TransferToAgent, Escalate |
-| `agent.LiveRequest` | `agent/live.go:28` | Bidi input frame (Content \| RealtimeInput) |
-| `models.Event` | `server/adkrest/internal/models/event.go:36` | REST wire shape of `session.Event` |
-| `models.RunAgentRequest` | `server/adkrest/internal/models/runtime.go:23` | REST request body for `/run`, `/run_sse` |
-| `models.LiveRequest` | `server/adkrest/internal/models/runtime.go:61` | WebSocket frame for `/run_live` |
+| `genai.Content` / `genai.Part` | `genai` SDK | LLM-layer content; a Part is Text \| InlineData \| FunctionCall \| FunctionResponse \| CodeExecutionResult \| Thought \| FileData |
+| `genai.FunctionCall` / `FunctionResponse` | `genai` SDK | Tool call (`Name`, `Args`, `ID`) and tool result |
+| `model.LLMRequest` | `model/llm.go:32` | Internal request (Model, Contents, Config, Tools) |
+| `model.LLMResponse` | `model/llm.go:42` | Internal response (Content, usage, Partial, TurnComplete, transcriptions, FinishReason) |
+| `session.Event` | `session/session.go:100` | Persisted record (LLMResponse + Author + Actions + Branch + IsolationScope + InvocationID + workflow fields) |
+| `session.EventActions` | `session/session.go:249-276` | StateDelta, ArtifactDelta, RequestedToolConfirmations, SkipSummarization, TransferToAgent, Escalate, **Compaction** |
+| `session.EventCompaction` | `session/session.go:336-380` | Summary record: covered time range, summary content, excluded events |
+| `session.NodeInfo` | `session/session.go:153-180` | Workflow node path and output routing |
+| `session.RequestInput` | `session/session.go:184-215` | Workflow HITL prompt (InterruptID, Message, ResponseSchema, Payload) |
+| `agent.LiveRequest` | `agent/live.go:28` | Bidi input frame |
+| `models.Event` | `server/adkrest/internal/models/event.go:39` | REST wire event |
+| `models.RunAgentRequest` | `server/adkrest/internal/models/runtime.go:23` | REST body for `/run`, `/run_sse` |
+| `models.LiveRequest` | `server/adkrest/internal/models/runtime.go:67` | WebSocket frame for `/run_live` |
 
 ### 3.3 Messages vs. events
 
-**One iterator yields events** (`iter.Seq2[*session.Event, error]`). A `session.Event` IS the unified taxonomy — it carries the LLM response, function calls/responses, state deltas, and lifecycle bookkeeping. There is no separate "events" vs "messages" stream like LangGraph or Vercel AI SDK. The conceptual distinction in adk-go is **partial vs. non-partial events** (`Partial bool` on `LLMResponse`) — partial events stream tokens but are not persisted; non-partial events are persisted via `sessionService.AppendEvent`.
+**One iterator yields events**. `session.Event` is the unified taxonomy for LLM output, tool calls/results, state deltas, compaction records, workflow outputs and HITL prompts. Partial events stream but are not persisted; non-partial events are persisted (`runner/runner.go:764-770`, `runner/run_node.go:235-240`).
 
 ### 3.4 Event categories
 
-Implicit categories distinguished by which fields are populated on the single `Event` type:
+Categories are implicit, by populated fields on the single `Event` type:
 
 | Category | Distinguishing fields |
 |---|---|
-| user-message event | `Author == "user"`, `Content.Role == "user"`, no `FunctionCall` |
-| LLM streaming partial | `Partial == true`, `Content` with text parts |
-| LLM final response | `Partial == false`, no `FunctionCall`, no `FunctionResponse`, `TurnComplete == true` (live) |
-| tool-call event | `Author == agent.Name`, `Content` contains `Part.FunctionCall` |
-| tool-response event | `Author == agent.Name`, `Content.Role == "user"`, `Part.FunctionResponse`, possibly multiple |
-| state-delta event | `Actions.StateDelta` non-empty (often without `Content`) |
+| user-message event | `Author == "user"`, no `FunctionCall` |
+| LLM streaming partial | `Partial == true` |
+| LLM final response | not partial, no FunctionCall/FunctionResponse |
+| tool-call event | `Content` contains `Part.FunctionCall` |
+| tool-response event | `Content.Role == "user"` with one or more `Part.FunctionResponse` |
+| state-delta event | `Actions.StateDelta` non-empty |
 | transfer event | `Actions.TransferToAgent != ""` |
-| HITL request | `Actions.RequestedToolConfirmations` populated, or `FunctionCall.Name == "adk_request_confirmation"` |
+| tool-confirmation HITL | `FunctionCall.Name == "adk_request_confirmation"` (`tool/toolconfirmation/tool_confirmation.go:46`) |
+| workflow HITL | `RequestedInput != nil`, `FunctionCall.Name == "adk_request_input"` (`workflow/request_input.go:36`) |
 | long-running pause | `LongRunningToolIDs` non-empty |
-| error event | `ErrorCode != ""` / `ErrorMessage != ""` |
-| transcription event (live) | `InputTranscription` or `OutputTranscription` non-nil |
-| code-execution result | Trailing `Part.CodeExecutionResult` |
+| compaction record | `Actions.Compaction != nil`, no content (`session/session.go:276`) |
+| workflow node output | `Output != nil`, `NodeInfo.Path` set |
+| error event | `ErrorCode` / `ErrorMessage` set |
+| transcription (live) | `InputTranscription` / `OutputTranscription` set |
 
-There is **no dedicated stream-event / session-lifecycle-event class** as in LangGraph — lifecycle is implied by event ordering and `IsFinalResponse()`.
+There is still **no dedicated lifecycle event class** (run-started, sub-agent-started). Lifecycle is inferred from ordering, `Author`, `Branch` and `NodeInfo.Path`.
 
 ### 3.5 Canonical type-definition file(s)
 
-- `session/session.go` — `Session`, `Event`, `EventActions`, state prefixes
+- `session/session.go` — `Session`, `Event`, `EventActions`, `EventCompaction`, `NodeInfo`, `RequestInput`, state prefixes
 - `model/llm.go` — `LLM`, `LLMRequest`, `LLMResponse`
-- `agent/agent.go` — `Agent`, `Config`, `BeforeAgentCallback`, `AfterAgentCallback`, `Memory`, `Artifacts`
-- `agent/context.go` — `InvocationContext`, `ReadonlyContext`, `CallbackContext`
-- `agent/live.go` — `LiveSession`, `LiveRequest`, `LiveRunConfig`
-- `tool/tool.go` — `Tool`, `Context`, `Toolset`, `Predicate`
-- `plugin/plugin.go` — `Plugin`, `Config`, callback types
+- `agent/agent.go`, `agent/context.go`, `agent/common_context.go` — `Agent`, unified `Context`, `InvocationContext`, `ReadonlyContext`, `Identity`
+- `agent/live.go` — live types
+- `tool/tool.go` — `Tool`, `Toolset`, `Predicate`, `WithConfirmation`
+- `workflow/workflow.go`, `workflow/state.go` — `Node`, `Edge`, `NodeStatus`, `RunState`
+- `plugin/plugin.go` — plugin callbacks
 - `server/adkrest/internal/models/event.go` — wire `Event`
 
 ### 3.6 Live agentic event stream taxonomy
 
-Sample frames as they arrive on `/run_sse` (`server/adkrest/controllers/runtime.go:140-160`):
+Frames on `/run_sse` (`server/adkrest/controllers/runtime.go:226-314`, `Content-Type: text/event-stream; charset=UTF-8` since v2.5):
 
 ```
-event: data
 data: {"id":"01HE...","invocationId":"01HF...","author":"user",
        "content":{"role":"user","parts":[{"text":"Hello"}]},
-       "actions":{"stateDelta":null,"artifactDelta":null}}
+       "actions":{"stateDelta":{},"artifactDelta":{}}}
 
 data: {"id":"02HE...","invocationId":"01HF...","author":"agent_a","partial":true,
-       "content":{"role":"model","parts":[{"text":"Hi"}]},
-       "actions":{"stateDelta":null,"artifactDelta":null}}
+       "content":{"role":"model","parts":[{"text":"Hi"}]},"actions":{...}}
 
 data: {"id":"03HE...","invocationId":"01HF...","author":"agent_a",
        "content":{"role":"model","parts":[{"functionCall":{
-         "id":"call_1","name":"topicSearch","args":{"query":"foo"}}}]},
-       "actions":{"stateDelta":null,"artifactDelta":null}}
+         "id":"call_1","name":"topicSearch","args":{"query":"foo"}}}]},"actions":{...}}
 
 data: {"id":"04HE...","invocationId":"01HF...","author":"agent_a",
        "content":{"role":"user","parts":[{"functionResponse":{
-         "id":"call_1","name":"topicSearch",
-         "response":{"results":[...]}}}]},
-       "actions":{"stateDelta":null,"artifactDelta":null}}
+         "id":"call_1","name":"topicSearch","response":{"results":[...]}}}]},"actions":{...}}
 
 data: {"id":"05HE...","invocationId":"01HF...","author":"agent_a",
        "content":{"role":"model","parts":[{"text":"Here is the answer"}]},
-       "actions":{"stateDelta":null,"artifactDelta":null}}
+       "usageMetadata":{"promptTokenCount":812,"candidatesTokenCount":41,"totalTokenCount":853},
+       "actions":{...}}
 ```
 
 Errors:
 
 ```
 event: error
-data: {"error":"failed to run agent: ..."}
+data: {"error":"..."}
 ```
+
+Compaction failures are logged and not streamed as errors (`runtime.go:283-290`). Field names follow the `models.Event` JSON tags; values above are illustrative.
 
 ---
 
@@ -490,55 +508,47 @@ data: {"error":"failed to run agent: ..."}
 
 ### 4.1 Multi-session host architecture
 
-`runner.Runner` (`runner/runner.go:113-126`) is **stateless** with respect to sessions — every `Run` call looks up the session in `r.sessionService`, executes, persists events, and returns. **One `*Runner` instance hosts N concurrent sessions** trivially by handling many concurrent `Run` calls.
+`runner.Runner` (`runner/runner.go:224-240`) holds no per-session state. Each `Run` loads the session, executes, persists, and returns, so **one `*Runner` serves N concurrent sessions**. The workflow engine is also per-invocation: "A single returned agent instance can serve many concurrent sessions: the per-invocation run state lives in session.State, not on the agent" (`agent/workflowagent/workflow.go:39-44`).
 
-The first-party REST server (`server/adkrest/handler.go:48-55`) constructs one `RuntimeAPIController` that holds one `*Runner` (built lazily per request via `getRunner`). The `gorilla/mux` router goroutine-per-request model handles concurrency naturally — Go's HTTP server fans out each connection.
+The REST server builds a runner per request from the agent loader (`server/adkrest/controllers/runtime.go:353`), and Go's HTTP server gives one goroutine per request.
 
 ### 4.2 Concurrent session isolation
 
-State isolation is **enforced at the storage layer**:
+Enforced in the storage layer, as before:
 
-- `session/database/service.go:319-354` — `AppendEvent` runs inside a GORM `Transaction`; concurrent appends to the same session ID will serialize through the DB.
-- `session/database/service.go:373-382` — **stale-session detection**: if `storageSess.UpdateTime > sess.updatedAt`, the append errors with `"stale session error"`. This is per-write optimistic concurrency control.
-- `session/database/session.go:35-37, 71-86` — in-memory `localSession` uses `sync.RWMutex` for events + state.
+- `session/database/service.go:410-492` — `applyEvent` runs in one GORM transaction.
+- `session/database/service.go:424-434` — **stale-session check**: if the stored `UpdateTime` is newer than the in-memory session's, the append fails with `stale session error`. Optimistic concurrency per session; v2.3 fixed the timestamp precision (UnixMicro) and `UpdateTime` maintenance on app/user state writes.
+- `session/database/session.go:36` — `sync.RWMutex` on the local session; v2.4 made `Events()` snapshot under the read lock for database and Vertex backends (#1559).
 
-So two concurrent goroutines running `Run(...)` on the same `sessionID` will:
+Two concurrent `Run` calls on one session ID: the second append fails. **Single-writer per session**.
 
-- read the same session snapshot,
-- both try to append — second one fails with stale-session error.
-
-This is **single-writer per session** semantics, which is correct for an interactive chat but means you can't fan out parallel turns on the same session.
-
-Per-session inside one process: no global mutable state in `Flow` or `Runner` — both are essentially stateless wrappers around per-call args. Plugin manager is shared and **must be thread-safe by contract**.
+Inside one process the new mode resolution is explicitly per-invocation rather than mutating the shared agent (`internal/llminternal/mode.go:19-25`, fix #1267), because one agent instance serves many concurrent invocations. Plugins are shared and must be thread-safe.
 
 ### 4.3 Horizontal scaling / multi-instance
 
-**Yes, supported.** Because session state is externalized to the database (`session/database/`) or Vertex Agent Engine (`session/vertexai/`), N pods can share the same session pool. The stale-session check (`service.go:373-382`) prevents lost updates in racing pods.
+**Supported** with a shared session store (`session/database`, `session/vertexai`). The stale-session check prevents lost updates across pods. No leader election.
 
 Caveats:
 
-- **No leader election** — every pod is equal.
-- **In-memory state on the local `*Session` object** is stale between requests; on each request, the next pod fetches a fresh snapshot. This is correct but adds DB round-trips.
-- **Live (bidi) sessions are pod-local** (`runnerLiveSession` holds an `agent.LiveSession` that is a Go channel). Connection affinity (sticky sessions) is required for `/run_live`.
+- Each request reloads the session (DB round trip).
+- **Live (bidi) sessions are pod-local**; `/run_live` needs sticky routing.
+- **Workflow pauses survive across pods** because pause state is rebuilt from session events on the next turn (`runner/run_node.go:179-194`, `workflow/persistence.go:60-80`).
+- `auth.InMemoryCredentialStore` is process-local (`auth/store.go:177-195`); use a shared `CredentialStore` implementation if credential caching must be shared.
 
 ### 4.4 Background / async / scheduled tasks
 
-**Yes, via Pub/Sub and Eventarc triggers**, first-party in the REST server.
+**Pub/Sub and Eventarc triggers** ship in the REST server:
 
-- `server/adkrest/controllers/triggers/pubsub.go:33-77` — `PubSubController.PubSubTriggerHandler` accepts Cloud Pub/Sub HTTP push messages, runs the agent, semaphore-throttles concurrent runs (`MaxConcurrentRuns`).
-- `server/adkrest/controllers/triggers/eventarc.go` — analogous for Eventarc.
-- `server/adkrest/controllers/triggers/config.go:22-31` — `TriggerConfig` includes `MaxRetries`, `BaseDelay`, `MaxDelay`, `MaxConcurrentRuns`.
+- `server/adkrest/controllers/triggers/pubsub.go:76-113` — `PubSubTriggerHandler`, throttled by a semaphore (`pubsub.go:102-104`).
+- `server/adkrest/controllers/triggers/eventarc.go` — same for Eventarc.
+- `server/adkrest/controllers/triggers/config.go:20-29` — `TriggerConfig{MaxRetries, BaseDelay, MaxDelay, MaxConcurrentRuns}`.
+- `RetriableRunner` retries with exponential backoff on resource exhaustion (`triggers/triggers.go:135-240`).
 
-`RetriableRunner` is a wrapper that retries failed runs with exponential backoff.
-
-No cron scheduler ships in the box. For scheduled work you would wire Cloud Scheduler → Pub/Sub → ADK Pub/Sub trigger.
+Trigger routes are covered by the 10 MiB body limit since v2.5. No cron scheduler; use Cloud Scheduler → Pub/Sub.
 
 ### 4.5 Worker pool / queue model
 
-The triggers ship a **semaphore-based concurrency limiter** (`pubsub.go:41`: `semaphore: make(chan struct{}, triggerConfig.MaxConcurrentRuns)`), which is a thin worker-pool. Beyond this, the runtime assumes **short-lived HTTP request scope** for the run — there is no explicit queue or async dispatcher for long-running agent work. For long runs you would either:
-
-- use `IsLongRunning() bool` tools that pause the agent and resume on later HITL responses, OR
-- run the agent in a fire-and-forget Pub/Sub trigger and observe via event store.
+Still **request-scoped**. The trigger semaphore is the only worker-pool primitive. The workflow engine adds in-process concurrency control (`workflow.WithMaxConcurrency`, `workflow/workflow.go:199-213`; `ParallelWorker` with `maxConcurrency`, `workflow/parallel_worker.go:39`) and per-node `Timeout` / `RetryConfig` (`workflow/config.go:55-133`), but there is no durable queue: a run lives as long as the request/iterator that drives it. For long-running work: long-running tools or workflow HITL pauses (resume on a later request), or fire-and-forget Pub/Sub triggers.
 
 ---
 
@@ -546,7 +556,7 @@ The triggers ship a **semaphore-based concurrency limiter** (`pubsub.go:41`: `se
 
 ### 5.1 Session / chat data model
 
-`session.Session` is an interface (`session/session.go:32-46`):
+`session.Session` interface (`session/session.go:40-55`):
 
 ```go
 type Session interface {
@@ -559,177 +569,131 @@ type Session interface {
 }
 ```
 
-The persisted GORM model (`session/database/storage_session.go:29-39`):
+GORM model (`session/database/storage_session.go:31-41`):
 
 ```go
 type storageSession struct {
-    AppName    string    `gorm:"primaryKey;"`
-    UserID     string    `gorm:"primaryKey;"`
-    ID         string    `gorm:"primaryKey;"`
+    AppName    string `gorm:"primaryKey;"`
+    UserID     string `gorm:"primaryKey;"`
+    ID         string `gorm:"primaryKey;"`
     State      stateMap
     CreateTime time.Time `gorm:"precision:6"`
     UpdateTime time.Time `gorm:"precision:6"`
-    Events     []storageEvent `gorm:"foreignKey:AppName,UserID,SessionID;references:AppName,UserID,ID;constraint:OnDelete:CASCADE"`
+    Events []storageEvent `gorm:"foreignKey:AppName,UserID,SessionID;references:AppName,UserID,ID;constraint:OnDelete:CASCADE"`
 }
 ```
 
-Composite primary key: `(AppName, UserID, ID)`. **No top-level `tenant_id`**.
+Composite primary key `(AppName, UserID, ID)`. **No `tenant_id`**.
 
-Per `storageEvent` (`session/database/storage_session.go:70-100`):
+`storageEvent` (`session/database/storage_session.go:73-109`):
 
 ```go
 type storageEvent struct {
-    ID                     string `gorm:"primaryKey;"`
-    AppName                string `gorm:"primaryKey;"`
-    UserID                 string `gorm:"primaryKey;"`
-    SessionID              string `gorm:"primaryKey;"`
+    ID, AppName, UserID, SessionID string // composite PK
     InvocationID           string
     Author                 string
-    Actions                []byte         // marshaled JSON
+    Actions                []byte      // JSON-marshalled EventActions (incl. Compaction)
     LongRunningToolIDsJSON dynamicJSON
+    RoutesJSON             dynamicJSON // v2 workflow
+    OutputJSON             dynamicJSON // v2 workflow
+    NodeInfoJSON           dynamicJSON // v2 workflow
+    RequestedInputJSON     dynamicJSON // v2 workflow HITL
     Branch                 *string
+    IsolationScope         *string     // v2
     Timestamp              time.Time `gorm:"precision:6"`
-    Content                dynamicJSON
-    GroundingMetadata      dynamicJSON
-    CustomMetadata         dynamicJSON
-    UsageMetadata          dynamicJSON     // <-- token counts
-    CitationMetadata       dynamicJSON
-    Partial                *bool
-    TurnComplete           *bool
-    ErrorCode              *string
-    ErrorMessage           *string
-    Interrupted            *bool
-    Session                storageSession `gorm:"foreignKey:..."`
+    Content, GroundingMetadata, CustomMetadata, UsageMetadata, CitationMetadata dynamicJSON
+    InputTranscription, OutputTranscription dynamicJSON // v2.5 (#1662)
+    Partial, TurnComplete *bool
+    ErrorCode, ErrorMessage *string
+    Interrupted *bool
 }
 ```
 
-Two side tables for state scoping:
-
-```go
-type storageAppState struct {
-    AppName    string `gorm:"primaryKey;"`
-    State      stateMap
-    UpdateTime time.Time
-}
-type storageUserState struct {
-    AppName    string `gorm:"primaryKey;"`
-    UserID     string `gorm:"primaryKey;"`
-    State      stateMap
-    UpdateTime time.Time
-}
-```
+Side tables `storageAppState` (`storage_session.go:397`) and `storageUserState` (`storage_session.go:409`) hold `app:` and `user:` scoped state.
 
 ### 5.2 What's stored on a session
 
-- **Messages**: stored as a list of `storageEvent` rows (event-sourced model) — each user message, partial/final LLM response, function call, function response is its own row.
-- **Tool-call history**: yes (function-call events are persisted; the `FunctionCall.ID` lets you match them with response events).
-- **State**: `State stateMap` (JSON map) — three logical scopes routed by key prefix:
-  - `app:<key>` → `storageAppState` (shared across all users of the same `AppName`)
-  - `user:<key>` → `storageUserState` (shared across all sessions of the same `UserID`)
-  - `temp:<key>` → discarded after each invocation (not persisted)
-  - bare key → session state
-- **Long-running tool IDs**: yes (`LongRunningToolIDsJSON`).
-- **Token usage**: yes (`UsageMetadata` JSON-blob holding `genai.GenerateContentResponseUsageMetadata`).
-- **Grounding metadata / citations**: yes.
-- **Artifacts**: separate `artifact.Service` (`artifact/service.go`, `artifact/gcsartifact/`, `artifact/inmemory.go`). Artifact-version pointers live on `EventActions.ArtifactDelta map[string]int64`.
+- **Messages**: one `storageEvent` row per non-partial event (event-sourced).
+- **Tool-call history**: function-call and function-response events, joined by `FunctionCall.ID`.
+- **State** (`session/session.go:415-432`): `app:` (shared by every user of the app), `user:` (shared across a user's sessions in the app), `temp:` (dropped after the invocation; v2.5 also strips them from the stored event record in the in-memory and Vertex services), bare key = session. Prefixes do not compose (`app:temp:x` is app-scoped and persists, `session/session.go:417-419`).
+- **Compaction records** (`Actions.Compaction`): summaries are appended as events; history is never rewritten (`session/compaction/compaction.go:15-22`).
+- **Workflow state**: node outputs, routes, HITL requests on events.
+- **Token usage**, grounding, citations, live transcriptions.
+- **Artifacts**: separate `artifact.Service`; version pointers on `EventActions.ArtifactDelta`. v2.5 added guaranteed version metadata and `CustomMetadata` on `artifact.SaveRequest`.
 
 ### 5.3 Granularity
 
-**One conversation per session** (single linear list of events). **No fork/branch** in the LangGraph sense. The `Branch` field on `Event` is **not** a fork — it's a dotted-path label `agent_1.agent_2.agent_3` used by **parallel sub-agents** to scope which conversation history they see (`agent/context.go:77-85`). This is a "horizontal slice" filter, not a "vertical fork".
+**One linear conversation per session**. No LangGraph-style fork. Two visibility filters scope what each agent sees:
+
+- `Branch` (`agent_1.agent_2`) — used by parallel sub-agents and by `workflow.RunNode(..., WithUseSubBranch())` (`workflow/run_node.go`).
+- `IsolationScope` (new) — exact-match filter for task-mode sub-agents (`session/session.go:117-121`, `internal/llminternal/contents_processor.go:142-150`).
+
+Both filter the history sent to the LLM; storage is shared.
 
 ### 5.4 Built-in persistence stores
 
-Three first-party implementations of `session.Service`:
-
-1. **In-memory** (`session/inmemory.go`) — `session.InMemoryService()`. Backed by `omap.Map[string, *session]` (`session/inmemory.go:39-43`).
-
-2. **Database via GORM** (`session/database/service.go:44-50`):
+1. **In-memory** — `session.InMemoryService()` (`session/inmemory.go:41`).
+2. **Database via GORM** (`session/database/service.go:52-94`):
 
    ```go
    func NewSessionService(dialector gorm.Dialector, opts ...gorm.Option) (session.Service, error)
+   func NewSessionServiceFromDB(db *gorm.DB) (session.Service, error) // v2.4: share an existing pool
+   func AutoMigrate(service session.Service) error                    // run on every startup
    ```
 
-   With `database.AutoMigrate(svc)` to create the schema. Works with any GORM dialect: Postgres (`gorm.io/driver/postgres`), SQLite (`glebarez/sqlite`), MySQL (`gorm.io/driver/mysql`), Spanner (`gorm.io/driver/spanner`).
+   Postgres, SQLite, MySQL, Spanner via GORM dialects (`gorm.io/gorm v1.31.2`, `go.mod:35`).
+3. **Vertex AI Agent Engine** (`session/vertexai/vertexai.go:49`). Now accepts client-provided session IDs (`session/vertexai/vertexai_client.go:91-95`, #721) and enforces user ownership on delete (#1195).
 
-3. **Vertex AI Agent Engine** (`session/vertexai/vertexai.go:46-53`):
-
-   ```go
-   func NewSessionService(ctx context.Context, cfg VertexAIServiceConfig, opts ...option.ClientOption) (session.Service, error)
-   ```
-
-   Requires a Vertex `ReasoningEngine` resource per app.
-
-**No first-party JSONL-on-disk store** (unlike Claude Code), **no Redis adapter**, **no S3 store**. Postgres and Cloud SQL are the production recommendation.
+No JSONL-on-disk, Redis or S3 store.
 
 ### 5.5 Persistence timing
 
-**Per non-partial event, synchronous, in a single GORM transaction.** Two key codepaths:
+**Per non-partial event, synchronously, in one transaction.** Both runner paths do the same thing.
 
-`runner/runner.go:255-261` (after each event from `agentToRun.Run(ctx)`):
+Node path (`runner/run_node.go:235-240`):
 
 ```go
-// only commit non-partial event to a session service
 if !event.LLMResponse.Partial {
-    if err := r.sessionService.AppendEvent(ctx, storedSession, event); err != nil {
+    if err := r.sessionService.AppendEvent(ictx, storedSession, event); err != nil {
         yield(nil, fmt.Errorf("failed to add event to session: %w", err))
         return
     }
 }
 ```
 
-`session/database/service.go:319-354` (`AppendEvent` → `applyEvent` → `db.Transaction(...)`):
+Direct agent path: `runner/runner.go:764-770`. `AppendEvent` (`session/database/service.go:364-405`) assigns an ID if missing, truncates the timestamp to microseconds, strips `temp:` keys, then `applyEvent` (`service.go:410-492`) does stale-check → load app/user state → split the state delta by prefix → save state rows → insert event → bump `UpdateTime` → commit.
 
-1. Refetch `storageSess` for stale-check.
-2. Stale-check: error if `storageSess.UpdateTime > localSess.updatedAt`.
-3. Refetch `storageAppState`, `storageUserState`.
-4. Split `event.Actions.StateDelta` into app/user/session/temp using key prefixes.
-5. Merge app/user deltas into respective rows, save.
-6. Create new `storageEvent` row.
-7. Update `storageSess.UpdateTime`, save.
-8. Commit transaction.
+Partial events are never persisted. No async durability mode.
 
-Partial events are **never persisted** — they pass through to the SSE/WS stream but don't hit the DB.
-
-**No `durability="async"` option** like LangGraph — every persist is synchronous. That's simpler and correct, but you pay a DB round-trip on every LLM message and tool result.
+Two compaction write paths add to this: **sliding-window** summaries are appended after the invocation through the runner's normal append path (plugins see them), and **token-threshold** summaries are appended inside the invocation directly by the compaction processor, bypassing `OnEventCallback` plugins (`session/compaction/compaction.go:181-201`).
 
 ### 5.6 Mid-run checkpointing (durable)
 
-**Yes, implicitly.** Because every non-partial event is persisted to the DB inside a transaction, a process crash mid-loop loses **at most the partial in-flight LLM response and any in-flight tool call**.
+**Per-event durability, plus HITL resume. No crash resume.**
 
-The granularity is:
+- Every non-partial event is committed before the next is produced, so a crash loses at most the in-flight LLM response or tool batch (the merged tool-response event is written after all parallel tools finish).
+- **Workflow pause/resume** (new): when a node yields a `RequestInput` or a long-running tool call, the node goes to `NodeWaiting` and the run ends. On the next turn the runner calls `wf.ReconstructRunState(session, invocationID)` (`runner/run_node.go:179-186`), which rebuilds node states by scanning session events for interrupts and their responses (`workflow/persistence.go:60-80`), then `wf.Resume(...)` (`workflow/resume.go:45-73`). This is history-based rehydration, not a stored checkpoint blob.
+- **Not covered**: a process crash in the middle of a graph. `ReconstructRunState` "Returns (nil, nil) when no node has interrupt history" (`workflow/persistence.go:69-70`), so a crashed run is not resumed at the failed node; the next user message starts a fresh run. `NodeRunning` is documented as needing re-scheduling "after a process restart" (`workflow/state.go:39-42`), but no code path does that today. The workflow constructor also notes a TODO that a graph change between deploys "silently corrupts the resume path" (`workflow/workflow.go:247-252`).
+- Per-node `RetryConfig` (`workflow/config.go:94-133`) retries failures in-process only.
 
-- LLM response event → persisted after the full response (no per-token persist; streamed tokens are partial events, not persisted).
-- Tool call event → persisted after the LLM emits the call (before tool execution starts).
-- Tool response event → persisted **after** all parallel tools in the same batch complete (because `handleFunctionCalls` waits on `wg.Wait()` before yielding a single merged event).
-
-So a crash mid-tool-call **loses that tool call's progress**. On restart, the runner re-fetches the session, sees the tool-call event without a matching tool-response event, and `findAgentToRun` selects the right agent — the LLM will be re-prompted with the tool-call event but no response, which is **not** automatic resume; the runner doesn't replay the in-flight tool. There is no LangGraph-style `put_writes` per-task durability.
-
-Compared to LangGraph (gold standard of per-task durability) ADK Go is **per-event durability**, not per-tool-task durability.
+Compared with LangGraph's per-task `put_writes`, ADK Go is still **per-event durability** with HITL-scoped resume.
 
 ### 5.7 Session ID format
 
-UUID v4 by default if not provided (`session/database/service.go:76-79`):
+UUID by default via the platform seam (`session/database/service.go:101-104`):
 
 ```go
 sessionID := req.SessionID
 if sessionID == "" {
-    sessionID = uuid.NewString()
+    sessionID = platform.NewUUID(ctx)
 }
 ```
 
-Vertex AI service **does not accept client-provided IDs** (`session/vertexai/vertexai.go:59-61`):
-
-```go
-if req.SessionID != "" {
-    return nil, fmt.Errorf("user-provided Session id is not supported for VertexAISessionService: %q", req.SessionID)
-}
-```
-
-The composite identity is `(AppName, UserID, SessionID)` — that's the natural multi-tenant key.
+`platform.WithUUIDProvider` / `WithTimeProvider` let a host make IDs and timestamps deterministic (`platform/uuid.go`, `platform/time.go`; README-v2.md:8-43). The Vertex backend now also accepts caller-provided IDs (see 5.4). Composite identity: `(AppName, UserID, SessionID)`. On a HITL reply the runner reuses the paused run's invocation ID so pause and answer share it (`runner/run_node.go:433-446`).
 
 ### 5.8 Pluggable store interface
 
-**Yes.** `session.Service` is the interface (`session/service.go:23-32`):
+**Yes.** `session.Service` (`session/service.go:46-77`):
 
 ```go
 type Service interface {
@@ -741,203 +705,136 @@ type Service interface {
 }
 ```
 
-You can BYO a Redis, S3, Cassandra, or proprietary backend by implementing those five methods. The returned `Session` is an interface (`session/session.go:32`) so you control the concrete struct.
+v2 tightened the contract in godoc: wrap `session.ErrNotFound` for missing sessions (`service.go:23-41`), assign IDs to ID-less events, and round-trip `EventActions.Compaction` (`service.go:52-75`). A shared conformance suite is public: `session/sessiontestsuite` (renamed from `session/session_test`). Use it to validate a custom backend.
 
 ### 5.9 Schema evolution / migration
 
-GORM's `AutoMigrate` (`session/database/service.go:58-68`) — Go-style "create tables if not exist, add missing columns". It's NOT a versioned migration system; for production, you'd run separate SQL migrations (similar to `golang-migrate` in our own codebase) and disable AutoMigrate.
-
-**No version field on `storageEvent`** — schema changes require a manual migration. The `dynamicJSON` blobs (`Content`, `Actions`, `UsageMetadata`, …) absorb most additive changes without DDL.
+Still GORM `AutoMigrate` (`session/database/service.go:74-94`): creates tables, adds columns, alters type/size/nullability, never drops. v2.5 documents that it "is meant to run on every startup" and the service "does not create its tables". The v2.5 release added two columns (`input_transcription`, `output_transcription`) and states that an un-migrated database **fails to write events** after upgrade. No versioned migration tool; if you manage DDL yourself (e.g. golang-migrate), track each release's "Breaking changes" section. The v2 workflow fields also arrived as new JSON columns.
 
 ### 5.10 Export / replay
 
-**Replay yes, via `internal/configurable/conformance/replayplugin/`** (`internal/configurable/conformance/replayplugin/replay_plugin.go:16-32`). This plugin:
-
-- intercepts BeforeRun to load a recording from `generated-recordings.yaml`,
-- intercepts BeforeModel to return mock LLM responses,
-- intercepts BeforeTool to return mock tool outputs,
-- selects the recording by `user_message_index` from session state key `_adk_replay_config`.
-
-**But it's `internal/`** — not exported. You can fork/copy it.
-
-**Export**: the session events can be read via `session.Service.Get` and the `Event` fields are JSON-friendly — straightforward to serialize. The REST API exposes `GET /apps/{app_name}/users/{user_id}/sessions/{session_id}` which returns the full event list (`server/adkrest/controllers/sessions.go`).
+- **Export**: `GET /apps/{app}/users/{user}/sessions/{id}` returns the event list (`server/adkrest/internal/routers/sessions.go:38-40`). `session.Event` now has a consistent JSON encoding (v2.2; `EventActions.MarshalJSON` and `Event.UnmarshalJSON`, `session/session.go:279-316, 489`).
+- **Replay**: `internal/configurable/conformance/replayplugin/` replays recorded LLM responses and tool outputs; a matching `recordplugin` (`internal/configurable/conformance/recordplugin/record_plugin.go`) now records them. Both are **`internal/`**, so you must copy them. The `platform` time/UUID/task-runner seams are the public building blocks for deterministic replay.
 
 ### 5.11 Cross-session memory
 
-Separate `memory.Service` (`memory/service.go:31-39`):
-
-```go
-type Service interface {
-    AddSessionToMemory(ctx context.Context, s session.Session) error
-    SearchMemory(ctx context.Context, req *SearchRequest) (*SearchResponse, error)
-}
-```
-
-Two implementations: `memory.InMemoryService()` and `memory/vertexai/` (RAG-backed). See Q17.
+Separate `memory.Service` (`memory/service.go:31-39`): `AddSessionToMemory`, `SearchMemory`. Implementations: in-memory (keyword) and Vertex. See Q17.
 
 ---
 
-## 6. Multi-tenancy & Arbitrary Context
+## 6. Multi-tenancy & Tenant Identity ⭐ THE KEY QUESTION
 
-### 6.1 Full run-loop input struct
+### 6.1 Run-loop tenant identity
 
-`runner.Runner.Run` signature (`runner/runner.go:131`):
+`Runner.Run` (`runner/runner.go:536`) takes `ctx`, `userID`, `sessionID`, the message, `agent.RunConfig` and `RunOption`s. `AppName` is fixed on the `Runner` (`runner/runner.go:48-50`). The only per-call carrier for extra data is still `WithStateDelta(map[string]any)` (`runner/runner.go:96-101`), plus whatever you put on `ctx`.
 
-```go
-func (r *Runner) Run(
-    ctx context.Context,
-    userID, sessionID string,
-    msg *genai.Content,
-    cfg agent.RunConfig,
-    opts ...RunOption,
-) iter.Seq2[*session.Event, error]
-```
+What changed in v2:
 
-`RunOption` is functional options (`runner/runner.go:65-76`):
+- **`agent.Identity`** (`agent/common_context.go:57-70`) types the invocation identity as `{UserID, AppName, SessionID}` and `agent.IdentityFromContext(ctx)` recovers it from any plain `context.Context` derived from the invocation (`agent/common_context.go:242-253`). It is read live from the session. The godoc is explicit that ADK does not authenticate `UserID`: "ADK's own REST server takes it from the request body" (`agent/common_context.go:58-63`).
+- **`authn.Caller{UserID, Claims map[string]any}`** (`server/authn/authn.go:47-55`) is put on the request context by the REST middleware when an `Authenticator` is configured, and is readable with `authn.CallerFromContext(ctx)`. Because the REST handler passes `req.Context()` into `Runner.Run` (`server/adkrest/controllers/runtime.go:279`), these claims are reachable from callbacks and tools through `ctx.Value` chaining.
 
-```go
-type runOptions struct {
-    stateDelta map[string]any
-}
-func WithStateDelta(delta map[string]any) RunOption { ... }
-```
+There is still **no `tenant_id`, `targetingStrategyId` or `locale` field** anywhere in the run API or the session schema (`session/database/storage_session.go:31-41`). Options:
 
-`agent.RunConfig` (`agent/run_config.go:28-35`):
+| Carrier | Scope | Trust | Notes |
+|---|---|---|---|
+| `AppName` | per runner / per app | server-controlled | Use one app per tenant if isolation of `app:` state, memory and artifacts must be total. |
+| `UserID` | per user | from request body unless `authz.NewStrict()` is enforced | Composite IDs (`acme:u-123`) are a common workaround. |
+| `ctx` value / `authn.Caller.Claims` | per request | server-controlled | Best fit for tenant identity. Not persisted, so it must be re-derived on every request. |
+| `WithStateDelta` session key (`tenant_id`) | per session | **client-controlled on `/run_sse`** (`stateDelta` in the body) | Usable for instruction templating; do not trust it for authorization. |
+| `app:` state key | **every user of the AppName** | — | Not a per-tenant carrier unless AppName = tenant. The previous version of this report used `app:tenant_id`; that is shared across all users of the app (`session/session.go:421-423`). |
 
-```go
-type RunConfig struct {
-    StreamingMode             StreamingMode  // "none" | "sse"
-    SaveInputBlobsAsArtifacts bool
-}
-```
+### 6.2 Tenant identity propagation into tool calls
 
-So beyond `messages`, you have: `userID`, `sessionID`, `appName` (set on `Runner` construction), `StreamingMode`, `SaveInputBlobsAsArtifacts`, and one-shot `stateDelta` via `WithStateDelta`.
+Call path:
 
-**There is no `tenant_id`, no `targetingStrategyId`, no `locale` field as a first-class argument.** Anything beyond the above goes into `Session.State` via `WithStateDelta(map[string]any{"app:tenant_id": "acme", "user:locale": "fr-FR", "targetingStrategyId": "strat-42"})`.
+1. `Runner.Run(ctx, ...)` builds the invocation context from `ctx` (`runner/run_node.go:270` `newNodeInvocationContext`, or `runner/runner.go:686-694` on the direct path).
+2. `Flow.handleFunctionCalls` builds a per-call context with `agent.NewToolContext(toolCallCtx, fnCall.ID, &session.EventActions{...}, confirmation)` (`internal/llminternal/base_flow.go:1333-1338`).
+3. The tool receives an **`agent.Context`** (v2 unified `ToolContext` and `CallbackContext` into one interface, `agent/context.go:138-240`).
 
-### 6.2 Context propagation into a tool call
-
-The chain (`internal/llminternal/base_flow.go:895-973`):
-
-1. `agent.InvocationContext` (which embeds `context.Context`) is captured by the goroutine.
-2. `toolinternal.NewToolContext(toolCallCtx, fnCall.ID, &session.EventActions{StateDelta: ...}, confirmation)` builds a `tool.Context`.
-3. `tool.Context` implements `agent.CallbackContext` which implements `ReadonlyContext` (`tool/tool.go:53-102`).
-4. The tool's `Run(ctx tool.Context, args any) (map[string]any, error)` receives this.
-
-Available on `tool.Context`:
+Available on `agent.Context`:
 
 ```go
-ctx.UserID()      // from Session.UserID()
-ctx.AppName()     // from Session.AppName()
-ctx.SessionID()   // from Session.ID()
-ctx.InvocationID()
-ctx.Branch()
-ctx.UserContent()  // the *genai.Content that started the invocation
-ctx.State()        // session.State (Get/Set/All) — including app:/user: prefixes
+ctx.UserID(); ctx.AppName(); ctx.SessionID(); ctx.InvocationID(); ctx.Branch()
+ctx.UserContent()            // *genai.Content that started the invocation
+ctx.State()                  // session.State incl. app:/user: prefixes
 ctx.ReadonlyState()
-ctx.Artifacts()
-ctx.SearchMemory(ctx, query)
-ctx.FunctionCallID()
-ctx.Actions()      // &session.EventActions for this tool call
-ctx.ToolConfirmation()
-ctx.RequestConfirmation(hint, payload)
+ctx.Artifacts(); ctx.SearchMemory(ctx, query)
+ctx.FunctionCallID(); ctx.Actions(); ctx.ToolConfirmation(); ctx.RequestConfirmation(hint, payload)
+ctx.Path(); ctx.RunID(); ctx.ResumedInput(id)   // workflow node info (v2)
+ctx.Value(key)               // any value placed on the ctx passed to Runner.Run
 ```
-
-You retrieve `tenant_id` from state as `ctx.State().Get("app:tenant_id")` — no first-class field.
 
 ### 6.3 Tool call interface
 
-A tool's `Run` signature is `Run(ctx tool.Context, args any) (map[string]any, error)`. The args are `map[string]any` deserialized from the LLM's JSON, and (for `functiontool`) converted into the typed `TArgs` (`tool/functiontool/function.go:184-246`):
+`functiontool.Func` (`tool/functiontool/function.go:73`):
 
 ```go
-func (f *functionTool[TArgs, TResults]) Run(ctx tool.Context, args any) (result map[string]any, err error) {
+type Func[TArgs, TResults any] func(agent.Context, TArgs) (TResults, error)
+```
+
+Dispatch converts the LLM's `map[string]any` into `TArgs` against the inferred JSON schema (`tool/functiontool/function.go:186-250`):
+
+```go
+func (f *functionTool[TArgs, TResults]) Run(ctx agent.Context, args any) (result map[string]any, err error) {
     m, ok := args.(map[string]any)
-    if !ok { return nil, fmt.Errorf(...) }
+    ...
     input, err := typeutil.ConvertToWithJSONSchema[map[string]any, TArgs](m, f.inputSchema)
-    if err != nil { return nil, err }
     ...
     output, err := f.handler(ctx, input)
     ...
 }
 ```
 
-A typed user-facing tool is then:
-
-```go
-func myTool(ctx tool.Context, args MyArgs) (MyResults, error) { ... }
-```
+Since v2.2 function-call arguments may arrive as a JSON string or an object (#1254). A non-map result is wrapped only if it marshals (#1586).
 
 ### 6.4 Forcing tool arguments from the harness
 
-**Partial support — BYO scaffolding.** The mechanism is `BeforeToolCallback` (`agent/llmagent/llmagent.go:303-313`):
+**Partial support — BYO scaffolding.** The mechanism is unchanged: `BeforeToolCallback` (`agent/llmagent/llmagent.go:388-397`):
 
 ```go
 // BeforeToolCallback is executed before a tool's Run method.
 // ...
 // To modify tool arguments and still run the tool,
 // update args in place and return (nil, nil).
-type BeforeToolCallback func(ctx tool.Context, tool tool.Tool, args map[string]any) (map[string]any, error)
+type BeforeToolCallback func(ctx agent.Context, tool tool.Tool, args map[string]any) (map[string]any, error)
 ```
 
-The callback receives the **mutable** `args map[string]any` and can write to it in place; returning `(nil, nil)` lets the tool execute with the mutated args. Returning a non-nil `result` short-circuits and skips the tool.
+Caveats:
 
-This works but has caveats:
+- Per call, keyed on `tool.Name()`. A plugin-level `BeforeToolCallback` applies it across all agents, and a plugin returning a non-nil result **skips** agent-level callbacks (`internal/llminternal/base_flow.go:1523-1529`).
+- **The schema still leaks the field**: no "injected arg" annotation hides it from the LLM. The cleaner pattern is not to declare `tenant_id` in `TArgs` at all and read it inside the tool from `ctx` (6.1).
+- **Streaming tools are not covered**: `functiontool.NewStreaming` tools run through `RunStream` without `callTool`, so Before/After tool callbacks do not fire for them (`internal/llminternal/base_flow.go:1359-1411`).
+- `plugin/functioncallmodifier` (`plugin/functioncallmodifier/plugin.go:27-45`) goes the other way: it *adds* fields to declarations and strips them from calls. It does not hide or force arguments.
 
-- **It's per-call, not per-tool-declaration**. You're checking `tool.Name()` in the callback to decide whether to inject.
-- **No declarative "this arg is always injected, hide from LLM schema"** — the LLM sees the field in the tool declaration and can supply a wrong value. Your callback overwrites it, but the schema is "leaky".
-- Compare LangGraph's `InjectedToolArg` annotation which strips fields from the LLM-facing schema and refuses LLM-supplied values for injected keys. ADK Go has no such primitive.
+### 6.5 Tenant-aware visible tool selection
 
-There IS one experimental scaffold: `tool.WithConfirmation(...)` (`tool/tool.go:192-198`) wraps a toolset to add confirmation. The same wrapping pattern is the path for forced args — wrap your `Toolset` to inject args server-side, but you're hand-rolling the wrapper.
-
-### 6.5 Filtering visible tools
-
-**Yes, via `Toolset` + `Predicate` + `FilterToolset`** (`tool/tool.go:116-173`):
+**Yes, via `Toolset` + `Predicate`** (`tool/tool.go:51-125`):
 
 ```go
-type Predicate func(ctx agent.ReadonlyContext, tool Tool) bool
-
-func AllowedToolsPredicate(allowedTools []string) Predicate {
-    m := make(map[string]bool)
-    for _, t := range allowedTools { m[t] = true }
-    return func(ctx agent.ReadonlyContext, tool Tool) bool { return m[tool.Name()] }
+type Toolset interface {
+    Name() string
+    Tools(ctx agent.ReadonlyContext) ([]Tool, error)   // resolved per request
 }
-
-func FilterToolset(toolset Toolset, predicate Predicate) Toolset { ... }
+type Predicate func(ctx agent.ReadonlyContext, tool Tool) bool
+func AllowedToolsPredicate(allowedTools []string) Predicate
+func FilterToolset(toolset Toolset, predicate Predicate) Toolset
 ```
 
-`Toolset.Tools(ctx agent.ReadonlyContext)` is called per request, so the predicate can read context state (`ctx.ReadonlyState().Get("app:tenant_id")`) and conditionally include/exclude tools.
+`Toolset.Tools(ctx)` runs per LLM request, so a predicate can branch on state or on a ctx value. Static `llmagent.Config.Tools` is **not** filtered per request; wrap tools in a `Toolset` for that. `mcptoolset.Config.ToolFilter` is now deprecated in favour of `tool.FilterToolset` (`tool/mcptoolset/set.go:124-128`).
 
-But static `agent.Tools []tool.Tool` (slice attached at agent construction) is **NOT filtered per request** by default — only `Toolsets` are dynamically resolved. To get per-request filtering, you must wrap your static tools into a `Toolset`.
+Sub-agents remain a static `SubAgents []agent.Agent` list (`agent/agent.go:88-91`), skills are scoped by the `skill.Source` you pass at construction (Q11.5). No publish-time tenant scoping.
 
-### 6.6 Tenant scope on session
+### 6.6 Per-tool-call auth propagation
 
-**Tenant identity is NOT a first-class field on `session.Session`.** The closest:
+**Improved: inbound and outbound seams now exist, but they are not joined to a tenant model.**
 
-- `AppName` — often used as the tenant boundary if "app == tenant".
-- `UserID` — per-user, not per-tenant.
-- `State["app:tenant_id"]` — stuffed in app-scoped state by convention.
+- **Inbound**: `adkrest.ServerConfig.Authenticator` / `Authorizer` (`server/adkrest/handler.go:169-200`). Built-in authenticators: `NewHeader(name)` (trusts a gateway header), `NewIdentityAwareProxy()` (Google IAP headers), `NewGoogleOIDC(cfg)` (ID-token validation with audience and service-account allow-list), `NewCustom(fn)`, `NewNoop()` (`server/authn/*.go`). Authorizer: `authz.NewStrict()` requires `Caller.UserID == {user_id}` in the path/body (`server/authz/strict.go:31-41`); it is checked on `/run`, `/run_sse`, `/run_live`, sessions, artifacts and debug routes (`server/adkrest/controllers/runtime.go:171, 243, 413`).
+- **Outbound**: `auth.CredentialProvider` (`auth/providers.go:31-47`) resolves a credential per call from `ctx`; built-ins are `StaticToken`, `APIKey`, `TokenSourceProvider`, `ADC`, `ServiceAccount`. `auth/gcp.NewProvider` resolves **per-end-user** Google credentials from the Agent Identity / IAM Connector services using the acting user from the invocation identity (`auth/gcp/doc.go:15-26`). `auth.CredentialStore` caches per `{AppName, UserID, Key}` (`auth/store.go:46-82`). `mcptoolset.Config.Auth` applies a provider to every MCP HTTP request (`tool/mcptoolset/set.go:113-122`).
+- **Gap**: `authn.Caller` is not automatically mapped to `session.UserID`; you set `userId` in the body and `authz.Strict` checks they match. `auth.ConsentRequiredError` is defined (`auth/providers.go:59-86`) and its doc says the tool layer turns it into a HITL consent round-trip, but no code outside `auth/` handles it at this commit.
 
-This is a real gap. To get tenant-aware filtering, you stuff tenant in state and check it in every `Toolset.Tools(ctx)` call, every `BeforeToolCallback`, every `InstructionProvider`. **No first-class** `Session.TenantID` field.
+### 6.7 Per-tenant rate limit + budget cap
 
-### 6.7 Per-tool-call auth propagation
-
-**Limited.** The `context.Context` is plumbed through (so an OAuth token in `ctx` reaches the tool), and the runtime provides `ctx.UserID()` / `ctx.AppName()`. But **the framework doesn't define a "principal" or "claims" first-class type**. You wedge JWT claims into `context.Context` values yourself (Go standard pattern) and your tools fetch them as needed.
-
-There is an `authPreprocessor` in the request-processor chain (`internal/llminternal/base_flow.go:80`) — it relates to OAuth-flow tools (the agent requesting permission to talk to a remote service), not request-time caller identity.
-
-### 6.8 Resource scoping primitives
-
-Tools/toolsets are **registered at agent construction time** in static slices. Filtering at runtime via `FilterToolset`/`Predicate` is the only mechanism. There is **no concept of "register this tool for tenant X only at publish time"** — all scoping is runtime predicate.
-
-Sub-agents likewise are a static `SubAgents []agent.Agent` list (`agent/agent.go:88-89`); no per-tenant gating.
-
-Skills: scoped via the `Source` you pass to `skilltoolset.New(...)`. You can build a tenant-conditional source by wrapping (e.g. `MergedSource(globalSource, tenantSource(ctx))`) — but the wrap-by-tenant logic is hand-rolled.
-
-### 6.9 Per-tenant rate limit + budget cap
-
-**Not provided — BYO.** No `MaxTokens`-per-tenant, no USD cap, no rate-limit middleware. The trigger controllers have `MaxConcurrentRuns` (`server/adkrest/controllers/triggers/config.go:30`) but that's global to the trigger, not per-tenant. Token counts are exposed via `Event.UsageMetadata` for you to roll up however you like.
-
-This is the **same gap as many other agent frameworks benchmarked** — no agent framework solves this in a useful way; it's the application's job.
+**Not provided — BYO.** No token or USD cap, no rate limiter. `TriggerConfig.MaxConcurrentRuns` (`server/adkrest/controllers/triggers/config.go:27-28`) is global to a trigger. `LiveRunConfig.MaxLLMCalls` (`agent/live.go:48`) caps LLM calls per live run, not per tenant. Token counts are on each event's `UsageMetadata` for you to aggregate.
 
 ### ⭐ Required — light usage example
 
@@ -949,92 +846,87 @@ import (
     "fmt"
 
     "google.golang.org/genai"
-    "google.golang.org/adk/agent"
-    "google.golang.org/adk/agent/llmagent"
-    "google.golang.org/adk/model/gemini"
-    "google.golang.org/adk/runner"
-    "google.golang.org/adk/session"
-    "google.golang.org/adk/tool"
-    "google.golang.org/adk/tool/functiontool"
+
+    "google.golang.org/adk/v2/agent"
+    "google.golang.org/adk/v2/agent/llmagent"
+    "google.golang.org/adk/v2/model/gemini"
+    "google.golang.org/adk/v2/runner"
+    "google.golang.org/adk/v2/session"
+    "google.golang.org/adk/v2/tool"
+    "google.golang.org/adk/v2/tool/functiontool"
 )
 
-type TopicSearchArgs struct {
-    Query    string `json:"query"`
-    TenantID string `json:"tenant_id"` // LLM may try to set this; we overwrite below
-}
+type tenantKey struct{}
+type Tenant struct{ ID, StrategyID string }
 
-func topicSearch(ctx tool.Context, args TopicSearchArgs) (map[string]any, error) {
-    // tenant_id is FORCED — value from LLM is ignored
-    return map[string]any{"results": []string{"topic1@" + args.TenantID}}, nil
+type TopicArgs struct {
+    Query    string `json:"query"`
+    TenantID string `json:"tenant_id,omitempty"` // visible in schema; overwritten below
 }
 
 func main() {
     ctx := context.Background()
-    model, _ := gemini.NewModel(ctx, "gemini-2.5-flash", &genai.ClientConfig{})
+    m, _ := gemini.NewModel(ctx, "gemini-2.5-flash", &genai.ClientConfig{})
 
-    topicSearchTool, _ := functiontool.New(
-        functiontool.Config{Name: "topicSearch", Description: "Search audience topics."},
-        topicSearch,
-    )
-    iabSearchTool, _ := functiontool.New(
-        functiontool.Config{Name: "iabSearch", Description: "Search IAB categories."},
-        func(ctx tool.Context, a struct{Query string `json:"query"`}) (map[string]any, error) {
+    topicSearch, _ := functiontool.New(functiontool.Config{Name: "topicSearch", Description: "Search topics."},
+        func(ctx agent.Context, a TopicArgs) (map[string]any, error) {
+            return map[string]any{"results": []string{"surf@" + a.TenantID}}, nil
+        })
+    iabSearch, _ := functiontool.New(functiontool.Config{Name: "iabSearch", Description: "Search IAB."},
+        func(ctx agent.Context, a struct{ Query string `json:"query"` }) (map[string]any, error) {
             return map[string]any{"iab": []string{"IAB1"}}, nil
-        },
-    )
-    audienceCreateTool, _ := functiontool.New(
-        functiontool.Config{Name: "audienceCreate", Description: "Create an audience."},
-        func(ctx tool.Context, a struct{Name string `json:"name"`}) (map[string]any, error) {
+        })
+    audienceCreate, _ := functiontool.New(functiontool.Config{Name: "audienceCreate", Description: "Create audience."},
+        func(ctx agent.Context, a struct{ Name string `json:"name"` }) (map[string]any, error) {
             return map[string]any{"id": "aud_42"}, nil
-        },
-    )
+        })
 
-    // Step 2 (visible tools): all three are listed; bashExec/webFetch never registered.
     a, _ := llmagent.New(llmagent.Config{
         Name:        "predict_agent",
-        Model:       model,
-        Instruction: "You help marketers. Tenant: {app:tenant_id}, strategy: {targetingStrategyId}",
-        Tools:       []tool.Tool{topicSearchTool, iabSearchTool, audienceCreateTool},
+        Model:       m,
+        Instruction: "You help marketers. Strategy: {targeting_strategy_id}.",
+        // Step 2: only these three tools are registered; bashExec/webFetch never are.
+        // For per-tenant selection, put them in a tool.FilterToolset with a ctx-aware Predicate.
+        Tools: []tool.Tool{topicSearch, iabSearch, audienceCreate},
         BeforeToolCallbacks: []llmagent.BeforeToolCallback{
-            // Step 3 (forced args server-side): overwrite tenant_id on topicSearch.
-            func(ctx tool.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
+            // Step 3: force tenant_id server-side, whatever the LLM sent.
+            func(ctx agent.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
                 if t.Name() == "topicSearch" {
-                    tenantVal, _ := ctx.State().Get("app:tenant_id")
-                    args["tenant_id"] = tenantVal // overwrite whatever the LLM passed
+                    tenant, ok := ctx.Value(tenantKey{}).(Tenant)
+                    if !ok {
+                        return nil, fmt.Errorf("no tenant on context")
+                    }
+                    args["tenant_id"] = tenant.ID
                 }
-                return nil, nil // continue to tool execution
+                return nil, nil
             },
         },
     })
 
-    sessSvc := session.InMemoryService()
-    r, _ := runner.New(runner.Config{AppName: "predict", Agent: a, SessionService: sessSvc, AutoCreateSession: true})
+    r, _ := runner.New(runner.Config{AppName: "predict", Agent: a,
+        SessionService: session.InMemoryService(), AutoCreateSession: true})
 
-    // Step 1 (passing tenant/strategy/user): tenantId via app:-scoped state delta + userID arg.
-    initialState := map[string]any{
-        "app:tenant_id":         "acme",
-        "targetingStrategyId":   "strat-42",
-        "user:locale":           "fr-FR",
-    }
+    // Step 1: tenant on ctx (server-controlled), user as userID, strategy as session state.
+    ctx = context.WithValue(ctx, tenantKey{}, Tenant{ID: "acme", StrategyID: "strat-42"})
     msg := genai.NewContentFromText("Find topics relevant to surfers", genai.RoleUser)
-    for ev, err := range r.Run(ctx, "u-123", "sess-1", msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE},
-        runner.WithStateDelta(initialState)) {
-        if err != nil { fmt.Println("err:", err); break }
-        fmt.Printf("event: %s\n", ev.Author)
+    for ev, err := range r.Run(ctx, "u-123", "sess-1", msg,
+        agent.RunConfig{StreamingMode: agent.StreamingModeSSE},
+        runner.WithStateDelta(map[string]any{"targeting_strategy_id": "strat-42"})) {
+        if err != nil {
+            break
+        }
+        fmt.Println(ev.Author)
     }
 }
 ```
 
-**What works**:
+What works:
 
-- Step 1: passed `tenantId="acme"`, `strategyId="strat-42"`, `userId="u-123"`. Tenant goes via `app:` prefix → routed to `storageAppState` table.
-- Step 2: only the three tools are registered on the agent; the LLM never sees `bashExec`/`webFetch`.
-- Step 3: `BeforeToolCallback` overwrites `args["tenant_id"]` before the tool runs — the LLM-supplied value is discarded.
+- **Step 1**: `tenantId="acme"` travels on `ctx` (in the REST server, put it in `authn.Caller.Claims` from a custom `Authenticator` and read it with `authn.CallerFromContext`). `userId="u-123"` is the `userID` argument. `targetingStrategyId="strat-42"` is session state, templated into the instruction.
+- **Step 2**: only the three tools are registered. Per-tenant variation needs a `Toolset` + `Predicate`.
+- **Step 3**: `BeforeToolCallback` overwrites `args["tenant_id"]`; the LLM's value is discarded.
 
-**Caveats**:
-
-- The LLM still **sees** `tenant_id` as a field in the `topicSearch` schema (since `TopicSearchArgs` exposes it). For a cleaner story, define a different `LLMArgs` (without `TenantID`) for schema generation and a `ToolArgs` (with `TenantID`) for execution, plus conversion in the callback. Or use `cfg.InputSchema` override to manually scrub the field from the JSON schema. There's no zero-boilerplate "InjectedToolArg" annotation.
-- `Session.State` and `BeforeToolCallback` together approximate the needed pattern but require discipline — every tool author must remember to leave room for the override.
+Caveats: the LLM still sees `tenant_id` in the `topicSearch` schema (drop it from `TopicArgs` and read the tenant inside the tool to avoid that). The ctx value is not persisted, so a HITL resume on a later request must re-establish it.
 
 ---
 
@@ -1042,117 +934,118 @@ func main() {
 
 ### 7.1 Enumerate every hook / middleware / lifecycle callback
 
-**Two places where callbacks live**:
+Callbacks live in three places:
 
-1. **`plugin.Config`** (`plugin/plugin.go:26-48`) — registered once at runner build time; fire across **all agents**.
-2. **`llmagent.Config`** — registered per LLM agent; fire only for that agent.
+1. **`plugin.Config`** (`plugin/plugin.go:30-52`), registered on the runner (`runner.Config.PluginConfig`) or the REST server (`ServerConfig.PluginConfig`); fire for every agent.
+2. **`llmagent.Config`** (`agent/llmagent/llmagent.go:183-352`), per LLM agent.
+3. **`agent.Config`** (`agent/agent.go:88-108`): `BeforeAgentCallbacks` / `AfterAgentCallbacks` for any agent type (also on `workflowagent.Config`).
 
-Plus the base `agent.Config` has `BeforeAgentCallbacks` / `AfterAgentCallbacks` for any agent type.
-
-| Callback | Where | When fires | Can do |
+| Callback | Where | When it fires | Can do |
 |---|---|---|---|
-| `OnUserMessageCallback` | plugin only | Before runner appends user message to session | Read/mutate the `*genai.Content` user input |
-| `BeforeRunCallback` | plugin only | Before the agent loop starts | Read; if returns content, short-circuit run with that content |
-| `AfterRunCallback` | plugin only | After loop ends (defer) | Read only — for cleanup/metrics |
-| `OnEventCallback` | plugin only | After each event emitted by the agent, before persist | Mutate the event |
-| `BeforeAgentCallback` | plugin + agent | Before each `agent.Run` | Read + state delta; if returns content, skip agent run |
-| `AfterAgentCallback` | plugin + agent | After agent.Run finishes | Read + state delta; if returns content, replace final |
-| `BeforeModelCallback` | plugin + llmagent | Before each LLM call (in `Flow.callLLM`) | Mutate `*model.LLMRequest`; if returns response, skip LLM call |
-| `AfterModelCallback` | plugin + llmagent | After each LLM response | Mutate / replace `*model.LLMResponse`; can implement caching, redaction |
-| `OnModelErrorCallback` | plugin + llmagent | When LLM call errors | Convert error to response (resilience) |
-| `BeforeToolCallback` | plugin + llmagent | Before each tool dispatch | Mutate `args map[string]any` in place; if returns result, skip tool |
-| `AfterToolCallback` | plugin + llmagent | After tool returns (success or error) | Mutate result map; can compress, summarize |
-| `OnToolErrorCallback` | plugin + llmagent | On tool error | Convert error to result |
+| `OnUserMessageCallback` | plugin | before the user message is appended | replace the `*genai.Content` |
+| `BeforeRunCallback` | plugin | before the run starts | return content to short-circuit the run |
+| `AfterRunCallback` | plugin | deferred at run end | read only (cleanup/metrics) |
+| `OnEventCallback` | plugin | each event, before persist | replace/mutate the event |
+| `BeforeAgentCallback` | plugin + agent | before each `agent.Run` | state delta; return content to skip the agent |
+| `AfterAgentCallback` | plugin + agent | after `agent.Run` | state delta; return content to append a final event |
+| `BeforeModelCallback` | plugin + llmagent | before each LLM call | mutate `*model.LLMRequest`; return a response to skip the call |
+| `AfterModelCallback` | plugin + llmagent | after each LLM response | replace/mutate `*model.LLMResponse` |
+| `OnModelErrorCallback` | plugin + llmagent | LLM error | convert error into a response |
+| `BeforeToolCallback` | plugin + llmagent | before tool dispatch (non-streaming tools) | mutate `args` in place; return a result to skip the tool |
+| `AfterToolCallback` | plugin + llmagent | after tool returns | replace/mutate result |
+| `OnToolErrorCallback` | plugin + llmagent | tool error (incl. "tool not found") | convert error into a result |
+| `InstructionProvider` / `GlobalInstructionProvider` | llmagent | each request (`instructionsRequestProcessor`) | return the system instruction dynamically |
+| `Toolset.ProcessRequest` (`toolinternal.RequestProcessor`) | tool/toolset | each request (`base_flow.go:908-940`) | mutate `LLMRequest` (used by skills, confirmations) |
+| `compaction.Summarizer` | runner/server config | when a compaction triggers | supply the summary content |
+
+Shipped plugins: `loggingplugin`, `retryandreflect` (tool-error reflection/retry), `functioncallmodifier`, `agentanalytics` (BigQuery, separate module).
 
 ### 7.2 Hook concurrency model
 
-**Sequential**, in registration order (`plugin/plugin_manager_test.go` shows fold-style: plugin callbacks fire first, then agent-level; first non-nil result wins, remaining callbacks are skipped). For example `Flow.runAfterModelCallbacks` (`base_flow.go:744-764`):
-
-```go
-for _, callback := range f.AfterModelCallbacks {
-    cctx := icontext.NewCallbackContextWithDelta(...)
-    callbackResponse, callbackErr := callback(cctx, llmResp, llmErr)
-    if callbackResponse != nil || callbackErr != nil {
-        return callbackResponse, callbackErr
-    }
-}
-```
-
-There is **no parallel callback dispatch** and **no fold-by-merging** (each callback either short-circuits or passes through).
+**Sequential**, in registration order. Plugin callbacks run first; the first non-nil result or error wins and the remaining callbacks, **including agent-level ones**, are skipped (`internal/llminternal/base_flow.go:1520-1566` for tools, `base_flow.go:945-1000` for model). Within one tool batch, callbacks for different tool calls run concurrently on their own goroutines, so callbacks touching shared state must be thread-safe.
 
 ### 7.3 Specific capability tests
 
 | Capability | Supported? | Where |
 |---|---|---|
-| Inject system messages at session start | ✅ | `InstructionProvider` (`llmagent.Config.InstructionProvider`) is called per invocation; can return dynamic system instruction |
-| Expand the user input | ✅ | Plugin `OnUserMessageCallback` (`plugin/plugin.go:161`) returns a modified `*genai.Content` |
-| Mutate the messages list before each LLM call | ✅ | `BeforeModelCallback` receives `*model.LLMRequest` whose `Contents` is mutable |
-| Mutate tool input before dispatch | ✅ | `BeforeToolCallback` mutates `args map[string]any` in place |
-| Mutate tool result before return to LLM | ✅ | `AfterToolCallback` receives `result map[string]any` and may return a new map |
-| Emit additional tool calls in response to a tool result | ❌ | `AfterToolCallback` cannot inject new tool-call events into the loop. You'd need to bake the additional call into the result map and rely on the LLM to chain. **No equivalent to Claude Agent SDK's `additional_messages` from PostToolUse.** |
+| Inject system messages at session start | ✅ | `InstructionProvider` per request; `BeforeAgentCallback` can write state; `{key}` templating from session state |
+| Expand the user input | ✅ | plugin `OnUserMessageCallback` (`plugin/plugin.go:182`) |
+| Mutate the messages list before each LLM call | ✅ | `BeforeModelCallback` gets a mutable `*model.LLMRequest` |
+| Mutate tool input before dispatch | ✅ (non-streaming tools) | `BeforeToolCallback` |
+| Mutate tool result before return to LLM | ✅ (non-streaming tools) | `AfterToolCallback` |
+| Emit additional tool calls in response to a tool result | ❌ | No `additional_messages` equivalent. In a workflow you can route a tool node's output to another node, but that is graph wiring, not a hook. |
 
 ### 7.4 Auto-compaction
 
-**Not provided — BYO.** No built-in summarizer or rolling-window. The `IncludeContents` field (`llmagent.Config.IncludeContents`) has only two values: `"default"` (full history) and `"none"` (current turn only). You'd implement a `BeforeModelCallback` that summarizes when `len(req.Contents) > threshold`.
+**Now built-in (v2.3.0).** `session/compaction` with two strategies (`session/compaction/compaction.go:157-219`):
+
+```go
+type Config struct {
+    CompactionInterval int // sliding window: summarize every N completed invocations
+    OverlapSize        int // invocations repeated across consecutive windows
+    TokenThreshold     int // tail retention: compact mid-invocation once prompt tokens cross this
+    EventRetentionSize int // raw events kept when tail retention fires (required with TokenThreshold)
+    Summarizer         Summarizer // nil => LLMSummarizer over the root agent's model
+}
+```
+
+- **Sliding window** runs after an invocation completes and its events are persisted (`runner/runner.go:263`, `compactAfterInvocation`), from a `defer` so it also runs when the consumer breaks out early. Failed invocations are never summarized (`runner/runner.go:541-552`).
+- **Tail retention** runs inside the request pipeline via `CompactionRequestProcessor`, placed before `ContentsRequestProcessor` (`internal/llminternal/base_flow.go:93-95`, `internal/llminternal/compaction_processor.go:42`).
+- History is never deleted: a summary event carries `Actions.Compaction` and the contents processor substitutes it for the covered range (`internal/llminternal/contents_processor.go:91, 129-131`).
+- Default summarizer: `compaction.NewLLMSummarizer` with the root agent's model and `GenerateContentConfig`, bounded by a 60 s timeout (`runner/runner.go:158-207`). Non-LLM roots need an explicit `Summarizer`.
+- Wiring: `runner.Config.Compaction` (`runner/runner.go:62-77`) or `adkrest.ServerConfig.Compaction` (server-wide, validated at startup, `server/adkrest/handler.go:44-69`).
+- Trade-off documented in code: sliding window reduces prompt size by a constant factor, only tail retention bounds it, and tail-retention summaries bypass plugins (so a redaction plugin does not see them) (`session/compaction/compaction.go:181-201`).
 
 ### 7.5 Prompt cache optimization
 
-**Not provided — BYO.** The `model.LLMRequest.Config *genai.GenerateContentConfig` can include `CachedContent` (a Gemini feature), but **the framework does not automatically place cache breakpoints** or preserve stable prefixes. You'd configure caching manually in the `GenerateContentConfig`.
+**Not provided — BYO.** No automatic cache breakpoints or explicit context-cache management. Gemini's implicit caching happens provider-side; you can set `GenerateContentConfig.CachedContent` yourself. `openaimodel` rejects `CachedContent` (`model/openaimodel/doc.go:43-48`). Usage reports `CachedContentTokenCount` when the provider returns it.
 
-### 7.6 Tool result clearing / progressive disclosure
+### 7.6 Tool result clearing
 
-**Not provided — BYO.** `AfterToolCallback` can mutate large results in place (e.g., write to artifact store, replace with a pointer string), but no first-party "stash + summary" primitive ships.
+**Not provided — BYO.** No API removes or stubs a tool result in history. Workarounds: shrink results in `AfterToolCallback` before they are persisted, or rewrite `req.Contents` in `BeforeModelCallback` (affects the prompt, not storage). Compaction eventually folds old tool outputs into a summary, and the `LLMSummarizer` truncates long tool content in the transcript it summarizes (`MaxToolContentChars`, `session/compaction/llm_summarizer.go:112-120`). Since v2.5, a function call with no response is no longer sent to the model (#1669).
 
-### 7.7 Architectural diagram of where hooks fire across the loop
+### 7.7 Progressive disclosure
+
+Partial, through tools rather than a generic mechanism:
+
+- **Skills**: frontmatter only in the system prompt, body via `load_skill`, files via `load_skill_resource` (Q10).
+- **Artifacts**: `loadartifactstool` lists artifact names and loads content on demand (`tool/loadartifactstool/load_artifacts_tool.go`); v2.5 lets sub-agents run via `agenttool` share artifacts with the parent (#1654).
+- **Memory**: `loadmemorytool` (on demand) vs `preloadmemorytool` (eager).
+- **Compaction** keeps a summary in place of old history.
+
+No filesystem-stash or summary-handle primitive for arbitrary tool outputs.
+
+### 7.8 Architectural diagram of where hooks fire across the loop
 
 ```
-Runner.Run(userID, sessionID, msg, cfg)
+Runner.Run(ctx, userID, sessionID, msg, cfg)
+  ├─ session Get / Create
+  ├─ [LlmAgent root] build workflow START -> agentNode; ReconstructRunState (HITL resume?)
+  ├─ plugin.OnUserMessageCallback(msg)
+  ├─ sessionService.AppendEvent(userMsg)
+  ├─ plugin.BeforeRunCallback ── content? ──> early exit
   │
-  ├─ session.Get / Create
-  │
-  ├─ plugin.OnUserMessageCallback(msg) ────────────────┐
-  │                                                    │
-  ├─ sessionService.AppendEvent(userMsg)               │
-  │                                                    │
-  ├─ plugin.BeforeRunCallback ─ if returns content ────┤ early exit
-  │                                                    │
-  └─ for ev, err := range agent.Run(ctx):              │
-       │                                               │
-       ├─ agent.BeforeAgentCallbacks                   │
-       │    └─ plugin.BeforeAgentCallback              │
-       │                                               │
-       └─ for { Flow.runOneStep:                       │
-            │                                          │
-            ├─ RequestProcessors[11] (incl. instructions, contents)
-            │                                          │
-            ├─ Flow.callLLM:                           │
-            │    ├─ plugin.BeforeModelCallback         │
-            │    ├─ llmagent.BeforeModelCallbacks      │
-            │    ├─ Model.GenerateContent (stream)     │
-            │    ├─ OnModelErrorCallbacks (if err)     │
-            │    ├─ llmagent.AfterModelCallbacks       │
-            │    └─ plugin.AfterModelCallback          │
-            │                                          │
-            ├─ ResponseProcessors                      │
-            │                                          │
-            └─ Flow.handleFunctionCalls (parallel):    │
-                 for each fnCall (goroutine):          │
-                    ├─ plugin.BeforeToolCallback       │
-                    ├─ llmagent.BeforeToolCallbacks    │
-                    ├─ tool.Run                        │
-                    ├─ OnToolErrorCallbacks (if err)   │
-                    ├─ llmagent.AfterToolCallbacks     │
-                    └─ plugin.AfterToolCallback        │
-       }                                               │
-       agent.AfterAgentCallbacks                       │
-        └─ plugin.AfterAgentCallback                   │
-                                                       │
-   For each ev:                                        │
-   ├─ plugin.OnEventCallback(ev)                       │
-   ├─ if !ev.Partial: sessionService.AppendEvent       │
-   └─ yield(ev, nil)                                   │
-                                                       │
-   defer plugin.AfterRunCallback ──────────────────────┘
+  └─ for ev := range workflow.Run / Resume  (or agent.Run on the direct path)
+       ├─ node span "invoke_agent <name>"
+       ├─ agent BeforeAgentCallbacks  (plugin first)
+       └─ Flow.Run loop, each step:
+            ├─ request processors: basic, tools(+Toolset.ProcessRequest), auth, confirmations,
+            │    InstructionProvider, identity, Compaction(tail retention), contents, ...
+            ├─ callLLM: plugin.BeforeModel → agent BeforeModel → GenerateContent
+            │           → OnModelError (on error) → plugin/agent AfterModel
+            ├─ response processors
+            └─ handleFunctionCalls (platform.RunTasks, one task per call):
+                 plugin.BeforeTool → agent BeforeTool → tool.Run
+                 → OnToolError → plugin.AfterTool → agent AfterTool
+                 (streaming tools: RunStream only, no tool callbacks)
+       agent AfterAgentCallbacks
+   per event:
+     ├─ plugin.OnEventCallback(ev)
+     ├─ if !ev.Partial: sessionService.AppendEvent
+     └─ yield(ev)
+   after loop / defer:
+     ├─ sliding-window compaction (summary event via normal append path)
+     └─ plugin.AfterRunCallback
 ```
 
 ### ⭐ Required — light usage example
@@ -1161,95 +1054,78 @@ Runner.Run(userID, sessionID, msg, cfg)
 package main
 
 import (
-    "context"
     "fmt"
-    "strings"
 
-    "google.golang.org/genai"
-    "google.golang.org/adk/agent"
-    "google.golang.org/adk/agent/llmagent"
-    "google.golang.org/adk/model"
-    "google.golang.org/adk/plugin"
-    "google.golang.org/adk/runner"
-    "google.golang.org/adk/session"
-    "google.golang.org/adk/tool"
+    "google.golang.org/adk/v2/agent"
+    "google.golang.org/adk/v2/agent/llmagent"
+    "google.golang.org/adk/v2/plugin"
+    "google.golang.org/adk/v2/runner"
+    "google.golang.org/adk/v2/session"
+    "google.golang.org/adk/v2/session/compaction"
+    "google.golang.org/adk/v2/tool"
 )
 
-func main() {
-    ctx := context.Background()
-    sessSvc := session.InMemoryService()
+type tenantKey struct{}
 
-    // (1) SessionStart-ish: BeforeAgentCallback injects system context into agent state at first run.
-    // (Closest analogue — adk-go has no `SessionStart` hook, but InstructionProvider runs per invocation.)
-    instructionProvider := func(ctx agent.ReadonlyContext) (string, error) {
-        tenant, _ := ctx.ReadonlyState().Get("app:tenant_id")
+func main() {
+    // (1) "SessionStart": no hook by that name. InstructionProvider runs on every request
+    //     and can read state; the tenant comes from ctx.
+    instructions := func(ctx agent.ReadonlyContext) (string, error) {
+        tenant, _ := ctx.Value(tenantKey{}).(string) // ReadonlyContext embeds context.Context
         locale, _ := ctx.ReadonlyState().Get("user:locale")
-        return fmt.Sprintf("You are a marketing assistant. tenant=%v, locale=%v, today=2026-05-16. " +
-            "Use tools to look up topics.", tenant, locale), nil
+        return fmt.Sprintf("tenant=%s, locale=%v, today=2026-05-16. Use tools to look up topics.",
+            tenant, locale), nil
     }
 
-    // (2) PreToolUse on topicSearch: inject tenantId server-side.
-    beforeTool := func(ctx tool.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
+    // (2) PreToolUse on topicSearch: force tenantId server-side.
+    beforeTool := func(ctx agent.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
         if t.Name() == "topicSearch" {
-            tenantVal, _ := ctx.State().Get("app:tenant_id")
-            args["tenant_id"] = tenantVal
+            args["tenant_id"], _ = ctx.Value(tenantKey{}).(string)
         }
         return nil, nil
     }
 
-    // (3) PostToolUse: if topicSearch returns >50 results, summarize in place.
-    afterTool := func(ctx tool.Context, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
+    // (3) PostToolUse: >50 results -> summarize in place before it reaches the LLM and the DB.
+    afterTool := func(ctx agent.Context, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
         if t.Name() == "topicSearch" {
-            if results, ok := result["results"].([]any); ok && len(results) > 50 {
-                summary := fmt.Sprintf("[Summarized %d results to top 5]: %v", len(results), results[:5])
-                return map[string]any{"results_summary": summary, "truncated": true}, nil
+            if rs, ok := result["results"].([]any); ok && len(rs) > 50 {
+                return map[string]any{"results": rs[:5], "truncated_from": len(rs)}, nil
             }
         }
-        return result, err
+        return nil, nil // keep original result
     }
 
-    // Plugin variant of the same: applies to every agent.
-    auditPlugin, _ := plugin.New(plugin.Config{
+    audit, _ := plugin.New(plugin.Config{
         Name: "audit",
-        OnEventCallback: func(ctx agent.InvocationContext, ev *session.Event) (*session.Event, error) {
-            if ev.LLMResponse.Content != nil {
-                var text strings.Builder
-                for _, p := range ev.LLMResponse.Content.Parts {
-                    text.WriteString(p.Text)
-                }
-                fmt.Printf("[AUDIT tenant=%v author=%s] %s\n",
-                    sessIDForAudit(ctx), ev.Author, text.String())
-            }
+        OnEventCallback: func(ic agent.InvocationContext, ev *session.Event) (*session.Event, error) {
+            fmt.Printf("[audit app=%s user=%s] author=%s\n", ic.Session().AppName(), ic.Session().UserID(), ev.Author)
             return nil, nil
         },
     })
 
     a, _ := llmagent.New(llmagent.Config{
-        Name:                "predict_agent",
-        Model:               nil, // attach gemini model
-        InstructionProvider: instructionProvider,
-        Tools:               []tool.Tool{},
+        Name: "predict_agent", Model: nil, // attach a model
+        InstructionProvider: instructions,
         BeforeToolCallbacks: []llmagent.BeforeToolCallback{beforeTool},
         AfterToolCallbacks:  []llmagent.AfterToolCallback{afterTool},
     })
 
-    r, _ := runner.New(runner.Config{
-        AppName: "predict", Agent: a, SessionService: sessSvc,
-        PluginConfig: runner.PluginConfig{Plugins: []*plugin.Plugin{auditPlugin}},
+    _, _ = runner.New(runner.Config{
+        AppName: "predict", Agent: a, SessionService: session.InMemoryService(),
+        PluginConfig: runner.PluginConfig{Plugins: []*plugin.Plugin{audit}},
+        // Built-in compaction (v2.3+): summarize every 5 invocations, and compact
+        // mid-turn once the prompt exceeds 100k tokens, keeping the last 20 events raw.
+        Compaction: &compaction.Config{CompactionInterval: 5, TokenThreshold: 100_000, EventRetentionSize: 20},
     })
-    _ = r // run...
-
-    _ = model.LLMResponse{}
-    _ = ctx; _ = genai.RoleUser
 }
-func sessIDForAudit(ctx agent.InvocationContext) string { return ctx.Session().ID() }
 ```
 
 Notes:
 
-- adk-go has **no `SessionStart` hook by name** — the closest equivalent is `InstructionProvider` (runs per invocation, reads state, returns the system prompt) or `BeforeAgentCallback` (runs once per agent invocation, can read state).
-- Forced tool args (Q6.4 + Q7.3) and `AfterToolCallback` summarization both work via in-place map mutation.
-- A plugin-level `OnEventCallback` is the audit/Datadog sink point.
+- `ReadonlyContext` embeds `context.Context` (`agent/context.go:121-124`), so `ctx.Value` works in an `InstructionProvider` as well as in tool callbacks.
+- No `SessionStart` hook by name. `BeforeAgentCallback` is the other option (runs once per agent activation).
+- Returning `(nil, nil)` from `AfterToolCallback` keeps the original result; returning a map replaces it.
+- An `OnEventCallback` plugin is the audit sink, but tail-retention compaction summaries bypass it (7.4).
 
 ---
 
@@ -1257,25 +1133,37 @@ Notes:
 
 ### 8.1 Does the framework ship an HTTP server?
 
-**Yes — three of them, all first-party:**
+**Yes, first-party, in the same module:**
 
-1. **REST API** (`server/adkrest/`) — `gorilla/mux` based, exposed by `adkrest.NewServer`.
-2. **A2A protocol server** (`server/adka2a/`, `server/adka2a/v2/`) — agent-to-agent JSON-RPC over HTTP.
-3. **Agent Engine local emulator** (`server/agentengine/`) — emulates Vertex Agent Engine's REST API.
+1. **REST API** — `server/adkrest/` (`adkrest.NewServer(ServerConfig)` returns an `http.Handler`, `server/adkrest/handler.go:55-148`). `gorilla/mux` based.
+2. **A2A protocol server** — `server/adka2a/v2/` (a2a-go v2) and the older `server/adka2a/`.
+3. **Agent Engine emulator** — `server/agentengine/`, now including `streaming_agent_run_with_events`.
+4. **Triggers** — Pub/Sub and Eventarc push endpoints (`server/adkrest/controllers/triggers/`).
+5. **Web UI** — embedded Angular build (`cmd/launcher/web/webui/webui.go:92`).
 
-Plus the **Web UI** (embedded via `go:embed distr/*` in `cmd/launcher/web/webui/webui.go`) and Pub/Sub + Eventarc trigger endpoints under `server/adkrest/controllers/triggers/`.
+Launchers compose these: `full`, `prod`, `universal`, `web` (with `api`, `a2a`, `webui`, `triggers` sub-launchers), `console`, `agentengine` (`cmd/launcher/`). Library mode (`runner.Run` behind your own handler) remains fully supported.
 
-### 8.2 HTTP streaming transport
+### 8.2 HTTP streaming protocol (SSE/WS)
 
 | Transport | Endpoint | Purpose |
 |---|---|---|
-| **SSE** (`text/event-stream`) | `POST /run_sse` | Unidirectional streaming of agent events |
-| **WebSocket** | `GET /run_live` | Bidirectional live (audio + tool + transcription) — uses `gorilla/websocket` |
-| **HTTP one-shot** | `POST /run` | Block until full event list, return JSON array |
+| **SSE** (`text/event-stream; charset=UTF-8`) | `POST /run_sse` | Stream `session.Event` JSON frames |
+| **WebSocket** (`gorilla/websocket`) | `GET /run_live` | Bidi live (audio, text, tool calls, transcriptions); frames > 16 MiB close the connection (v2.5) |
+| **JSON one-shot** | `POST /run` | Block until done, return the event array |
+
+Optional **h2c** on the web launcher (`-h2c`, `cmd/launcher/web/web.go:374`). The wire format is ADK's own event JSON; no Vercel AI SDK or AG-UI protocol adapter.
 
 ### 8.3 HTTP endpoints that start an agent run
 
-Request body for `/run` and `/run_sse` (`server/adkrest/internal/models/runtime.go:23-35`):
+Routes (`server/adkrest/internal/routers/runtime.go:36-54`):
+
+```
+POST /run        → JSON array of events
+POST /run_sse    → SSE stream of events
+GET  /run_live   → WebSocket (query: appName|app_name, userId|user_id, sessionId|session_id)
+```
+
+Body for `/run` and `/run_sse` (`server/adkrest/internal/models/runtime.go:23-40`):
 
 ```json
 {
@@ -1284,144 +1172,139 @@ Request body for `/run` and `/run_sse` (`server/adkrest/internal/models/runtime.
   "sessionId": "sess-1",
   "newMessage": { "role": "user", "parts": [{"text": "hi"}] },
   "streaming": true,
-  "stateDelta": { "app:tenant_id": "acme" }
+  "stateDelta": { "targeting_strategy_id": "strat-42" },
+  "functionCallEventId": "optional, accepted for adk-python parity, ignored"
 }
 ```
 
-Routes (`server/adkrest/internal/routers/runtime.go:33-55`):
+The session must exist (`validateSessionExists`, `runtime.go:249-253`, 404 otherwise). Session routes (`server/adkrest/internal/routers/sessions.go:36-74`):
 
 ```
-POST  /run        → JSON array of events when complete
-POST  /run_sse    → SSE stream of events
-GET   /run_live   → WebSocket upgrade for bidi
-```
-
-Session lifecycle (`server/adkrest/internal/routers/sessions.go:33-67`):
-
-```
-GET    /apps/{app_name}/users/{user_id}/sessions/{session_id}
+GET    /apps/{app_name}/users/{user_id}/sessions
 POST   /apps/{app_name}/users/{user_id}/sessions
 POST   /apps/{app_name}/users/{user_id}/sessions/{session_id}
+GET    /apps/{app_name}/users/{user_id}/sessions/{session_id}
+PATCH  /apps/{app_name}/users/{user_id}/sessions/{session_id}      (new: update session)
 DELETE /apps/{app_name}/users/{user_id}/sessions/{session_id}
-GET    /apps/{app_name}/users/{user_id}/sessions
 ```
 
-### 8.4 Live agentic event stream format
+Plus artifacts (`.../sessions/{session_id}/artifacts[/{name}[/versions/{v}]]`), `GET /list-apps`, `GET /version`, `GET /health`, and debug/graph routes when `IncludeDebugAPI` is set. All bodies are capped at 10 MiB by default (`MaxBytesMiddleware`, `server/adkrest/handler.go:85-88`, `server/adkrest/middleware.go`).
 
-`server/adkrest/controllers/runtime.go:172-189` (`flashEvent`):
+### 8.4 Interrupt / cancel in-flight run
+
+**Close the connection.** The SSE handler runs the agent on `req.Context()` (`server/adkrest/controllers/runtime.go:279`), so a client disconnect cancels the context and the iterator stops; v2 fixed nil event loops after cancellation (#1479) and propagates cancellation into workflow nodes (#1258). For `/run_live`, send `{"close": true}` (`models.LiveRequest.Close`, `server/adkrest/internal/models/runtime.go:67-73`) or close the socket.
+
+**No `DELETE /run/{id}` or cancel endpoint**, and no run ID to target one from another connection or pod. Cross-pod cancel is BYO.
+
+### 8.5 Resume / replay endpoint
+
+- **Reopen a session**: `GET .../sessions/{session_id}` returns the persisted events; render them client-side. No server-side replay of the live stream, no `Last-Event-ID` support.
+- **Continue a paused run**: there is no `/resume` route. Send the HITL answer as a `functionResponse` in `newMessage` to `/run_sse`. On the node path the runner rebuilds the paused workflow from history and calls `Resume` (`runner/run_node.go:179-194`, `buildResumeResponses` at `run_node.go:326`).
+- **Live**: Gemini session resumption via `LiveRunConfig.SessionResumption` (`agent/live.go:46`).
+
+### 8.6 HITL approval workflow
+
+Two pause mechanisms, both answered through the normal run endpoint:
+
+1. **Tool confirmation** — a tool with `RequireConfirmation` / `RequireConfirmationProvider`, or one that calls `ctx.RequestConfirmation(hint, payload)`, causes an `adk_request_confirmation` function call (`tool/toolconfirmation/tool_confirmation.go:46`). Applies to function tools, MCP toolsets and (since v2.5) streaming tools (#1596).
+2. **Workflow input request** (v2) — a node yields `workflow.NewRequestInputEvent(...)`, producing an `adk_request_input` function call with `RequestedInput{InterruptID, Message, ResponseSchema, Payload}` (`workflow/request_input.go:36-72`, `session/session.go:184-215`). The resume payload is validated against `ResponseSchema` (`workflow/resume.go:253`).
+
+Client flow: detect the call (and `longRunningToolIds` on the event), ask the user, then `POST /run_sse` with `newMessage.parts[].functionResponse` using the **same `id`** and the function name. `findAgentToRun` / `handleUserFunctionCallResponse` route the reply to the agent that asked (`runner/runner.go:1151-1210`). The pause is observable only through the event content; there is no run-status endpoint. v2 added several correctness fixes (confirmations resumed only from agent-authored events #1357, conflicting confirmations rejected #1369, request-order resume #1169). The `console` launcher can now answer HITL prompts in a terminal (`cmd/launcher/console/hitl.go`).
+
+### 8.7 Token streaming
+
+All three kinds arrive as the same `data: <models.Event JSON>` frame (`server/adkrest/controllers/runtime.go:329-338`), distinguished by fields:
+
+- **Text delta**: `partial: true` with a text part.
+
+  ```
+  data: {"id":"…","author":"predict_agent","partial":true,"content":{"role":"model","parts":[{"text":"Top top"}]},"actions":{…}}
+  ```
+
+- **Partial tool arguments**: the stream aggregator yields every raw provider chunk as a partial event and assembles function-call arguments from `partialArgs` / `willContinue` into the final non-partial event (`internal/llminternal/stream_aggregator.go:59-76, 129-175`). Only models/backends that stream arguments produce them; the genai SDK marks these fields "not supported in Gemini API" (Vertex only). Illustrative partial frame:
+
+  ```
+  data: {"partial":true,"content":{"role":"model","parts":[{"functionCall":{"name":"topicSearch","partialArgs":[{"jsonPath":"$.query","stringValue":"surf"}],"willContinue":true}}]}}
+  ```
+
+- **Agent activity**: complete tool-call and tool-result events (non-partial), state-delta events, transfer events, workflow node outputs (`output`, `nodeInfo.path`), compaction events. No dedicated lifecycle frames (`run_started`, `tool_started`).
+
+### 8.8 Authentication & Authorisation
+
+**Now first-party (v2.4.0+, #1561).** `adkrest.ServerConfig` (`server/adkrest/handler.go:169-200`):
 
 ```go
-func flashEvent(rc *http.ResponseController, rw http.ResponseWriter, data string) error {
-    _, err := fmt.Fprintf(rw, "data: %s\n\n", data)
-    ...
-    err = rc.Flush()
-    ...
-}
+// Authenticator authenticates inbound requests to every endpoint except the
+// public ones (/health and /version) ... When nil it defaults to [authn.Noop] ...
+Authenticator authn.Authenticator
+// Authorizer decides whether the authenticated caller's identity may act as the user
+// named in a request ... When nil it defaults to [authz.Noop] ...
+Authorizer authz.Authorizer
 ```
 
-So the wire is `data: <json>\n\n` for normal events and `event: error\ndata: <json>\n\n` for errors. **No explicit `start`/`end` SSE event types** — the stream starts on connection and ends when the iterator returns. Frames are JSON `models.Event` objects.
+- **Authentication**: `authn.Middleware` wraps every non-public route (`server/adkrest/internal/routers/routers.go:44-49, 93`) and answers 401/403/500. Providers: `NewHeader`, `NewIdentityAwareProxy`, `NewGoogleOIDC` (v2.5, audience + allowed service accounts, `server/authn/googleoidc.go:61-104`), `NewCustom`, `NewNoop`.
+- **Authorization**: one check, `CanActAsUser(ctx, userID)` (`server/authz/authz.go:30-35`). `authz.NewStrict()` requires the authenticated `UserID` to equal the request's `userId` (`server/authz/strict.go:31-41`). Enforced in runtime, sessions, artifacts and debug controllers.
+- **Browser hardening (v2.5)**: origin/Host checks against `AllowedOrigins` and `BindHost` to block cross-origin and DNS-rebinding access (`internal/originguard/originguard.go`, `server/adkrest/handler.go:202-260`).
+- **Not provided**: tenant-level or resource-level authorization (e.g. "user may act only within tenant acme"), app-level authorization (`appName` is not checked), RBAC. Defaults are open (`Noop`), so a deployment without an `Authenticator` is unauthenticated.
 
-Sample frames (already shown in 3.6).
+### 8.9 Tool-call state reconstruction
 
-### 8.5 Auth termination at the HTTP boundary
+**Explicit `FunctionCall.ID`.** The framework fills missing IDs (`utils.PopulateClientFunctionCallID`, `internal/llminternal/base_flow.go:999, 1164`); every `functionResponse` carries the same `id`. Parallel tool results arrive as one event with several `functionResponse` parts. Client side: join `content.parts[].functionCall.id` to a later `content.parts[].functionResponse.id`. For long-running tools, `longRunningToolIds` on the call event lists the IDs whose responses will come later (from the client). `FunctionCall.Args` is always serialized as `{}` rather than omitted (`server/adkrest/internal/models/event.go:150-160`).
 
-**Not provided in the OSS server.** `server/adkrest/handler.go:37-60` does not register any auth middleware. The example `examples/web/main.go:52-63` shows an `AuthInterceptor` that's plumbed via `a2asrv.WithCallInterceptor` for the A2A path — but it sets `callCtx.User = &a2asrv.AuthenticatedUser{UserName: "user"}` to a hardcoded string. **You wrap the REST router with your own middleware** (JWT validation, tenant extraction → `context.Context` values).
+### 8.10 Health checks / graceful shutdown
 
-### 8.6 Resume / replay endpoint
-
-**Yes — `GET .../sessions/{session_id}` returns the full event list** (`server/adkrest/controllers/sessions.go:GetSessionHandler`), and the client can replay/render. There is **no `/resume` or `/replay` endpoint** — resumption is implicit (call `/run_sse` again with the same `sessionId` and the runner picks up history).
-
-For the live (bidi) path there is `genai.SessionResumptionConfig` (`agent/live.go:46`) which leverages Gemini's session-resumption handle.
-
-### 8.7 Interrupt / cancel via HTTP
-
-**Implicit via `context.Context` cancellation** — the SSE handler reads `req.Context()` (`runtime.go:130`), so a client closing the SSE connection cancels the context, which propagates into `Runner.Run` and stops the iterator. **No explicit `DELETE /run/{id}` endpoint.** No `AbortSignal` framing in the SSE protocol itself.
-
-### 8.8 Tool-arg streaming (partial JSON)
-
-**Inherited from Gemini** — when the model streams a `FunctionCall`, the framework forwards the `Partial == true` events. The frame shape is the same `models.Event` but with `partial: true` and the `FunctionCall.Args` as a partial map. Some downstream frames complete the args.
-
-`server/adkrest/internal/models/event.go:128-178` ensures `FunctionCall.Args` is marshaled as `{}` not `null` when nil, so client-side decoders see a non-null `args` field even when empty.
-
-### 8.9 HITL approval workflow over HTTP
-
-**Yes — via `FunctionResponse` with name `adk_request_confirmation`** (`tool/toolconfirmation/tool_confirmation.go:46`).
-
-Wire:
-
-1. Tool calls `ctx.RequestConfirmation(hint, payload)`. The framework emits a `FunctionCall` event with `Name: "adk_request_confirmation"`, args contain `originalFunctionCall` and the confirmation hint/payload.
-2. Client decodes the `FunctionCall`, asks the user.
-3. Client sends a follow-up `POST /run_sse` (or via WS) whose `newMessage` has `parts: [{functionResponse: {name: "adk_request_confirmation", id: <same as call id>, response: {"confirmed": true, "payload": {...}}}}]`.
-4. The runner's `findAgentToRun` matches the function response to the original call (`runner.go:625-650`), the matching agent's loop resumes, and the tool re-runs — this time `ctx.ToolConfirmation()` returns the user's verdict.
-
-There is **no separate `/approve` endpoint** — approvals reuse the run-message endpoint with a function-response payload. There is no observable "pause" status from the API — the client infers pause from `LongRunningToolIDs` on the last event.
-
-### 8.10 Tool-call state reconstruction ⭐
-
-**Explicit by `FunctionCall.ID`.** The framework populates a UUID for any unfilled `Function​Call.ID` via `utils.PopulateClientFunctionCallID` (`base_flow.go:656, 816`). Every `Part.FunctionResponse` carries the same `ID`. Client-side: build a map `toolCallID → {callEvent, responseEvent}` by joining the two on `ID`.
-
-For the SSE stream's `Event.Content.Parts[i].FunctionCall.Id` and a later event's `Event.Content.Parts[i].FunctionResponse.Id` are the linkage.
-
-### 8.11 Health checks / graceful shutdown
-
-- Healthz/readiness: **not provided as a default route in `adkrest`** — `setupRouter` (`handler.go:103-106`) wires only the six routers (Sessions, Runtime, Apps, Debug, Artifacts, Eval-stub). You wrap your own `/healthz` middleware.
-- `/debug/*` endpoints for trace inspection (`server/adkrest/internal/routers/debug.go`) — useful for in-process trace dump.
-- Graceful shutdown: `cmd/launcher/web/web.go:206-220` shows the SIGTERM-friendly pattern — `<-ctx.Done()` triggers `srv.Shutdown(shutdownCtx)` with a configurable timeout (default 15s).
-- Metrics endpoint: **not provided** — OTel metrics go to your configured exporter, not to a Prometheus-style `/metrics` route.
+- **`GET|HEAD /health`** → `{"status":"ok"}`, public, registered before auth (`server/adkrest/handler.go:90`, v2.3.0). Liveness only; no readiness check of the session store.
+- **`GET /version`** → ADK version, public (`server/adkrest/internal/routers/version.go:36-44`).
+- **Graceful shutdown**: the web launcher calls `srv.Shutdown` on context cancellation with `-shutdown-timeout` (default 15 s) and now shuts telemetry down too (`cmd/launcher/web/web.go:200-246, 372`).
+- **Metrics**: no `/metrics` route; OTel exporters only.
+- Request size limit: `-max_request_body_size` (default 10 MiB, `cmd/launcher/web/web.go:375`).
 
 ### ⭐ Required — light usage example
 
+Server side (Go), so that `X-Tenant-Id` is actually consumed:
+
+```go
+srv, _ := adkrest.NewServer(adkrest.ServerConfig{
+    SessionService: sessSvc, AgentLoader: agent.NewSingleLoader(rootAgent),
+    // Gateway has already validated the JWT and sets these headers.
+    Authenticator: authn.NewCustom(func(r *http.Request) (*authn.Caller, error) {
+        uid, tenant := r.Header.Get("X-User-Id"), r.Header.Get("X-Tenant-Id")
+        if uid == "" || tenant == "" {
+            return nil, authn.ErrUnauthenticated
+        }
+        return &authn.Caller{UserID: uid, Claims: map[string]any{"tenant_id": tenant}}, nil
+    }),
+    Authorizer: authz.NewStrict(), // body userId must equal the authenticated user
+})
+// Tools/callbacks: caller, _ := authn.CallerFromContext(ctx); caller.Claims["tenant_id"]
+```
+
 ```bash
-# Step 1: start a run with tenant in the state delta
+# 1. Create the session, then start a run
+curl -X POST http://localhost:8080/apps/predict/users/u-123/sessions/sess-1 \
+  -H 'X-User-Id: u-123' -H 'X-Tenant-Id: acme' -H 'Content-Type: application/json' -d '{}'
+
 curl -N -X POST http://localhost:8080/run_sse \
-  -H 'Content-Type: application/json' \
-  -H 'X-Tenant-Id: acme' \
-  -d '{
-    "appName": "predict",
-    "userId": "u-123",
-    "sessionId": "sess-1",
-    "newMessage": {"role":"user","parts":[{"text":"find topics for surfers"}]},
-    "streaming": true,
-    "stateDelta": {"app:tenant_id":"acme","targetingStrategyId":"strat-42"}
-  }'
-# Output (SSE):
-# data: {"id":"01...","author":"user","content":{"role":"user","parts":[{"text":"find ..."}]},"actions":{}}
-#
-# data: {"id":"02...","author":"predict_agent","content":{"role":"model","parts":[{"functionCall":{"id":"call_1","name":"topicSearch","args":{"query":"surfers"}}}]},"actions":{}}
-#
-# data: {"id":"03...","author":"predict_agent","content":{"role":"user","parts":[{"functionResponse":{"id":"call_1","name":"topicSearch","response":{"results":["surfing","beach"]}}}]},"actions":{}}
-#
-# data: {"id":"04...","author":"predict_agent","content":{"role":"model","parts":[{"text":"Top topics: surfing, beach"}]},"actions":{}}
+  -H 'X-User-Id: u-123' -H 'X-Tenant-Id: acme' -H 'Content-Type: application/json' \
+  -d '{"appName":"predict","userId":"u-123","sessionId":"sess-1","streaming":true,
+       "newMessage":{"role":"user","parts":[{"text":"find topics for surfers"}]}}'
 
-# Step 2: cancel mid-flight (just close the SSE connection; the server's req.Context() cancels)
-# (no DELETE endpoint — Ctrl-C the curl)
+# 2. SSE stream (abridged)
+# data: {"author":"predict_agent","content":{"role":"model","parts":[{"functionCall":{"id":"call_1","name":"topicSearch","args":{"query":"surfers"}}}]},...}
+# data: {"author":"predict_agent","content":{"role":"user","parts":[{"functionResponse":{"id":"call_1","name":"topicSearch","response":{"results":["surfing"]}}}]},...}
+# data: {"author":"predict_agent","content":{"role":"model","parts":[{"text":"Top topics: surfing"}]},"usageMetadata":{...},...}
 
-# Step 3: send a HITL approval verdict (after the agent emitted an adk_request_confirmation function call with id="call_42")
-curl -X POST http://localhost:8080/run_sse \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "appName": "predict",
-    "userId": "u-123",
-    "sessionId": "sess-1",
-    "newMessage": {"role":"user","parts":[{
-      "functionResponse":{
-        "id":"call_42",
-        "name":"adk_request_confirmation",
-        "response":{"confirmed":true,"payload":{"days_approved":5}}
-      }
-    }]},
-    "streaming": true
-  }'
+# 3. Cancel mid-flight: no endpoint. Close the connection (Ctrl-C); req.Context() is cancelled.
+
+# 4. HITL approval for a paused adk_request_confirmation call with id "call_42"
+curl -N -X POST http://localhost:8080/run_sse \
+  -H 'X-User-Id: u-123' -H 'X-Tenant-Id: acme' -H 'Content-Type: application/json' \
+  -d '{"appName":"predict","userId":"u-123","sessionId":"sess-1","streaming":true,
+       "newMessage":{"role":"user","parts":[{"functionResponse":{
+         "id":"call_42","name":"adk_request_confirmation","response":{"confirmed":true}}}]}}'
 ```
 
-For WebSocket (`/run_live`):
-
-```bash
-# Connect via wscat or similar; the framework accepts agent.LiveRequest frames over the WS.
-wscat -c 'ws://localhost:8080/run_live?appName=predict&userId=u-123&sessionId=sess-1'
-# Send:  {"content":{"role":"user","parts":[{"text":"hello"}]}}
-# Receive: stream of session.Event JSON frames
-```
+WebSocket variant: `wscat -c 'ws://localhost:8080/run_live?appName=predict&userId=u-123&sessionId=sess-1'`, then send `{"content":{"role":"user","parts":[{"text":"hello"}]}}`. When served through the `web` launcher the API is mounted under `-path_prefix` (default `/api`, `cmd/launcher/web/api/api.go:347`).
 
 ---
 
@@ -1429,65 +1312,55 @@ wscat -c 'ws://localhost:8080/run_live?appName=predict&userId=u-123&sessionId=se
 
 ### 9.1 Mechanism
 
-**Three first-class mechanisms:**
+**Both agents-as-tools and first-class primitives, in five flavours:**
 
-1. **Agents-as-tools** — `tool/agenttool/agent_tool.go`. Wrap an `agent.Agent` as a `tool.Tool` so the LLM can invoke it like a function:
-
-   ```go
-   subTool := agenttool.New(researcherAgent, &agenttool.Config{SkipSummarization: false})
-   ```
-
-2. **Workflow agents** — `agent/workflowagents/{parallel,sequential,loop}agent`. These run sub-agents in a fixed orchestration pattern, not via LLM control.
-3. **Agent transfer** — the LLM can emit a `transfer_to_agent(agent_name)` function call (auto-injected by `AgentTransferRequestProcessor`, `base_flow.go:92`). The runner's `Flow.agentToRun` (`base_flow.go:798-810`) looks up the named sub-agent and hands control over. Transfer can go to children, peers, or up to parents (gated by `DisallowTransferToParent`/`DisallowTransferToPeers` flags).
+1. **`agenttool.New(agent, cfg)`** (`tool/agenttool/agent_tool.go:58`) — wraps any agent as a tool; the LLM calls it like a function.
+2. **`transfer_to_agent`** — LLM-emitted handoff to a child, peer or parent (`AgentTransferRequestProcessor`; executed at `internal/llminternal/base_flow.go:848-860`). Control moves; the parent does not receive a result.
+3. **Collaboration modes (v2)** — on `llmagent.Config.Mode` (`agent/llmagent/llmagent.go:343-367`). For each sub-agent with `ModeSingleTurn` or `ModeTask`, the parent gets an auto-installed tool named after the sub-agent (`installTaskTools`, `agent/llmagent/llmagent.go:138-180`). `ModeTask` sub-agents can talk to the user over several turns and return control with `finish_task` (`internal/workflowinternal/finish_task_tool.go:32`).
+4. **Graph workflows (v2)** — `workflow.New(name, edges)` with `NewAgentNode`, `NewFunctionNode`, `NewToolNode`, `NewJoinNode`, `NewParallelWorker`, `NewWorkflowNode` (nested), dynamic nodes (`workflow/*.go`), run as an agent via `workflowagent.New` (`agent/workflowagent/workflow.go:45`).
+5. **Legacy workflow agents** — `agent/workflowagents/{parallel,sequential,loop}agent`, still shipped and fixed in this period (e.g. parallel teardown #1186).
 
 ### 9.2 Configuration
 
-**Statically registered at construction.** `agent.Config.SubAgents []Agent` (`agent/agent.go:88-89`) is set when you call `agent.New` / `llmagent.New` and is immutable thereafter. Workflow agents (`parallelagent.Config.AgentConfig.SubAgents`) likewise.
-
-There is a YAML config path via `internal/configurable/configurable.go` that defines `sub_agents: [{config_path: "..."}]` (`internal/configurable/configurable.go:46-50`) and loads them at boot, used by `cmd/adkgo` CLI for declarative agent definitions.
+**Go structs registered at construction.** `agent.Config.SubAgents` (`agent/agent.go:88-91`), `llmagent.Config.SubAgents`/`Mode`, `workflowagent.Config{Edges, SubAgents}`, `workflow.NodeConfig{ParallelWorker, RerunOnResume, WaitForOutput, RetryConfig, Timeout}` (`workflow/config.go:55-92`). The YAML path (`internal/configurable/`, now with `configurable_workflow.go`) is internal. Remote A2A agents can be resolved from Google Cloud Agent Registry at startup (`agentregistry.Client.RemoteAgent`, `agentregistry/factory.go:180`).
 
 ### 9.3 LLM-generated configs
 
-**No.** Sub-agent configs (system prompt, tools, model) **cannot be generated by the LLM on the fly**. You can build an agent factory in your Go code and ask the LLM for parameters, but the resulting agent must be `agent.New(...)`-constructed in your code, not by the LLM.
+**No.** The LLM can pick which registered sub-agent or tool to call, and dynamic workflow nodes can decide at runtime which **pre-built** node to run (`workflow.NewDynamicNode`, `workflow/dynamic_node.go:48`), but system prompts, tools and models of sub-agents are fixed in Go code.
 
 ### 9.4 Output handling
 
-Depends on mechanism:
-
-- **Agents-as-tools** (`agent/agenttool/agent_tool.go:201-251`): the sub-agent runs in a brand new in-memory session, its events drained, the **last text-bearing event's text** is concatenated and returned as `map[string]any{"result": outputText}`. If `OutputSchema` is set on the sub-agent, the text is parsed against the schema. Linked back to parent's `tool_use` via the sub-agent tool's name as the function name.
-- **Workflow agents**: each sub-agent's events stream directly into the parent's event stream (forwarded via `iter.Seq2`).
-- **Agent transfer**: the new agent's events stream directly into the original `runner.Run` stream — the parent doesn't "receive" a result; it relinquishes control entirely.
+- **`agenttool`**: the sub-agent runs in a fresh in-memory session (`tool/agenttool/agent_tool.go:152-160`, artifacts now forwarded to the parent's service), and the last text output becomes `{"result": "<text>"}` (`agent_tool.go:233`), or a structured object if the sub-agent has an `OutputSchema`. Linked to the parent by the function call ID. Thinking parts are filtered (#696).
+- **Single-turn / task tools**: run via `workflow.RunNode(toolCtx, node, input, workflow.WithUseSubBranch())` and return `{"result": ...}` (`internal/workflowinternal/single_turn_tool.go:79-84`); input/output can be typed from the sub-agent's `InputSchema`/`OutputSchema`.
+- **Graph nodes**: typed `Output` values on events (`session.Event.Output`), routed along edges; a `JoinNode` exposes `map[nodeName]output` to its successor.
+- **Transfer / legacy workflow agents**: the child's events stream straight into the parent's iterator.
 
 ### 9.5 Concurrency model
 
-| Pattern | Concurrency | Implementation |
+| Pattern | Concurrency | Where |
 |---|---|---|
-| Agents-as-tools | **Parallel** (when LLM emits multiple calls in one response) | `Flow.handleFunctionCalls` runs each tool — including agent-tools — in a goroutine (`base_flow.go:893-980`) |
-| `parallelagent` | **Parallel** | `golang.org/x/sync/errgroup`, one goroutine per sub-agent (`agent/workflowagents/parallelagent/agent.go:67-128`) |
-| `sequentialagent` | **Serial** | iterates sub-agents in order |
-| `loopagent` | **Serial in a loop** | iterates with a `MaxIterations` cap |
-| Agent transfer | **Serial** (control fully handed over) | parent's iterator yields child's events |
-
-The line that does the parallelism for sub-agents-via-`parallelagent` is `agent/workflowagents/parallelagent/agent.go:82-99` (`errGroup.Go(...)`).
+| Agents-as-tools / single-turn tools | Parallel when the LLM emits several calls in one response | `platform.RunTasks` (`internal/llminternal/base_flow.go:1501`, `platform/exec.go:50-80`), overridable with `platform.WithTaskRunner` |
+| Graph fan-out | Parallel; one goroutine per scheduled node | `workflow/scheduler.go:405` (`go runNode(...)`), capped by `workflow.WithMaxConcurrency` |
+| `ParallelWorker` | Parallel per list item, bounded | `workflow/parallel_worker.go:39, 155` |
+| `parallelagent` (legacy) | Parallel via `errgroup` | `agent/workflowagents/parallelagent/agent.go:77-88` |
+| `sequentialagent` / `loopagent` | Serial | — |
+| Transfer | Serial (control handed over) | — |
 
 ### 9.6 Context isolation
 
-Each sub-agent invocation gets a **new `InvocationContext`** with its own `Branch` (`parallelagent/agent.go:77-79`):
+- **`agenttool`**: strongest. New `session.InMemoryService()` per call (`tool/agenttool/agent_tool.go:152`); sub-agent events are not stored in the parent session.
+- **Single-turn / task tools and graph nodes**: same session, separated by **branch** (`WithUseSubBranch` derives `<parentBranch>.<child>@<runID>`, `workflow/run_node.go`) and, for task mode, by **`IsolationScope`** (exact match, `session/session.go:117-121`). An `LlmAgent` at a graph node defaults to single-turn and does not see the chat history (`internal/llminternal/mode.go:19-22`).
+- **`parallelagent`**: branch `parent.child` (`parallelagent/agent.go:83-86`), filtered in `ContentsRequestProcessor` (`internal/llminternal/contents_processor.go:142-150`).
 
-```go
-branch := fmt.Sprintf("%s.%s", curAgent.Name(), sa.Name())
-if ctx.Branch() != "" {
-    branch = fmt.Sprintf("%s.%s", ctx.Branch(), branch)
-}
-```
-
-The shared `session.Session` is the SAME object — sub-agents append events to the parent's session events list — but the `Branch` field on events scopes which history each sub-agent sees when `ContentsRequestProcessor` filters events for the LLM. Implementation: `internal/llminternal/contents_processor.go`. So context is logically isolated by branch, but physically shares storage.
-
-Agent-tool isolation is **stronger**: `agenttool.Run` creates a brand new `session.InMemoryService()` for the sub-agent (`agent/agenttool/agent_tool.go:168-198`), so sub-agent events are NOT mixed with parent's session.
+Isolation is a prompt-history filter over shared storage, except for `agenttool`.
 
 ### 9.7 Lifecycle events
 
-Sub-agent lifecycle events bubble up. Each sub-agent's `BeforeAgentCallback`/`AfterAgentCallback` fires, and any events the sub-agent emits are forwarded into the parent's iterator. There is no dedicated "sub-agent started / completed" lifecycle event type — you infer it from `Author` and `Branch` changes on consecutive events.
+No dedicated "sub-agent started/completed" event. You infer lifecycle from `Author`, `Branch`, `IsolationScope` and `NodeInfo.Path` changes. Telemetry does have explicit spans: `invoke_agent <name>` per agent and `invoke_node <name>` per workflow node, including per-item spans for parallel workers (`internal/telemetry/node_tracing.go:35, 87-125`).
+
+### 9.8 Sub-agent model override
+
+**Yes.** Every `llmagent.Config` has its own `Model model.LLM` (`agent/llmagent/llmagent.go:231`), so a Gemini Pro coordinator with Gemini Flash or OpenAI workers is a configuration choice. The model registry (`model.Register` / `model.NewLLM`, `model/registry.go:74, 102`) lets you resolve models by name.
 
 ### ⭐ Required — light usage example
 
@@ -1499,98 +1372,75 @@ import (
     "log"
 
     "google.golang.org/genai"
-    "google.golang.org/adk/agent"
-    "google.golang.org/adk/agent/llmagent"
-    "google.golang.org/adk/agent/workflowagents/parallelagent"
-    "google.golang.org/adk/model/gemini"
-    "google.golang.org/adk/runner"
-    "google.golang.org/adk/session"
-    "google.golang.org/adk/tool"
-    "google.golang.org/adk/tool/agenttool"
-    "google.golang.org/adk/tool/functiontool"
+
+    "google.golang.org/adk/v2/agent"
+    "google.golang.org/adk/v2/agent/llmagent"
+    "google.golang.org/adk/v2/agent/workflowagent"
+    "google.golang.org/adk/v2/model/gemini"
+    "google.golang.org/adk/v2/runner"
+    "google.golang.org/adk/v2/tool"
+    "google.golang.org/adk/v2/tool/functiontool"
+    "google.golang.org/adk/v2/workflow"
 )
 
-type TopicArgs struct {
-    Query string `json:"query"`
-}
-
-func topicSearch(ctx tool.Context, args TopicArgs) (map[string]any, error) {
-    return map[string]any{"results": []string{"surf", "beach"}}, nil
-}
+type TopicArgs struct{ Query string `json:"query"` }
 
 func main() {
     ctx := context.Background()
-    model, _ := gemini.NewModel(ctx, "gemini-2.5-flash", &genai.ClientConfig{})
+    m, _ := gemini.NewModel(ctx, "gemini-2.5-flash", &genai.ClientConfig{})
+    topicTool, _ := functiontool.New(functiontool.Config{Name: "topicSearch", Description: "Search topics."},
+        func(ctx agent.Context, a TopicArgs) (map[string]any, error) {
+            return map[string]any{"results": []string{"surf", "beach"}}, nil
+        })
 
-    topicTool, _ := functiontool.New(functiontool.Config{Name: "topicSearch"}, topicSearch)
+    // 1. Three persona sub-agents. ModeSingleTurn = callable as a tool, no chat with the user.
+    persona := func(name, prompt string) agent.Agent {
+        a, _ := llmagent.New(llmagent.Config{
+            Name: name, Description: "Audience persona " + name, Model: m,
+            Instruction: prompt, Tools: []tool.Tool{topicTool}, Mode: llmagent.ModeSingleTurn,
+        })
+        return a
+    }
+    mom := persona("persona-young-mom", "You are a young mom. Find topics that resonate.")
+    tech := persona("persona-tech-bro", "You are a tech bro. Find topics that resonate.")
+    retiree := persona("persona-retiree", "You are a retiree. Find topics that resonate.")
 
-    // Define 3 persona sub-agents
-    youngMom, _ := llmagent.New(llmagent.Config{
-        Name: "persona-young-mom",
-        Description: "Audience persona: young mom, 25-35, suburban.",
-        Model: model,
-        Instruction: "You are a young mom. Search for topics that resonate with you.",
-        Tools: []tool.Tool{topicTool},
-    })
-    techBro, _ := llmagent.New(llmagent.Config{
-        Name: "persona-tech-bro",
-        Description: "Audience persona: tech bro, 22-38, urban.",
-        Model: model,
-        Instruction: "You are a tech bro. Search for topics that resonate.",
-        Tools: []tool.Tool{topicTool},
-    })
-    retiree, _ := llmagent.New(llmagent.Config{
-        Name: "persona-retiree",
-        Description: "Audience persona: retiree, 65+, suburban/rural.",
-        Model: model,
-        Instruction: "You are a retiree. Search for topics that resonate.",
-        Tools: []tool.Tool{topicTool},
-    })
-
-    // Option A: PARALLEL workflow agent — runs all three concurrently, deterministically.
-    parallelPersonas, _ := parallelagent.New(parallelagent.Config{
-        AgentConfig: agent.Config{
-            Name: "persona_fanout",
-            Description: "Runs all three personas in parallel.",
-            SubAgents: []agent.Agent{youngMom, techBro, retiree},
-        },
+    // 2a. LLM-driven: the parent gets one tool per persona and may call all three in one
+    //     response; the calls run concurrently (platform.RunTasks).
+    parent, _ := llmagent.New(llmagent.Config{
+        Name: "predict_supervisor", Model: m,
+        Instruction: "Ask all three personas in parallel, then compare their topics.",
+        SubAgents:   []agent.Agent{mom, tech, retiree},
     })
 
-    // Option B: Agents-as-tools — LLM decides which personas to invoke (potentially parallel calls).
-    parentLLM, _ := llmagent.New(llmagent.Config{
-        Name: "predict_supervisor",
-        Model: model,
-        Instruction: "You orchestrate persona research. Call persona-young-mom, persona-tech-bro, persona-retiree in parallel when you need multi-persona input.",
-        Tools: []tool.Tool{
-            agenttool.New(youngMom, nil),
-            agenttool.New(techBro,  nil),
-            agenttool.New(retiree,  nil),
-        },
+    // 2b. Deterministic: graph fan-out to the three personas, fan-in with a JoinNode.
+    nMom, _ := workflow.NewAgentNode(mom, workflow.NodeConfig{})
+    nTech, _ := workflow.NewAgentNode(tech, workflow.NodeConfig{})
+    nRet, _ := workflow.NewAgentNode(retiree, workflow.NodeConfig{})
+    join := workflow.NewJoinNode("gather")
+    eb := workflow.NewEdgeBuilder()
+    eb.AddFanOut(workflow.Start, nMom, nTech, nRet)
+    eb.AddFanIn(join, nMom, nTech, nRet)
+    fanout, _ := workflowagent.New(workflowagent.Config{
+        Name: "persona_fanout", Edges: eb.Build(), SubAgents: []agent.Agent{mom, tech, retiree},
     })
+    _ = fanout // pick parent or fanout as the runner root
 
-    // Pick one: parallelPersonas (deterministic fan-out) or parentLLM (LLM-driven).
-    chosen := parentLLM
-    _ = parallelPersonas
-
-    r, _ := runner.New(runner.Config{
-        AppName: "predict", Agent: chosen, SessionService: session.InMemoryService(),
-        AutoCreateSession: true,
-    })
-    msg := genai.NewContentFromText("Research how each persona reacts to surfing content.", genai.RoleUser)
+    r, _ := runner.NewInMemory("predict", parent)
+    msg := genai.NewContentFromText("How does each persona react to surfing content?", genai.RoleUser)
     for ev, err := range r.Run(ctx, "u-123", "sess-1", msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
-        if err != nil { log.Fatal(err) }
-        // Each sub-agent's events show up here with Author=persona-young-mom etc.
-        // For parentLLM: each agenttool returns a FunctionResponse with {"result":"..."} keyed by sub-agent name.
-        // For parallelPersonas: events arrive interleaved as the goroutines emit them.
-        log.Printf("[%s] %s", ev.Author, ev.LLMResponse.Content)
+        if err != nil {
+            log.Fatal(err)
+        }
+        // 3. parent: one event with three functionResponse parts {"result": ...}, keyed by call ID.
+        //    fanout: node events (Author = persona, NodeInfo.Path set); the JoinNode's Output
+        //    is map[nodeName]output.
+        log.Printf("[%s] %v", ev.Author, ev.Output)
     }
 }
 ```
 
-Where the parent receives each result:
-
-- **`agenttool` path**: as `FunctionResponse` events in `agenttool_event.Content.Parts[i].FunctionResponse.Response` — `{"result": "<text from sub-agent>"}` per sub-agent.
-- **`parallelagent` path**: as separate events with distinct `Author` and `Branch` values, interleaved as the goroutines emit them.
+Where the parent receives each result: in path **2a** as `functionResponse` parts named after each persona, linked by call ID; in path **2b** as per-node `Output` values on events, aggregated by the `JoinNode`. Each persona can use a different `Model` (9.8).
 
 ---
 
@@ -1598,11 +1448,11 @@ Where the parent receives each result:
 
 ### 10.1 First-class concept?
 
-**Yes — first-class as of recent commits (April 2026), per skills v1.2 spec.** The package is `tool/skilltoolset/` (`tool/skilltoolset/toolset.go:15`), and the file format follows `https://agentskills.io/specification` (referenced at `tool/skilltoolset/skill/frontmatter.go:36`).
+**Yes.** `tool/skilltoolset/` (since v1.2, April 2026) implements the agentskills.io format (`tool/skilltoolset/skill/frontmatter.go:36-37`). Changes in this period are small: `allowed-tools` now also accepts a scalar string (#1301), and the `load_skill` parameter is documented as `name` (#919). Open issue #540 ("When will skills be supported?") predates or ignores this; the package is in the public API.
 
 ### 10.2 File format
 
-`SKILL.md` with YAML frontmatter (`tool/skilltoolset/skill/frontmatter.go:37-44`):
+`SKILL.md` with YAML frontmatter (`tool/skilltoolset/skill/frontmatter.go:38-45`):
 
 ```go
 type Frontmatter struct {
@@ -1611,30 +1461,17 @@ type Frontmatter struct {
     License       string            `yaml:"license,omitempty"`
     Compatibility string            `yaml:"compatibility,omitempty"`
     Metadata      map[string]string `yaml:"metadata,omitempty"`
-    AllowedTools  []string          `yaml:"allowed-tools,omitempty"`
+    AllowedTools  []string          `yaml:"allowed-tools,omitempty"` // list or space/comma-separated scalar
 }
 ```
 
-Validators (`frontmatter.go:106-138`):
+Validation (`frontmatter.go:196-235`): `name` 1–64 chars, lowercase alphanumerics and hyphens; `description` 1–1024 chars; `compatibility` ≤ 500 chars. The directory name must equal `name` (`tool/skilltoolset/skill/filesystem_source.go:223`). `allowed-tools` is parsed and returned by `load_skill` (`internal/skilltool/load_skill.go:38, 82`) but **not enforced**: nothing restricts the agent's tools while a skill is active.
 
-- `Name`: 1-64 chars, lowercase alphanumeric + hyphens, no leading/trailing/consecutive hyphens.
-- `Description`: 1-1024 chars.
-- `Compatibility`: up to 500 chars.
-- Directory name **MUST match** frontmatter `name` (enforced at load time by `fileSystemSource.readSkill`, `filesystem_source.go:223-226`).
-
-Layout (`tool/skilltoolset/toolset.go:33-37`):
-
-```
-skill-name/
-  SKILL.md              (required, with YAML frontmatter)
-  references/           (optional, additional docs)
-  assets/               (optional, templates/scripts/data)
-  scripts/              (optional, executable scripts)
-```
+Layout (`tool/skilltoolset/toolset.go:34-41`): `SKILL.md`, optional `references/`, `assets/`, `scripts/`.
 
 ### 10.3 Loader mechanism
 
-`skill.Source` interface (`tool/skilltoolset/skill/source.go:41-61`):
+`skill.Source` (`tool/skilltoolset/skill/source.go:41-61`):
 
 ```go
 type Source interface {
@@ -1646,80 +1483,46 @@ type Source interface {
 }
 ```
 
-Implementations shipped:
-
-- `skill.NewFileSystemSource(fs.FS)` — filesystem scan (`tool/skilltoolset/skill/filesystem_source.go:44`). Accepts any `fs.FS`, so `os.DirFS("./skills")` for local or `embed.FS` for bundled.
-- `skill.NewMergedSource(sources ...Source)` — composition (`merged_source.go:32`). Queries sources in order; errors on duplicate names.
-- `skill.WithCompletePreloadSource(ctx, src)` — preloads everything into memory for cheap repeated reads (`complete_preload.go`).
-- `skill.WithFrontmatterPreloadSource(ctx, src)` — preloads only frontmatters (`frontmatter_preload.go`).
-
-The toolset is built via `skilltoolset.New(ctx, Config{Source: ...})` (`toolset.go:65-95`) and produces three tools: `list_skills`, `load_skill`, `load_skill_resource`.
+Shipped implementations: `NewFileSystemSource(fs.FS)` (`filesystem_source.go:44`, any `fs.FS` incl. `embed.FS`), `NewMergedSource(...)` (`merged_source.go:32`), `WithCompletePreloadSource` (`complete_preload.go:57`), `WithFrontmatterPreloadSource` (`frontmatter_preload.go:37`). `skilltoolset.New(ctx, Config{Source, Name, SystemInstruction})` (`toolset.go:68`) yields `list_skills`, `load_skill`, `load_skill_resource`.
 
 ### 10.4 Invocation
 
-**Lazy fetch via tools.** The agent sees three tools in its toolset:
-
-- `list_skills` — lists available skills (name + description from frontmatters).
-- `load_skill` — fetches the SKILL.md body for one named skill.
-- `load_skill_resource` — fetches a file from `references/`, `assets/`, or `scripts/`.
-
-PLUS a system instruction injection (`toolset.go:107-117`):
+**Tool calls plus a system-prompt fragment.** `SkillToolset.ProcessRequest` appends the instruction block and an `<available_skills>` XML list of names and descriptions to every request (`tool/skilltoolset/toolset.go:110-120`, `internal/skilltool/list_skills.go:56-70`):
 
 ```go
-func (ts *SkillToolset) ProcessRequest(ctx tool.Context, req *model.LLMRequest) error {
+func (ts *SkillToolset) ProcessRequest(ctx agent.Context, req *model.LLMRequest) error {
     skills, err := ts.source.ListFrontmatters(ctx)
-    if err != nil { return err }
-    if len(skills) == 0 { return nil }
+    ...
     utils.AppendInstructions(req, ts.systemInstruction, skilltool.SkillsToXML(skills))
     return nil
 }
 ```
 
-So every request gets an XML-formatted list of skill names + descriptions appended to the system prompt, with instructions to call `load_skill` first if relevant.
+The default instruction tells the model it "MUST use the `load_skill` tool with `name=\"<SKILL_NAME>\"`" before following a skill (`toolset.go:45-47`).
 
 ### 10.5 Loading mode
 
-**Lazy.** Only frontmatters (name + description) are in the system prompt; bodies are fetched only when the agent calls `load_skill`. This matches Claude Code's skill loading model.
+**Lazy.** Only frontmatter is in the prompt; the body and resources are fetched by tool calls.
 
-### 10.6 Runtime scoping (global / tenant / user)
+### 10.6 Skill composition
 
-**Via composition, no built-in primitive.** You can:
-
-1. Build per-tenant `Source` (e.g. `NewFileSystemSource(os.DirFS("./skills/tenants/" + tenantID))`),
-2. Merge with a global source (`NewMergedSource(globalSrc, tenantSrc)`),
-3. Pass that to `skilltoolset.New(ctx, Config{Source: composed})`.
-
-But the toolset's `Source` is set at construction time. To get per-request scoping, you'd build a `Source` wrapper that reads `ctx` and dispatches to per-tenant sources. The `Source.ListFrontmatters(ctx)` signature accepts `ctx`, so it's plausible. No first-party `TenantAwareSource` ships.
-
-### 10.7 Skill composition
-
-A `SKILL.md` body is markdown that the LLM reads as instructions. It can:
-
-- Tell the agent to call other tools (referenced by name) — composition by reference.
-- Tell the agent to call `load_skill_resource` for additional files in `references/`, `assets/`, `scripts/`.
-
-It does NOT directly include other skills or call sub-agents from the markdown — composition is whatever the LLM decides to do based on the prose. **No `@include other-skill` directive.**
+The body can reference other tools by name and pull bundled files with `load_skill_resource`. No include directive, no skill-calls-skill or skill-calls-sub-agent mechanism; composition is whatever the LLM does with the prose. `scripts/` are only readable: the toolset has no execution tool.
 
 ### ⭐ Required — light usage example
 
 ```go
-// 1. Author a SKILL.md at skills/generate-audience-from-brief/SKILL.md:
+// skills/generate-audience-from-brief/SKILL.md
 //
 // ---
 // name: generate-audience-from-brief
-// description: Turn a marketing brief into a targeted audience definition. Use when the user supplies a free-text brief mentioning age, geo, interests, or behavior.
-// allowed-tools:
-//   - iabSearch
-//   - topicSearch
-//   - audienceCreate
+// description: Turn a marketing brief into a targeted audience definition. Use when the user supplies a free-text brief mentioning age, geo, interests or behaviour.
+// allowed-tools: topicSearch iabSearch audienceCreate
 // ---
 // # Generate Audience From Brief
-//
-// 1. Parse the brief to extract: demographics (age, geo), psychographics (interests), behavior signals.
-// 2. For each interest, call `topicSearch` to find matching topics.
-// 3. For each topic, call `iabSearch` to find IAB categories.
-// 4. Compose the audience: call `audienceCreate` with `{name, topics, iabs, demographics}`.
-// 5. Reply with the audience id and a one-sentence summary.
+// 1. Extract demographics, interests and behaviour signals from the brief.
+// 2. Call `topicSearch` for each interest, then `iabSearch` for each topic.
+// 3. Call `audienceCreate` with {name, topics, iabs, demographics}.
+// 4. Reply with the audience id and a one-sentence summary.
 
 package main
 
@@ -1729,60 +1532,50 @@ import (
     "os"
 
     "google.golang.org/genai"
-    "google.golang.org/adk/agent"
-    "google.golang.org/adk/agent/llmagent"
-    "google.golang.org/adk/model/gemini"
-    "google.golang.org/adk/runner"
-    "google.golang.org/adk/session"
-    "google.golang.org/adk/tool"
-    "google.golang.org/adk/tool/skilltoolset"
-    "google.golang.org/adk/tool/skilltoolset/skill"
+
+    "google.golang.org/adk/v2/agent"
+    "google.golang.org/adk/v2/agent/llmagent"
+    "google.golang.org/adk/v2/model/gemini"
+    "google.golang.org/adk/v2/runner"
+    "google.golang.org/adk/v2/tool"
+    "google.golang.org/adk/v2/tool/skilltoolset"
+    "google.golang.org/adk/v2/tool/skilltoolset/skill"
 )
 
 func main() {
     ctx := context.Background()
 
-    // 2. Load skills at runtime from a filesystem directory.
-    source := skill.NewFileSystemSource(os.DirFS("./skills"))
-    // Optional: preload everything into memory.
-    source, _, err := skill.WithCompletePreloadSource(ctx, source)
-    if err != nil { log.Fatal(err) }
+    // Load at runtime from a directory (or an embed.FS), preloaded into memory.
+    src, closeSrc, err := skill.WithCompletePreloadSource(ctx, skill.NewFileSystemSource(os.DirFS("./skills")))
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer closeSrc(ctx)
+    skills, err := skilltoolset.New(ctx, skilltoolset.Config{Source: src})
+    if err != nil {
+        log.Fatal(err)
+    }
 
-    skillTS, err := skilltoolset.New(ctx, skilltoolset.Config{Source: source})
-    if err != nil { log.Fatal(err) }
-
-    model, _ := gemini.NewModel(ctx, "gemini-2.5-flash", &genai.ClientConfig{})
+    m, _ := gemini.NewModel(ctx, "gemini-2.5-flash", &genai.ClientConfig{})
     a, _ := llmagent.New(llmagent.Config{
-        Name:        "predict_agent",
-        Model:       model,
-        Instruction: "You help marketers turn briefs into audiences. Use skills.",
-        Tools:       []tool.Tool{ /* + your iabSearch, topicSearch, audienceCreate */ },
-        Toolsets:    []tool.Toolset{skillTS},
+        Name: "predict_agent", Model: m,
+        Instruction: "You help marketers turn briefs into audiences.",
+        Tools:       []tool.Tool{ /* topicSearch, iabSearch, audienceCreate */ },
+        Toolsets:    []tool.Toolset{skills},
     })
+    r, _ := runner.NewInMemory("predict", a)
 
-    r, _ := runner.New(runner.Config{
-        AppName: "predict", Agent: a, SessionService: session.InMemoryService(),
-        AutoCreateSession: true,
-    })
-
-    // 3. The agent discovers the skill via the auto-injected system prompt:
-    //    The system prompt now contains an XML <skills> block listing
-    //    `generate-audience-from-brief` (name + description).
-    //    When the user provides a brief, the LLM sees the description, decides
-    //    the skill applies, and calls the `load_skill` tool:
-    //
-    //      FunctionCall{Name: "load_skill", Args: {"skill_name": "generate-audience-from-brief"}}
-    //
-    //    The framework returns the SKILL.md body; the LLM follows the steps,
-    //    calling topicSearch / iabSearch / audienceCreate.
+    // Discovery: the prompt gets <available_skills><skill><name>generate-audience-from-brief…
+    // Invocation: the model calls load_skill {"name":"generate-audience-from-brief"},
+    // receives the body (+ allowed-tools, not enforced), then calls the listed tools.
     msg := genai.NewContentFromText("Brief: young surfers 18-25 in California.", genai.RoleUser)
-    for ev, _ := range r.Run(ctx, "u-123", "sess-1", msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+    for ev, _ := range r.Run(ctx, "u-123", "sess-1", msg, agent.RunConfig{}) {
         log.Printf("[%s] %v", ev.Author, ev.LLMResponse.Content)
     }
 }
 ```
 
-The LLM **sees the skill as TWO things**: an XML fragment in the system prompt (eager metadata) AND a `load_skill` tool it can call (lazy body).
+The LLM sees the skill as an XML fragment in the system prompt (metadata) and a `load_skill` tool (body).
 
 ---
 
@@ -1790,74 +1583,54 @@ The LLM **sees the skill as TWO things**: an XML fragment in the system prompt (
 
 ### 11.1 First-class Resource Manager?
 
-**No.** ADK Go ships `Source` as the only resource abstraction. It is a thin **loader** interface, not a **manager**. There is no:
+**No.** For skills, `skill.Source` is a loader interface, not a manager: no registry, publishing workflow, versioning, scoping or governance.
 
-- registry layer with publish/promote/retire lifecycle,
-- multi-tenant scoping at publish time,
-- versioning beyond what your `Source` decides,
-- governance/RBAC,
-- per-environment promotion (dev → staging → prod).
-
-If you check skills into git and reference them by path, you get "versioning via git" — that's the closest informal mechanism.
+New in this period, adjacent but not a skill manager: **`agentregistry`** (`agentregistry/doc.go:15-23`), a client for **Google Cloud Agent Registry** ("a governed catalog of A2A agents, MCP servers, and model endpoints"). It can list/get agents, MCP servers and endpoints (`agentregistry/client.go:30-98`) and turn an entry into a runnable `RemoteAgent` (A2A) or an `MCPToolset` (`agentregistry/factory.go:180, 346`). Publishing, versioning and access control live in the Google Cloud service, not in ADK, and skills are not a resource type there.
 
 ### 11.2 Loading sources
 
 | Source | Status | How configured |
 |---|---|---|
-| Local filesystem | ✅ shipped | `skill.NewFileSystemSource(os.DirFS("./skills"))` (`filesystem_source.go:44`) |
-| Git / GitHub repos | ❌ not provided — BYO | You'd implement `skill.Source` wrapping a git clone or `go-git` fetch |
-| OCI / container registries | ❌ not provided — BYO | |
-| Cloud object storage (S3/GCS/Azure) | ❌ not provided — BYO | You'd implement `skill.Source` over `gcs.Bucket`, etc. Could leverage `fs.FS` adapters (`gocloud.dev/blob` provides one). |
-| Postgres / relational DB | ❌ not provided — BYO | |
-| Vendor cloud / managed registry | ❌ not provided — BYO | No "Skill Hub" exists |
-| HTTP fetch | ❌ not provided — BYO | |
-| `embed.FS` (compiled-in) | ✅ shipped (any `fs.FS` works) | `skill.NewFileSystemSource(myEmbedFS)` |
-| Merged composition | ✅ shipped | `skill.NewMergedSource(srcA, srcB)` (`merged_source.go:32`) |
-| Preload wrappers | ✅ shipped | `WithCompletePreloadSource`, `WithFrontmatterPreloadSource` |
+| Local filesystem | ✅ | `skill.NewFileSystemSource(os.DirFS("./skills"))` |
+| `embed.FS` | ✅ | any `fs.FS` |
+| Git / GitHub | ❌ Not provided — BYO | clone/fetch yourself, then a filesystem source |
+| OCI registries | ❌ Not provided — BYO | |
+| Cloud object storage (S3/GCS/Azure) | ❌ Not provided — BYO | implement `skill.Source`, or adapt a bucket to `fs.FS` |
+| Postgres / relational DB | ❌ Not provided — BYO | |
+| Vendor cloud / managed registry | ⚠️ agents, MCP servers and model endpoints only | `agentregistry.New(ctx, Config{...})` → `RemoteAgent` / `MCPToolset`; no skills |
+| HTTP fetch | ❌ Not provided — BYO | |
+| Composition / preload | ✅ | `NewMergedSource`, `WithCompletePreloadSource`, `WithFrontmatterPreloadSource` |
 
 ### 11.3 Source composition / priority
 
-**Yes, via `MergedSource`** (`tool/skilltoolset/skill/merged_source.go:32`):
-
-- `ListFrontmatters`: collects from all sources in order; **errors on duplicate skill names** (`ErrDuplicateSkill`, `merged_source.go:46-48`). This is NOT "first wins" — duplicates are forbidden.
-- `LoadFrontmatter` / `LoadInstructions` / `LoadResource`: queries sources in order; **first one to return `nil` error wins**.
-
-So the priority model is: the first source that has a skill with that name returns it. Earlier sources have priority. **Cannot "override" the same skill name from a later source** — it would error at list time.
-
-For "tenant-overrides-global" you'd need:
-
-- the tenant source NOT to expose the same name as the global one (e.g., the tenant source returns `generate-audience-from-brief-acme`), OR
-- a custom Source wrapper that resolves conflicts differently.
+`NewMergedSource` (`tool/skilltoolset/skill/merged_source.go:32`): `ListFrontmatters` concatenates in order and **errors on duplicate names** (`ErrDuplicateSkill`, `merged_source.go:47`); `Load*` methods return the first source that succeeds. So there is no override semantics: "tenant wins over global" needs a custom `Source` that de-duplicates.
 
 ### 11.4 Versioning model
 
-**Not provided — BYO.** The `Frontmatter` has no `version` field. The `Compatibility` field is a free-text up-to-500-char string ("Claude 3.5+ models" or "ADK Go ≥0.5") but has no enforcement.
+**Not provided — BYO.** No version field in `Frontmatter`; `compatibility` is free text. Use directory names, git SHAs or bucket prefixes.
 
-If you need versioning: bake a version suffix into the directory name (`my-skill-v2/`), or check skills into git and use commit SHA as version.
+### 11.5 Scoping
 
-### 11.5 Scoping at the registry layer
+**Not provided — BYO**, on both halves:
 
-**Not provided — BYO.** No `tenant_id`/`scope`/`audience` field on `Frontmatter`. All scoping happens by **runtime filtering** via composing different `Source`s per tenant (a `MergedSource(global, tenantSrc(ctx))`) which is hand-wired.
+- **Registry side**: no tenant/user/audience field on a skill.
+- **Runtime side**: the toolset's `Source` is fixed at construction, but every `Source` method receives the agent context (`toolset.go:110-113` passes `ctx` to `ListFrontmatters`), so a wrapper can select per-tenant sources from a ctx value or session state on each request. No `TenantAwareSource` ships. The alternative is one `SkillToolset` per tenant and choosing it via a `Toolset` predicate or per-tenant agent construction.
 
-### 11.6 Publishing workflow
+### 11.6 Deployment workflow
 
-**Not provided — BYO.** No draft/active/deprecated/retired lifecycle states. Skills are either in the filesystem the `Source` reads or not. If you wanted multi-environment promotion you'd use separate git branches or separate buckets per environment.
+**Not provided — BYO.** No draft → review → publish → promote flow, no environments. Use separate directories/buckets/branches per environment.
 
 ### 11.7 Lifecycle / governance
 
-Same as 11.6 — none built-in.
+**Not provided — BYO** for skills. Agent Registry entries are governed by the Google Cloud service (IAM), outside ADK.
 
 ### 11.8 Programmatic API
 
-The `Source` interface itself is the programmatic API (`source.go:41`). For listing/loading: `ListFrontmatters`, `LoadFrontmatter`, `LoadInstructions`, `LoadResource`. No `Pin(version)`, no `Promote(tenant)`, no `Subscribe(channel)`.
+The `Source` methods (list, load frontmatter/instructions/resources). No `Pin`, `Promote` or `Subscribe`. For registry-held agents and MCP servers: `ListAgents`, `GetAgent`, `AllAgents`, `ListMCPServers`, `GetMCPServer`, `AllMCPServers`, `ListEndpoints`, `GetEndpoint`, `AllEndpoints` (`agentregistry/client.go:30-98`).
 
 ### 11.9 Caching & sync model
 
-- `WithCompletePreloadSource(ctx, src)` — loads everything once into memory; subsequent reads are zero-IO. No invalidation (you rebuild the source to refresh).
-- `WithFrontmatterPreloadSource(ctx, src)` — preloads only frontmatters.
-- The bare `NewFileSystemSource` reads from disk on each call (cheap for local fs).
-
-**No watch/poll/sync model.** If you change a SKILL.md on disk while a preloaded source is in use, the change is invisible until you rebuild and reattach the toolset.
+`WithCompletePreloadSource` loads everything once; `WithFrontmatterPreloadSource` caches only frontmatter; bare `NewFileSystemSource` reads on each call. No invalidation, watch or periodic sync: rebuild the source (and toolset) to pick up changes.
 
 ### ⭐ Required — light usage example
 
@@ -1867,93 +1640,94 @@ package main
 import (
     "context"
     "fmt"
-    "io/fs"
-    "log"
+    "io"
     "os"
 
-    "google.golang.org/adk/tool/skilltoolset"
-    "google.golang.org/adk/tool/skilltoolset/skill"
+    "google.golang.org/adk/v2/tool/skilltoolset"
+    "google.golang.org/adk/v2/tool/skilltoolset/skill"
 )
 
-// gitSkillsSource is a hand-rolled Source that materializes git-cloned skills.
-// (adk-go does NOT ship a git-backed Source — this is the BYO shape you'd write.)
-type gitSkillsSource struct {
-    underlying skill.Source // a fileSystemSource over the cloned dir
-}
-func (g *gitSkillsSource) ListFrontmatters(ctx context.Context) ([]*skill.Frontmatter, error) {
-    return g.underlying.ListFrontmatters(ctx)
-}
-// ... other methods delegate to underlying ...
+type tenantKey struct{}
 
-// s3SkillsSource is the BYO S3 backend (e.g., over gocloud.dev/blob or AWS SDK).
-// Again, NOT shipped.
-type s3SkillsSource struct{ /* bucket, prefix */ }
-func (s *s3SkillsSource) ListFrontmatters(ctx context.Context) ([]*skill.Frontmatter, error) {
-    /* list keys under prefix, fetch each SKILL.md, parse frontmatter */
-    return nil, nil
+// tenantOverlay is BYO: ADK ships no tenant-aware or override-capable Source.
+// Tenant skills shadow global skills with the same name.
+type tenantOverlay struct {
+    global  skill.Source            // e.g. FileSystemSource over a git clone of dailymotion/predict-skills
+    tenants map[string]skill.Source // e.g. a BYO Source over s3://predict-skills/tenants/<id>/active/
 }
-// ... other methods ...
+
+func (o *tenantOverlay) tenantSrc(ctx context.Context) (skill.Source, bool) {
+    t, _ := ctx.Value(tenantKey{}).(string)
+    s, ok := o.tenants[t]
+    return s, ok
+}
+
+func (o *tenantOverlay) pick(ctx context.Context, name string) skill.Source {
+    if s, ok := o.tenantSrc(ctx); ok {
+        if _, err := s.LoadFrontmatter(ctx, name); err == nil {
+            return s
+        }
+    }
+    return o.global
+}
+
+func (o *tenantOverlay) ListFrontmatters(ctx context.Context) ([]*skill.Frontmatter, error) {
+    seen, out := map[string]bool{}, []*skill.Frontmatter{}
+    if s, ok := o.tenantSrc(ctx); ok {
+        fms, err := s.ListFrontmatters(ctx)
+        if err != nil {
+            return nil, err
+        }
+        for _, fm := range fms {
+            seen[fm.Name], out = true, append(out, fm)
+        }
+    }
+    fms, err := o.global.ListFrontmatters(ctx)
+    if err != nil {
+        return nil, err
+    }
+    for _, fm := range fms {
+        if !seen[fm.Name] {
+            out = append(out, fm)
+        }
+    }
+    return out, nil
+}
+func (o *tenantOverlay) ListResources(ctx context.Context, n, p string) ([]string, error) {
+    return o.pick(ctx, n).ListResources(ctx, n, p)
+}
+func (o *tenantOverlay) LoadFrontmatter(ctx context.Context, n string) (*skill.Frontmatter, error) {
+    return o.pick(ctx, n).LoadFrontmatter(ctx, n)
+}
+func (o *tenantOverlay) LoadInstructions(ctx context.Context, n string) (string, error) {
+    return o.pick(ctx, n).LoadInstructions(ctx, n)
+}
+func (o *tenantOverlay) LoadResource(ctx context.Context, n, p string) (io.ReadCloser, error) {
+    return o.pick(ctx, n).LoadResource(ctx, n, p)
+}
 
 func main() {
     ctx := context.Background()
-
-    // 1. Compose: tenant-specific S3 source wins over global git source.
-    //    MergedSource queries sources in order; tenant must be FIRST for it to win on conflicts.
-    //    BUT: MergedSource errors on duplicate names, so the global source must NOT contain
-    //    skills with the same name as the tenant's. The override pattern requires the global
-    //    source to be wrapped in a "subtract" filter that excludes skills the tenant has.
-    //
-    //    Since adk-go ships no "subtract" / "fallback" Source, you'd write your own:
-    //    tenantWins := skill.NewMergedSource(tenantS3Src, filteredGlobalSrc)
-    //
-    //    For demo purposes (assuming no name conflicts):
-    var (
-        globalGit = &gitSkillsSource{underlying: skill.NewFileSystemSource(os.DirFS("/cache/predict-skills"))}
-        tenantS3  = &s3SkillsSource{ /* bucket: predict-skills, prefix: tenants/acme/ */ }
-    )
-    composed := skill.NewMergedSource(tenantS3, globalGit) // tenantS3 first => wins
-
-    ts, err := skilltoolset.New(ctx, skilltoolset.Config{Source: composed})
-    if err != nil { log.Fatal(err) }
-    _ = ts
-
-    // 2. Promoting a skill from draft → active for tenant `acme` only:
-    //    NOT PROVIDED. The pattern is operational, not API:
-    //      a. Build the skill in a "draft" S3 prefix: s3://predict-skills/tenants/acme/draft/<name>/
-    //      b. When ready, copy/move it to: s3://predict-skills/tenants/acme/<name>/
-    //      c. The tenantS3 source's prefix is "tenants/acme/" so it only sees active skills.
-    //    For dev/staging/prod environments, use separate buckets or prefixes per env.
-
-    // 3. Listing all active skills visible to a request with tenantId=acme:
-    //    Pass a tenant-specific source into the toolset (per-tenant agent construction
-    //    OR a Source wrapper that reads tenantID from ctx).
-    frontmatters, err := composed.ListFrontmatters(ctx)
-    if err != nil { log.Fatal(err) }
-    for _, fm := range frontmatters {
-        fmt.Printf("active skill: %s — %s\n", fm.Name, fm.Description)
+    // 1. Register sources: git clone (done at deploy time) + per-tenant S3 prefix (BYO Source).
+    overlay := &tenantOverlay{
+        global:  skill.NewFileSystemSource(os.DirFS("/srv/predict-skills")),
+        tenants: map[string]skill.Source{"acme": skill.NewFileSystemSource(os.DirFS("/mnt/s3/tenants/acme/active"))},
     }
+    ts, _ := skilltoolset.New(ctx, skilltoolset.Config{Source: overlay})
+    _ = ts // add to llmagent.Config.Toolsets
 
-    var _ fs.FS // placeholder use
+    // 2. Promote draft -> active for acme: Not provided. Operationally, copy
+    //    tenants/acme/draft/<skill>/ to tenants/acme/active/<skill>/ and rebuild/refresh the source.
+
+    // 3. List active skills visible to tenantId=acme.
+    fms, _ := overlay.ListFrontmatters(context.WithValue(ctx, tenantKey{}, "acme"))
+    for _, fm := range fms {
+        fmt.Println(fm.Name, "-", fm.Description)
+    }
 }
-func (g *gitSkillsSource) ListResources(ctx context.Context, name, subpath string) ([]string, error) {
-    return g.underlying.ListResources(ctx, name, subpath)
-}
-func (g *gitSkillsSource) LoadFrontmatter(ctx context.Context, name string) (*skill.Frontmatter, error) {
-    return g.underlying.LoadFrontmatter(ctx, name)
-}
-func (g *gitSkillsSource) LoadInstructions(ctx context.Context, name string) (string, error) {
-    return g.underlying.LoadInstructions(ctx, name)
-}
-func (g *gitSkillsSource) LoadResource(ctx context.Context, name, resourcePath string) (interface{ Read(p []byte) (int, error); Close() error }, error) {
-    return nil, nil // signature mismatch fudge for the example
-}
-func (s *s3SkillsSource) ListResources(ctx context.Context, name, subpath string) ([]string, error) { return nil, nil }
-func (s *s3SkillsSource) LoadFrontmatter(ctx context.Context, name string) (*skill.Frontmatter, error) { return nil, nil }
-func (s *s3SkillsSource) LoadInstructions(ctx context.Context, name string) (string, error) { return "", nil }
-func (s *s3SkillsSource) LoadResource(ctx context.Context, name, resourcePath string) (interface{ Read(p []byte) (int, error); Close() error }, error) { return nil, nil }
 ```
 
-The example shows: composition works for two BYO sources, but **everything else** (publishing workflow, draft→active promotion, RBAC) is operational tooling YOU build outside ADK.
+Everything beyond the `Source` interface (git/S3 fetching, promotion, RBAC, versioning) is outside ADK.
 
 ---
 
@@ -1961,87 +1735,69 @@ The example shows: composition works for two BYO sources, but **everything else*
 
 ### 12.1 Where tokens are surfaced
 
-On every `session.Event` (via embedded `model.LLMResponse.UsageMetadata` = `*genai.GenerateContentResponseUsageMetadata`). Stored on the DB row as `usage_metadata` JSON blob (`session/database/storage_session.go:89`). On the REST wire as `Event.usageMetadata` (`server/adkrest/internal/models/event.go:45`).
+On every non-partial model event via `model.LLMResponse.UsageMetadata` (`*genai.GenerateContentResponseUsageMetadata`, `model/llm.go:46`), persisted as the `usage_metadata` JSON column (`session/database/storage_session.go:97`) and sent on the wire as `usageMetadata` (`server/adkrest/internal/models/event.go:48`). Streaming usage is now retained on the final aggregated response (#1257). `openaimodel` maps OpenAI usage into the same struct.
 
-The Gemini SDK's `GenerateContentResponseUsageMetadata` includes:
+Fields include `PromptTokenCount`, `CandidatesTokenCount`, `TotalTokenCount`, `CachedContentTokenCount`, `ThoughtsTokenCount`, `ToolUsePromptTokenCount`.
 
-- `PromptTokenCount`
-- `CandidatesTokenCount`
-- `TotalTokenCount`
-- `CachedContentTokenCount` (cache reads)
-- `ThoughtsTokenCount` (reasoning tokens for thinking models)
+Compaction summaries report their own cost in `SummarizeResult.Usage` (`session/compaction/compaction.go:281-291`), traced via `internal/telemetry/compaction.go`.
 
 ### 12.2 Per-call / per-turn / per-session / per-tenant rollups
 
-| Aggregation level | Available? |
+| Level | Available? |
 |---|---|
-| Per-call (one LLM call) | ✅ on each event |
-| Per-turn (one user → final response) | ⚠️ DIY: sum events with the same `InvocationID` |
-| Per-session (one chat) | ⚠️ DIY: sum all events on the session |
-| Per-tenant (across many sessions) | ❌ DIY: stuff `tenant_id` into state, roll up at query time |
-| Per-user | ⚠️ DIY: `userID` is the natural key |
-
-No first-party rollup helpers.
+| Per LLM call | ✅ on each event and on the `generate_content` span (`gen_ai.usage.input_tokens` / `output_tokens`) |
+| Per invocation (turn) | ⚠️ DIY: sum events with the same `InvocationID` |
+| Per session | ⚠️ DIY |
+| Per user / per tenant | ❌ DIY (BigQuery analytics plugin gives `user_id` rows you can aggregate in SQL) |
 
 ### 12.3 USD cost computation
 
-**Not provided — BYO.** ADK Go exposes tokens but does not compute USD. You'd maintain a per-model price table and compute `tokens × $/Mtoken` yourself.
+**Not provided — BYO.** Tokens only.
 
 ### 12.4 Per-tenant / per-conversation cost
 
-**Not provided — BYO.** Via metadata-tagged tracing (e.g. OTel span attributes with `tenant_id`) → query in your tracing backend.
+**Not provided — BYO.** Options: OTel span attributes (add tenant via your own span processor or plugin), or the **BigQuery Agent Analytics plugin** (`plugin/agentanalytics`), whose rows carry `session_id`, `invocation_id`, `user_id`, `agent`, `attributes.usage_metadata` and `latency_ms` plus `CustomTags` (`plugin/agentanalytics/schema.go:31-70`, `config.go:53`); join with a price table in SQL. Tenant is not a column; use `CustomTags` (static per plugin instance) or encode it in `user_id`.
 
 ### 12.5 LLM / tool tracing
 
-**Native OpenTelemetry with GenAI semantic conventions.** `internal/telemetry/telemetry.go:18-58`:
+**Native OpenTelemetry, GenAI semantic conventions** (`internal/telemetry/telemetry.go:29-40`, semconv v1.36.0, instrumentation name `gcp.vertex.agent`):
 
-```go
-import (
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/attribute"
-    "go.opentelemetry.io/otel/codes"
-    semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
-    "go.opentelemetry.io/otel/trace"
-)
-const systemName = "gcp.vertex.agent"
-```
+- `invoke_agent <name>` — per agent activation (`agent/agent.go:166`)
+- `invoke_node <name>` — per workflow node and per parallel-worker item (`workflow/node_span.go:43`, `internal/telemetry/node_tracing.go:35-125`)
+- `generate_content <model>` — per LLM call (`internal/llminternal/base_flow.go:1041`), with `gen_ai.usage.*` and semconv finish reasons (`stop`, `length`, since v2.5)
+- `execute_tool <name>` and `execute_tool (merged)` (`base_flow.go:1312, 1327`)
+- compaction spans (`internal/telemetry/compaction.go`)
 
-Spans created by the framework:
+Prompt/response **content on spans is opt-in** with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` (`internal/telemetry/logger.go:37, 90`, `internal/telemetry/genaimessages.go:126-161`, v2.3). Logs moved to OTel logs 0.21 (#1335).
 
-- `invoke_agent` (per agent.Run) — `agent/agent.go:164` via `telemetry.StartInvokeAgentSpan`
-- `generate_content` (per LLM call) — `base_flow.go:698`
-- `execute_tool` (per tool dispatch) — `base_flow.go:900`
-- `execute_tool (merged)` (per parallel tool batch) — `base_flow.go:884`
+Setup: `telemetry.New(ctx, opts...)` (`telemetry/telemetry.go:114`) with `WithOtelToCloud`, `WithSpanProcessors`, `WithLogRecordProcessors`, `WithTracerProvider`, etc. (`telemetry/config.go:67-135`). No LangSmith/Langfuse exporter; point OTLP at any backend.
 
-Setup via `telemetry.New(ctx, opts...)` (`telemetry/telemetry.go:118`) which returns `Providers` that include `TracerProvider` and `LoggerProvider`. Supports OTLP HTTP exporters out of the box, and `WithOtelToCloud(true)` for GCP Cloud Trace.
-
-**No first-party LangSmith / LangFuse exporter** — you point your OTel exporter at whatever backend. LangSmith does accept OTel input via its OTel ingest endpoint.
-
-The REST server bundles an in-memory `DebugTelemetry` (`server/adkrest/handler.go:38-44`, `services.NewDebugTelemetryWithConfig`) that captures the last N traces (default 10k) and exposes them via `/debug/trace/...` for in-process inspection.
+The REST server's in-memory `DebugTelemetry` (default 10k traces) backs `/debug/trace/...`, now **only when `IncludeDebugAPI` is set** (`server/adkrest/handler.go:128-138`).
 
 ### 12.6 Audit logging (who / when / what)
 
-**Distinct from tracing? Effectively no — event stream IS the audit log.** Every `session.Event` carries `Author` + `Timestamp` + `Content` + `Actions`. Persisted to DB. The event log is append-only by design (no `UPDATE` paths in `session/database/service.go`). Not tamper-evident (no hash chain) but suitable for forensic review.
-
-For an out-of-band audit sink, register a `plugin.OnEventCallback` (`plugin/plugin.go:31, 167`) that ships every event to your sink (Datadog logs, BigQuery, etc.).
+- **Event log**: every `session.Event` (author, timestamp, content, actions) is appended, never updated. Not tamper-evident.
+- **Plugin sink**: `OnEventCallback` sees every event before persistence, except tail-retention compaction summaries (`session/compaction/compaction.go:181-201`).
+- **BigQuery Agent Analytics plugin** (new, v2.1+): a first-party structured sink that hooks all 12 plugin callbacks (`plugin/agentanalytics/bigquery_agent_analytics_plugin.go:226-290`), batches to BigQuery via the Storage Write API with retries, day-partitioned and clustered by `event_type, agent, user_id` (`bigquery_agent_analytics_plugin.go:105-108`, `config.go:68-90`). Content is truncated to `MaxContentLen` (500 KiB default). Separate Go module, GCP-specific.
+- **Who** is only as good as `UserID`: with `authz.NewStrict()` it matches the authenticated caller.
 
 ### 12.7 Canonical "where do I read token counts" code path
 
-`session/session.go:92-118` → `model/llm.go:42-68`:
+`session.Event` embeds `model.LLMResponse` (`session/session.go:100-101`) → `model/llm.go:42-67`:
 
 ```go
 type LLMResponse struct {
-    Content       *genai.Content
-    UsageMetadata *genai.GenerateContentResponseUsageMetadata // <-- HERE
+    Content       *genai.Content                              `json:"content,omitempty"`
+    ...
+    UsageMetadata *genai.GenerateContentResponseUsageMetadata `json:"usageMetadata,omitempty"` // <-- here
+    ...
+    Partial      bool `json:"partial,omitempty"`
+    TurnComplete bool `json:"turnComplete,omitempty"`
     ...
 }
 ```
 
-Wire shape on the REST event (`server/adkrest/internal/models/event.go:45`):
-
-```go
-UsageMetadata *genai.GenerateContentResponseUsageMetadata `json:"usageMetadata"`
-```
+Wire: `server/adkrest/internal/models/event.go:48`. Span attributes: `internal/telemetry/telemetry.go:140-147` (input = prompt + tool-use prompt tokens; output = candidates + thoughts).
 
 ### ⭐ Required — light usage example
 
@@ -2052,54 +1808,48 @@ import (
     "context"
     "fmt"
 
-    "google.golang.org/adk/agent"
-    "google.golang.org/adk/plugin"
-    "google.golang.org/adk/runner"
-    "google.golang.org/adk/session"
-    // pseudo-imports for OTel/Datadog:
-    // "go.opentelemetry.io/otel"
-    // "go.opentelemetry.io/otel/metric"
+    "google.golang.org/adk/v2/agent"
+    "google.golang.org/adk/v2/plugin"
+    "google.golang.org/adk/v2/runner"
+    "google.golang.org/adk/v2/session"
 )
+
+type tenantKey struct{}
 
 func main() {
     ctx := context.Background()
-    _ = ctx
+    var r *runner.Runner // constructed elsewhere
 
-    // (1) Read tokens for one completed run.
-    //     Iterate events from the runner; the final non-partial event's UsageMetadata is the call's usage.
-    //     Sum across the invocation for the full turn.
-    var r *runner.Runner // assume constructed
-    var inTokens, outTokens int
+    // (1) tokens_in / tokens_out / cost_usd for one completed run.
+    var in, out int32
     for ev, err := range r.Run(ctx, "u-123", "sess-1", nil, agent.RunConfig{}) {
-        if err != nil { continue }
-        if ev.LLMResponse.UsageMetadata != nil {
-            inTokens  += int(ev.LLMResponse.UsageMetadata.PromptTokenCount)
-            outTokens += int(ev.LLMResponse.UsageMetadata.CandidatesTokenCount)
+        if err != nil || ev.LLMResponse.Partial || ev.LLMResponse.UsageMetadata == nil {
+            continue
         }
+        u := ev.LLMResponse.UsageMetadata
+        in += u.PromptTokenCount + u.ToolUsePromptTokenCount
+        out += u.CandidatesTokenCount + u.ThoughtsTokenCount
     }
-    // BYO: compute USD from your price table.
-    costUSD := float64(inTokens)*0.000075 + float64(outTokens)*0.0003
-    fmt.Printf("tokens_in=%d tokens_out=%d cost_usd=%.4f\n", inTokens, outTokens, costUSD)
+    costUSD := float64(in)*0.30/1e6 + float64(out)*2.50/1e6 // BYO price table
+    fmt.Printf("tokens_in=%d tokens_out=%d cost_usd=%.6f\n", in, out, costUSD)
 
-    // (2) Plugin: push per-tenant token usage to Datadog/OTel metric sink on every event.
-    metricsPlugin, _ := plugin.New(plugin.Config{
+    // (2) Per-tenant token metrics on every model response.
+    metrics, _ := plugin.New(plugin.Config{
         Name: "tenant_metrics",
-        OnEventCallback: func(ctx agent.InvocationContext, ev *session.Event) (*session.Event, error) {
-            if ev.LLMResponse.UsageMetadata == nil {
-                return nil, nil
+        OnEventCallback: func(ic agent.InvocationContext, ev *session.Event) (*session.Event, error) {
+            if u := ev.LLMResponse.UsageMetadata; u != nil && !ev.LLMResponse.Partial {
+                tenant, _ := ic.Value(tenantKey{}).(string) // InvocationContext embeds context.Context
+                _ = tenant
+                // meter.Int64Counter("agent.tokens.in").Add(ic, int64(u.PromptTokenCount),
+                //     metric.WithAttributes(attribute.String("tenant", tenant)))
             }
-            tenantVal, _ := ctx.Session().State().Get("app:tenant_id")
-            tenant := fmt.Sprint(tenantVal)
-            // pseudo: push to Datadog statsd or OTel meter.
-            //   meter.Counter("agent.tokens.in").
-            //     Add(ctx, int64(ev.LLMResponse.UsageMetadata.PromptTokenCount),
-            //         metric.WithAttributes(attribute.String("tenant", tenant)))
-            _ = tenant
             return nil, nil
         },
     })
-    _ = metricsPlugin
-    // Wire into runner.New(runner.Config{..., PluginConfig: runner.PluginConfig{Plugins: []*plugin.Plugin{metricsPlugin}}})
+    _ = metrics // runner.Config{PluginConfig: runner.PluginConfig{Plugins: []*plugin.Plugin{metrics}}}
+
+    // Alternative: first-party BigQuery sink, then aggregate per user/tenant in SQL.
+    // bq, _ := agentanalytics.NewBigQueryAgentAnalyticsPlugin(ctx, "my-project", "agent_analytics", "events")
 }
 ```
 
@@ -2109,68 +1859,75 @@ func main() {
 
 ### 13.1 Built-in tools shipped in the box
 
-| Tool / Toolset | Package | One-line purpose |
+| Tool / Toolset | Package | Purpose |
 |---|---|---|
-| `geminitool.GoogleSearch` | `tool/geminitool/google_search.go` | Gemini-native Google Search grounding tool |
-| `geminitool.New(name, *genai.Tool)` | `tool/geminitool/tool.go` | Pass any Gemini native tool (retrieval, code-execution, etc.) |
-| `functiontool.New[TArgs,TResults](cfg, handler)` | `tool/functiontool/function.go` | Wrap a typed Go function as a tool |
-| `agenttool.New(agent, cfg)` | `tool/agenttool/agent_tool.go` | Wrap another agent as a tool |
-| `exitlooptool` | `tool/exitlooptool/tool.go` | For loop-agent workflows: signal "stop iterating" |
-| `exampletool` | `tool/exampletool/tool.go` | Inject few-shot examples into the prompt |
-| `loadartifactstool` | `tool/loadartifactstool/load_artifacts_tool.go` | Let the LLM load artifact files from the artifact service |
-| `loadmemorytool` | `tool/loadmemorytool/tool.go` | Let the LLM search the long-term memory service (RAG) |
-| `preloadmemorytool` | `tool/preloadmemorytool/tool.go` | Eagerly preload memory entries into the prompt |
-| `mcptoolset.New(cfg)` | `tool/mcptoolset/set.go` | Connect to an MCP server and expose its tools |
-| `skilltoolset.New(ctx, cfg)` | `tool/skilltoolset/toolset.go` | Surface `SKILL.md` skills as `list_skills` + `load_skill` tools |
-| `toolconfirmation.ToolConfirmation` | `tool/toolconfirmation/tool_confirmation.go` | HITL approval primitive (used by every tool with `RequireConfirmation`) |
+| `geminitool.GoogleSearch{}` | `tool/geminitool/google_search.go:28` | Gemini-native Google Search grounding (runs inside the model) |
+| `geminitool.New(name, desc, *genai.Tool)` | `tool/geminitool/tool.go:43` | Pass any Gemini native tool (code execution, retrieval, ...) |
+| `functiontool.New[TArgs,TResults]` | `tool/functiontool/function.go:80` | Typed Go function as a tool |
+| `functiontool.NewStreaming[TArgs]` (new) | `tool/functiontool/streaming_function.go:37` | Go function yielding string chunks |
+| `agenttool.New(agent, cfg)` | `tool/agenttool/agent_tool.go:58` | Agent as a tool |
+| single-turn / task agent tools (new, auto-installed) | `internal/workflowinternal/` | Sub-agents with `ModeSingleTurn` / `ModeTask`, plus `finish_task` |
+| `exitlooptool` | `tool/exitlooptool/tool.go` | Stop a loop agent |
+| `exampletool` | `tool/exampletool/tool.go` | Few-shot examples injected into the prompt |
+| `loadartifactstool` | `tool/loadartifactstool/load_artifacts_tool.go` | Load artifacts on demand |
+| `loadmemorytool` / `preloadmemorytool` | `tool/loadmemorytool/`, `tool/preloadmemorytool/` | Memory search on demand / eager preload |
+| `mcptoolset.New(cfg)` | `tool/mcptoolset/set.go:52` | MCP server tools |
+| `skilltoolset.New(ctx, cfg)` | `tool/skilltoolset/toolset.go:68` | `list_skills`, `load_skill`, `load_skill_resource` |
+| `agentregistry.Client.MCPToolset` (new) | `agentregistry/factory.go:346` | MCP toolset resolved from Google Cloud Agent Registry |
+| `toolconfirmation` | `tool/toolconfirmation/tool_confirmation.go` | HITL confirmation primitive |
+| `toolutils.PackTool` (now public) | `tool/toolutils/toolutils.go:40` | Helper to register a custom tool declaration on a request |
 
-**No `bashExec`, no `fileRead`/`fileWrite`/`Edit`, no `webFetch`, no `Monitor` tool ships.** This is a sharp contrast to Claude Agent SDK / Mastra which ship a rich set. ADK Go assumes you BYO via `functiontool.New` — but the tools you write are stamped through schema-inference, typed I/O, HITL, and tracing.
+**No bash, file read/write/edit, web fetch or monitor tools.** The framework's value is in the authoring surface rather than the catalogue: schema inference from Go types, typed args/results, declarative HITL (`RequireConfirmation`, `RequireConfirmationProvider`), long-running tools, error-to-result callbacks, per-call tracing, and the `retryandreflect` plugin that feeds tool errors back for a bounded number of retries (`plugin/retryandreflect/plugin.go:73, 96`). In a graph, `workflow.NewToolNode` runs a tool as a node without an LLM (`workflow/tool_node.go:90`).
 
-### 13.2 Built-in tool quality
+### 13.2 Tool authoring API
 
-The shipped tools are **thin and focused**. The richer patterns (anchor-matching `Edit`, line-numbered `Read`, streaming `Monitor`) ARE NOT here. The framework's value-add is in:
-
-- **Auto-generated JSON schemas** from Go struct tags (`functiontool` uses `github.com/google/jsonschema-go/jsonschema` reflection).
-- **Typed args + results** with `TArgs`/`TResults` generics.
-- **Per-tool HITL** declarative (`RequireConfirmation: true` or dynamic `RequireConfirmationProvider`).
-- **Long-running tool** primitive (`IsLongRunning: true` → emits `LongRunningToolIDs`).
-- **Built-in error→callback chain** so a tool error is convertible to a result via `OnToolErrorCallback`.
-
-### 13.3 Tool authoring API
-
-The smallest tool (5 lines + handler):
+Smallest tool:
 
 ```go
-import "google.golang.org/adk/tool/functiontool"
+import (
+    "google.golang.org/adk/v2/agent"
+    "google.golang.org/adk/v2/tool/functiontool"
+)
 
-type AddArgs struct { A, B int `json:"a,b"` }
-type AddResult struct { Sum int `json:"sum"` }
+type AddArgs struct {
+    A int `json:"a"`
+    B int `json:"b"`
+}
+type AddResult struct {
+    Sum int `json:"sum"`
+}
 
 addTool, _ := functiontool.New(
     functiontool.Config{Name: "add", Description: "Add two numbers"},
-    func(ctx tool.Context, args AddArgs) (AddResult, error) {
+    func(ctx agent.Context, args AddArgs) (AddResult, error) {
         return AddResult{Sum: args.A + args.B}, nil
     },
 )
 ```
 
-The schema is auto-inferred from `AddArgs` / `AddResult` via `jsonschema.For[T](nil)` (`functiontool.go:266-276`). You can override with `cfg.InputSchema` / `cfg.OutputSchema`.
+`functiontool.Config` (`tool/functiontool/function.go:38-69`): `Name`, `Description`, `InputSchema`/`OutputSchema` overrides, `IsLongRunning`, `RequireConfirmation`, `RequireConfirmationProvider`. Schemas are inferred with `github.com/google/jsonschema-go` (`function.go:275`); args are converted with `typeutil.ConvertToWithJSONSchema` and conversion errors go through `OnToolErrorCallback`. Arguments may arrive as a JSON string or an object (v2.2). The handler context is `agent.Context` (v2; it was `tool.Context` in v1).
 
-### 13.4 Typed tool I/O
+### 13.3 Streaming tools
 
-`functiontool` uses Go generics: `Func[TArgs, TResults any] func(tool.Context, TArgs) (TResults, error)`. The framework:
+**New, but limited to live mode.** `functiontool.NewStreaming` (`tool/functiontool/streaming_function.go:34-37`):
 
-1. Reflects `TArgs` to build a JSON schema (`functiontool.go:91-94`).
-2. At runtime, converts the LLM's `map[string]any` args into `TArgs` via `typeutil.ConvertToWithJSONSchema` (`functiontool.go:196-199`). Conversion failures return an error → goes through `OnToolErrorCallback`.
-3. Reflects `TResults` and converts the user-returned value back to `map[string]any`.
+```go
+type StreamingFunc[TArgs any] func(agent.Context, TArgs) iter.Seq2[string, error]
+```
 
-If the LLM passes invalid args, conversion fails with `ErrInvalidArgument`. There is NO built-in "ask the LLM to retry" — that's something `retryandreflect` plugin (`plugin/retryandreflect/plugin.go`) does opt-in.
+- In a **live (bidi) session**, the call returns `"The function is running asynchronously..."` immediately; each chunk is sent back into the live session as a user message `Function <name> returned: <chunk>`, and the model can stop it with `stop_streaming` (`internal/llminternal/base_flow.go:1341-1399`).
+- In **non-live runs**, chunks are concatenated into one `{"result": ...}` (`base_flow.go:1400-1410`). The model sees nothing mid-execution, and no progress events reach the HTTP client.
+- Streaming tools skip Before/After/OnError tool callbacks (they do not go through `callTool`).
 
-### 13.5 Streaming tools
+### 13.4 Tool sandboxing / permission model
 
-**Not provided.** A tool's `Run` returns `(map[string]any, error)` — single-shot. Long-running tools mark `IsLongRunning: true` and pause the agent loop, but they don't yield mid-execution progress events back to the model.
+**Not provided — BYO. Default-allow.**
 
-`agent.LiveSession` supports bidi streaming but that's for the LLM, not for tool-internal progress.
+- No allow/deny policy layer and no `canUseTool`-style hook beyond `BeforeToolCallback` (which can return a result to block a call).
+- Visibility filtering: `tool.FilterToolset` / `Predicate` (Q6.5).
+- Human gate: `RequireConfirmation` / `RequireConfirmationProvider` per function tool or MCP toolset, `tool.WithConfirmation(toolset, ...)` for any toolset (`tool/tool.go:128-145`).
+- Execution: tools are Go functions in your process; no sandbox providers (E2B, Daytona, Modal). Gemini `code_execution` via `geminitool` runs in Google's sandbox. `skilltoolset` deliberately has no script-execution tool.
+- Hardening in this period is at the server edge (auth, origin guard, size limits), not around tools. A path-traversal fix in the YAML `AgentTool` config loader (#878) is the only tool-adjacent security fix in the delta.
 
 ---
 
@@ -2178,44 +1935,35 @@ If the LLM passes invalid args, conversion fails with `ErrInvalidArgument`. Ther
 
 ### 14.1 MCP client support
 
-**Yes, first-class** via `tool/mcptoolset/` (`tool/mcptoolset/set.go:49-56`):
+**First-class** via `tool/mcptoolset` on `github.com/modelcontextprotocol/go-sdk v1.8.0` (`go.mod:18`, was v1.4.1):
 
 ```go
-ts, _ := mcptoolset.New(mcptoolset.Config{
-    Transport: &mcp.CommandTransport{Command: exec.Command("myserver")},
+ts, err := mcptoolset.New(mcptoolset.Config{
+    Endpoint: "https://mcp.example.com/mcp",            // new: builds a streamable HTTP transport
+    Auth:     auth.StaticToken(os.Getenv("MCP_TOKEN")), // new: per-request credential provider
+    RequireConfirmation: false,
 })
+ts = tool.FilterToolset(ts, tool.AllowedToolsPredicate([]string{"search", "fetch"}))
 ```
 
-Uses `github.com/modelcontextprotocol/go-sdk v1.4.1` (go.mod). MCP session is created lazily on first request to LLM (`set.go:31-33`).
-
-Filter via `tool.Predicate`:
-
-```go
-ts := mcptoolset.New(mcptoolset.Config{
-    Transport: ...,
-    ToolFilter: tool.AllowedToolsPredicate([]string{"playwright_navigate", "playwright_screenshot"}),
-})
-```
-
-HITL on MCP tools: `RequireConfirmation` and `RequireConfirmationProvider` on the toolset config (`set.go:71-86`).
+`Config` (`tool/mcptoolset/set.go:102-145`): `Client`, `Transport`, `Endpoint`, `Auth`, deprecated `ToolFilter`, `RequireConfirmation`, `RequireConfirmationProvider`. v2.5 validates the connection configuration at construction (#1687). Non-text tool results (images, resources) are now rendered or reported instead of dropped (#1401, #1473). MCP servers can also be resolved from Agent Registry (`agentregistry/factory.go:346`).
 
 ### 14.2 MCP server support
 
-**Not provided in `adk-go`.** ADK does not expose its agent's tools as an MCP server out of the box. (The Python ADK has experimental MCP-server support; the Go SDK does not.)
+**Not provided.** ADK Go does not expose an agent's tools as an MCP server. (`examples/mcp/main.go` creates an in-process MCP server with the go-sdk only to demo the client.)
 
 ### 14.3 Transports
 
-Whatever `github.com/modelcontextprotocol/go-sdk` supports — stdio, HTTP, SSE. You construct an `mcp.Transport` and pass it. Examples in `tool/mcptoolset/set_test.go` and `examples/mcp/main.go`.
+Any `mcp.Transport` from the go-sdk: stdio (`mcp.CommandTransport`), streamable HTTP (`mcp.StreamableClientTransport`, or `Endpoint`), SSE, and in-memory transports. `Auth` requires streamable HTTP; combining it with stdio is a configuration error (`set.go:113-118`).
 
 ### 14.4 In-process MCP
 
-You can construct an MCP server in the same process with the official SDK and connect to it via an in-memory transport. The MCP toolset doesn't care — it just calls `mcpClient.ListTools()` and dispatches `CallTool()`. So in-process MCP is **possible**, not framework-magic.
+Possible with the go-sdk's in-memory transport (as in `examples/mcp/main.go`); nothing ADK-specific.
 
 ### 14.5 Auth / lifecycle
 
-The MCP client lifecycle is **lazy-connect** (`set.go:31`): on first `ListTools`, the connection opens; on errors, `connectionRefresher` (`tool/mcptoolset/client.go`) reconnects.
-
-Credentials are passed through whatever the underlying transport accepts (HTTP headers, env vars for stdio command). No built-in OAuth/JWT flow for MCP servers.
+- **Auth**: `Config.Auth auth.CredentialProvider` resolves a credential per outgoing HTTP request through a context-aware `RoundTripper`, applied last (overwrites `Authorization`) (`tool/mcptoolset/set.go:113-122`, `auth/transport.go:31-39`). Built-ins: static bearer, API-key header, OAuth2 token source, ADC, service account, and per-end-user GCP credentials (`auth/gcp`). No interactive OAuth consent flow wired to MCP yet (6.6).
+- **Lifecycle**: lazy session creation on first request (`set.go:33`); `connectionRefresher` reconnects on failure (`tool/mcptoolset/client.go:36-62`). Version negotiation is the go-sdk's.
 
 ---
 
@@ -2223,60 +1971,47 @@ Credentials are passed through whatever the underlying transport accepts (HTTP h
 
 ### 15.1 Multi-provider support
 
-**Native: Gemini (`model/gemini/gemini.go`) + Apigee Vertex proxy (`model/apigee/apigee.go`).**
+**Native**:
 
-Third-party (BYO): you implement `model.LLM` (`model/llm.go:26-29`):
+- `model/gemini` — Gemini API and Vertex AI (`model/gemini/gemini.go:49`).
+- `model/apigee` — Gemini through an Apigee proxy.
+- **`model/openaimodel`** (new, **experimental**) — OpenAI Responses API (default) or Chat Completions API (v2.5), with `BaseURL` for OpenAI-compatible endpoints (`model/openaimodel/openaimodel.go:32-59, 78`). Gemini-only config fields are rejected by name; function tools are always sent with `strict: false` (`model/openaimodel/doc.go:20-60`). Reasoning is surfaced as thought parts but never replayed to the API.
 
-```go
-type LLM interface {
-    Name() string
-    GenerateContent(ctx context.Context, req *LLMRequest, stream bool) iter.Seq2[*LLMResponse, error]
-}
-```
+**Not native**: Anthropic, Bedrock, Azure OpenAI (except through an OpenAI-compatible endpoint), LiteLLM (usable as an OpenAI-compatible proxy). Open issues #225 and #1097 ask for Anthropic.
 
-**No first-party OpenAI / Anthropic / Bedrock / Azure OpenAI / LiteLLM adapters.** The community-maintained adapters exist (search go-pkg) but none are vendored.
+`model.LLM` (`model/llm.go:26-29`) is still the BYO seam, and adapters must convert to and from `genai.Content`. New **name-based registry**: `model.Register(pattern, factory)` and `model.NewLLM(ctx, name)` (`model/registry.go:74, 102`), opt-in (providers do not self-register). Each agent has its own `Model`, so model choice is per agent.
 
-The `LLMRequest.Contents []*genai.Content` shape means any adapter must marshal between Gemini's content model and the target API. Doable but boilerplate.
+### 15.2 Automatic fallback chain
 
-### 15.2 Per-task model selection
+**Not provided — BYO.** Options:
 
-**Each agent has its own `Model model.LLM`** (`llmagent.Config.Model`). Different agents (supervisor vs workers, parent vs sub-agent) can use different models. Within one agent, model is fixed.
+- `OnModelErrorCallback` that calls another `model.LLM` and returns its response.
+- A wrapping `model.LLM` (the `examples/workflow/complex` sample's `resilientModel` adds timeout + retries + a static fallback text, `examples/workflow/complex/main.go:155-166`).
+- Workflow `NodeConfig.RetryConfig` retries a node with backoff (`workflow/config.go:94-133`), but on the same model.
 
-For "cheap-for-triage, expensive-for-hard" you'd architect with a triage `llmagent` (cheap model) + delegation to a hard-work `llmagent` (expensive model) via `agenttool` or `transfer_to_agent`.
+### 15.3 Mid-stream model switching
 
-### 15.3 Automatic fallback chain
-
-**Not provided — BYO.** The `retryandreflect` plugin (`plugin/retryandreflect/plugin.go`) retries on tool errors, not on model errors. You'd write an `OnModelErrorCallback` that retries the request on a different model.
-
-### 15.4 Mid-stream model switching
-
-**No** — switching happens at agent-construction time. To switch mid-conversation you'd transfer to a different agent.
-
-### 15.5 Sub-agent model overrides
-
-**Yes.** Each `llmagent.New` gets its own `Model`. A supervisor on Gemini Pro + workers on Gemini Flash is the natural pattern.
+**At agent boundaries only.** The model is fixed per `llmagent`; switch by transferring to, or calling, an agent configured with another model, or route between agent nodes in a workflow. A `BeforeModelCallback` can change `req.Model`, but it cannot change the provider client.
 
 ---
 
 ## 16. Chat UI Layer
 
-### 16.1 Streaming chat hook
+### 16.1 Generative UI components
 
-**Yes, an embedded Web UI** (`cmd/launcher/web/webui/webui.go:88`): `//go:embed distr/*` ships the Angular-built Web UI. The launcher's `webui` sublauncher serves it at the configured path prefix.
-
-There is **no React `useChat`-style hook in this repo** — adk-go is Go-only. The Web UI is Angular and lives in the separate `https://github.com/google/adk-web` repo (referenced from README).
+**Not provided.**
 
 ### 16.2 Tool call rendering primitives
 
-The Web UI renders tool calls, args, responses — but it's monolithic Angular, not exported as a reusable primitive. You can't compose pieces in your own React app from `adk-go`.
+ADK Web (Angular, `github.com/google/adk-web`) renders tool calls, arguments, results, HITL prompts, traces and the agent graph. It is embedded as a monolithic build (`cmd/launcher/web/webui/webui.go:92`) and its bundle was updated in this period. No reusable components for your own frontend.
 
-### 16.3 Generative UI components
+### 16.3 Streaming chat hook
 
-**Not provided.** No "render this artifact as a card" primitive.
+**Not provided.** No React/TS client in this repo; the dev UI is the only first-party client.
 
 ### 16.4 BYO pattern
 
-Parse the `/run_sse` stream into your own React state (the event JSON is straightforward). For Vercel AI SDK-style UX in our own frontends, we'd bridge `models.Event` → AI SDK message shape ourselves.
+Consume `/run_sse` in your frontend: accumulate `partial` text by event, finalize on the non-partial event with the same content, join tool calls/results on `functionCall.id` / `functionResponse.id`, and render `adk_request_confirmation` / `adk_request_input` calls as approval or input forms whose answers go back as `functionResponse` parts. Put an authenticating gateway or `adkrest` `Authenticator` in front.
 
 ---
 
@@ -2284,60 +2019,28 @@ Parse the `/run_sse` stream into your own React state (the event JSON is straigh
 
 ### 17.1 Long-term memory / semantic recall
 
-`memory.Service` (`memory/service.go:31-39`) is the interface. Two implementations:
+`memory.Service` (`memory/service.go:31-39`): `AddSessionToMemory(ctx, session)` and `SearchMemory(ctx, *SearchRequest{Query, UserID, AppName})` returning `[]Entry{ID, Content, Author, Timestamp, CustomMetadata}` (`memory/service.go:42-66`).
 
-- `memory.InMemoryService()` — slice + keyword search (no embeddings) (`memory/inmemory.go`).
-- `memory/vertexai/vertexai.go` — Vertex AI RAG-backed semantic search.
+- `memory.InMemoryService()` — keyword match; v2.5 ranks and limits results and handles non-ASCII substrings (#1528), and scans under a read lock (#1139).
+- `memory/vertexai` — Vertex AI memory (Agent Engine).
 
-Memory is **per-`AppName`+`UserID` namespaced** (the search request has `UserID` + `AppName` fields, `service.go:43-46`).
-
-`SearchResponse.Memories []Entry` (`service.go:50-66`):
-
-```go
-type Entry struct {
-    ID             string
-    Content        *genai.Content
-    Author         string
-    Timestamp      time.Time
-    CustomMetadata map[string]any
-}
-```
-
-To populate memory from a finished session: `memory.AddSessionToMemory(ctx, sess)` — typically called by the runner at session end or by an explicit job. The framework does not auto-add sessions to memory.
-
-The LLM uses memory via the `loadmemorytool` (`tool/loadmemorytool/tool.go:33-34`) which calls `ctx.SearchMemory(query)` and returns the results.
+Population is explicit (`AddSessionToMemory`), not automatic. The agent reads memory through `loadmemorytool`, `preloadmemorytool` or `ctx.SearchMemory`. A `compactionrecall` example shows compaction combined with memory recall (`examples/compactionrecall/`).
 
 ### 17.2 RAG / knowledge retrieval integration
 
-Vertex AI RAG via `memory/vertexai/`. **No first-party Pinecone / Weaviate / Qdrant / pgvector adapter** — write your own `memory.Service` impl.
-
-The `loadmemorytool` is the agent-facing RAG entry point. There are no built-in chunkers or rerankers — you'd preprocess offline and rely on the Vertex side or your own store.
+Vertex-backed memory and Gemini-native retrieval tools via `geminitool`. **No pgvector / Pinecone / Qdrant / Weaviate adapters, chunkers or rerankers.** BYO `memory.Service` or a function tool.
 
 ### 17.3 Per-tenant memory scoping
 
-`SearchRequest.AppName` + `SearchRequest.UserID` give per-user scoping naturally. For tenant scoping, use `AppName` as the tenant key (and re-pay the cost of fully-isolated memory across apps).
+Scoped by `AppName` + `UserID` in every search request. Tenant scoping means one `AppName` per tenant or encoding tenant in `UserID`; nothing finer.
 
 ---
 
-## 18. Safety, Guardrails & Tool Sandboxing
+## 18. Safety & Policy
 
 ### 18.1 Input/output guardrails
 
-**Not provided — BYO.** No PII redaction, no prompt-injection detector, no hallucination scorer. You'd implement via `BeforeModelCallback` / `AfterModelCallback`.
-
-### 18.2 Tool sandboxing / permission model
-
-**Not provided — BYO.** No allow/deny list. No `canUseTool`-style hook. The closest is `tool.FilterToolset(ts, predicate)` which removes tools from the LLM's view, but tools that ARE in the toolset execute as Go function calls — no sandbox.
-
-The HITL `RequireConfirmation` flag (`functiontool.Config.RequireConfirmation`) lets a human gate execution, but that's user-in-the-loop, not policy.
-
-### 18.3 Sandbox provider integrations
-
-**None.** No E2B, Daytona, Modal, or code-interpreter integration. Gemini's native `code_execution` tool (via `geminitool`) runs in Google's sandbox, but you don't control it.
-
-### 18.4 Default-deny vs. default-allow
-
-**Default-allow.** Any tool you put on `llmagent.Config.Tools` or `Toolsets` is callable by the LLM. There is no policy layer.
+**Not provided — BYO.** No PII redaction, prompt-injection or hallucination detection. Implement in `BeforeModelCallback` / `AfterModelCallback` or plugin `OnUserMessageCallback` / `OnEventCallback`. Two caveats added by v2: tail-retention compaction summaries bypass `OnEventCallback` plugins (`session/compaction/compaction.go:181-201`), and opt-in GenAI span content (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`) exports prompts to your tracing backend unless you leave it off. `openaimodel` rejects `SafetySettings` and `ModelArmorConfig` (`model/openaimodel/doc.go:44-47`), so Gemini-side safety settings do not carry over to OpenAI models.
 
 ---
 
@@ -2345,42 +2048,26 @@ The HITL `RequireConfirmation` flag (`functiontool.Config.RequireConfirmation`) 
 
 ### 19.1 Golden datasets / regression suites
 
-**Not provided in adk-go** — the eval framework is Python-only (`adk-python`). The REST routes for eval ARE present but stubbed (`server/adkrest/internal/routers/eval.go:30-46`):
+**Not provided in adk-go.** The eval endpoints (sets, cases, runs, results) are routed only so the web UI gets a clear answer: they return 501 with "agent evaluation is not installed in ADK Go. Use adk-python for eval workflows." (`server/adkrest/internal/routers/eval.go:23-35, 39-108`). `/dev/apps/{app}/metrics-info` returns metadata only.
 
-```go
-Route{
-    Name:        "ListEvalSets",
-    Methods:     []string{http.MethodGet},
-    Pattern:     "/apps/{app_name}/eval_sets",
-    HandlerFunc: controllers.Unimplemented,
-},
-Route{
-    Name:        "ListEvalSets",
-    Methods:     []string{http.MethodPost, http.MethodOptions},
-    Pattern:     "/apps/{app_name}/eval_sets/{eval_set_name}",
-    HandlerFunc: controllers.Unimplemented,
-},
-Route{
-    Name:        "ListEvalResults",
-    Methods:     []string{http.MethodGet},
-    Pattern:     "/apps/{app_name}/eval_results",
-    HandlerFunc: controllers.Unimplemented,
-},
-```
+Testing building blocks that do exist:
 
-`controllers.Unimplemented` returns HTTP 501. **Verified.** If you adopt adk-go and need eval, you'd run a sister `adk-python` process for eval workloads or write your own harness.
+- `agent.StrictContextMock` and `agent/context_mock.go` for unit tests of tools/callbacks (README-v2.md:65-80).
+- `session/sessiontestsuite` — public conformance suite for custom session backends.
+- `platform` time/UUID/task-runner seams for deterministic runs.
+- Internal: `recordplugin` / `replayplugin` (record and replay LLM and tool I/O), `internal/httprr` (HTTP record/replay), `internal/telemetry/telemetrytest`.
 
 ### 19.2 LLM-as-judge scoring
 
-**Not provided — BYO.** No first-party rubric / scorer / judge classifier.
+**Not provided — BYO.**
 
 ### 19.3 CI eval gates / pre-merge
 
-**Not provided — BYO.** The `replayplugin` (`internal/configurable/conformance/replayplugin/`) is the closest: record an LLM-driven trace, replay deterministically, compare outputs. It's the right primitive for regression testing, but it's internal-only and you'd fork it.
+**Not provided — BYO.** The record/replay plugins are the right primitive for snapshot regression tests but are `internal/`; copy them.
 
 ### 19.4 Trace replay for skill iteration
 
-The `replayplugin` does exactly this for conformance testing. There is no local viewer in adk-go to step through traces; you'd export OTel traces and view in your tracing backend (Jaeger, Cloud Trace).
+No stepper over past traces. The web UI shows traces from the in-memory `DebugTelemetry` buffer when `-include_debug_api` is set; for history, export OTel to Cloud Trace/Jaeger/Datadog or use the BigQuery analytics table.
 
 ---
 
@@ -2388,44 +2075,23 @@ The `replayplugin` does exactly this for conformance testing. There is no local 
 
 ### 20.1 Local agent runner
 
-**Yes, three entry points:**
+1. **Launcher from your `main.go`**: `full.NewLauncher().Execute(ctx, &launcher.Config{AgentLoader: ...}, os.Args[1:])`. Sub-launchers: `web` (`api`, `a2a`, `webui`, triggers), `console` (terminal chat, now with HITL prompts, `cmd/launcher/console/hitl.go`), `agentengine`, plus `prod` and `universal` compositions (`cmd/launcher/`).
+2. **YAML CLI**: `cmd/internal/adkcli` scans for `root_agent.yaml` (`cmd/internal/adkcli/main.go:57-81`).
+3. **Library**: `runner.NewInMemory(appName, agent)` for tests and scripts.
 
-1. **CLI binary** (`cmd/adkgo/adkgo.go`): walks the current directory for `root_agent.yaml` files, loads them via `internal/configurable`, launches the full stack (Web UI + REST + A2A + agent-engine emulator) — `cmd/internal/adkcli/main.go:38-115`.
-
-2. **Programmatic via launcher** (`cmd/launcher/full/full.go`): `l := full.NewLauncher(); l.Execute(ctx, &launcher.Config{...}, os.Args[1:])` from your own `main.go` (used by all `examples/`).
-
-3. **Library mode**: `runner.New(...)` + `runner.Run(...)` in your own server/test code.
-
-Sub-launchers:
-
-- `web` — HTTP server.
-- `webui` — embedded Web UI (Angular).
-- `api` — REST API only.
-- `a2a` — A2A protocol server.
-- `console` — TUI/REPL for direct chat (`cmd/launcher/console/console.go`).
-- `agentengine` — Vertex Agent Engine local emulator.
+v2.5 dev-UX defaults: the web server binds `127.0.0.1` (`-host 0.0.0.0` in containers), cross-origin browsers are refused unless `-webui_address` matches (`cmd/launcher/web/api/api.go:346`), and the trace/graph panels need `-include_debug_api`.
 
 ### 20.2 Trace inspection
 
-**Yes, in-process debug telemetry** (`server/adkrest/handler.go:38-44`):
-
-- `DebugTelemetry` buffers the last N spans/logs in memory.
-- Exposed via `/debug/trace/...` routes.
-- Wire your `TracerProvider` with `restServer.SpanProcessor()` to forward all spans into the buffer for inspection at `/debug/trace`.
-
-The Web UI consumes these to show traces of past runs.
-
-For prod tracing, export OTel to Datadog / Cloud Trace / Jaeger.
+`/debug/trace/{event_id}` and `/debug/trace/session/{session_id}` from the in-memory `DebugTelemetry` (register `restServer.SpanProcessor()` / `LogProcessor()` on your providers), plus the agent-graph routes; all gated behind `IncludeDebugAPI` since v2.5 (`server/adkrest/handler.go:128-138`). The handler comment warns not to enable it in production.
 
 ### 20.3 Tenant / org switching
 
-**Not provided.** The Web UI doesn't switch tenants natively. You'd hit the API directly with different `appName`/`userId` to simulate different tenants.
+**Not provided.** The web UI picks app and user; tenant switching means another `appName`/`userId`, or headers if you configured a header-based `Authenticator`.
 
 ### 20.4 Hot reload
 
-**No first-party hot-reload.** Skills are loaded once at toolset construction (or preloaded). Restart the binary or rebuild the source/toolset to pick up changes.
-
-For local Go dev, use `air` (the tool we use in our own repo) for source-file watching.
+**Not provided.** Skills are read at toolset construction or preload; agents are Go code. Restart (or use a file watcher such as `air`).
 
 ---
 
@@ -2433,126 +2099,106 @@ For local Go dev, use `air` (the tool we use in our own repo) for source-file wa
 
 ```mermaid
 flowchart TB
-  subgraph httpLayer["HTTP / Network layer"]
-    httpClient["HTTP client<br/>(curl, browser, your frontend)"]
-    sse["SSE /run_sse"]
-    ws["WebSocket /run_live"]
-    rest["REST /apps/.../sessions/..."]
-    a2aHTTP["A2A JSON-RPC"]
+  subgraph httpLayer["HTTP / network"]
+    client["HTTP client"]
+    sse["POST /run_sse"]
+    ws["GET /run_live (WS)"]
+    rest["REST /apps/.../sessions"]
+    a2aHTTP["A2A"]
+    trig["Pub/Sub, Eventarc push"]
   end
-  httpClient --> sse & ws & rest & a2aHTTP
+  client --> sse & ws & rest & a2aHTTP
 
-  subgraph servers["adk-go HTTP servers<br/>(in-process)"]
-    direction TB
-    adkrest["adkrest.Server<br/>(gorilla/mux)"]
-    adka2a["adka2a.Executor<br/>(a2a-go)"]
-    triggers["triggers (pubsub, eventarc)<br/>RetriableRunner + semaphore"]
-    webui["webui.AddSubrouter<br/>(embed.FS)"]
+  subgraph edge["adkrest edge (v2.4-2.5)"]
+    origin["originguard<br/>(Origin/Host checks)"]
+    size["MaxBytesMiddleware (10 MiB)"]
+    authn["authn.Middleware<br/>(Header | IAP | Google OIDC | Custom)"]
+    authz["authz.CanActAsUser<br/>(Noop | Strict)"]
   end
-  sse & rest --> adkrest
-  ws --> adkrest
-  a2aHTTP --> adka2a
+  sse & ws & rest & trig --> origin --> size --> authn --> authz
 
-  adkrest --> runnerBox
+  authz --> runnerBox
+  a2aHTTP --> a2a["adka2a/v2 executor"] --> runnerBox
 
-  subgraph runnerBox["runner.Runner<br/>(stateless)"]
-    direction TB
+  subgraph runnerBox["runner.Runner"]
     runFn["Run / RunLive"]
-    findAgent["findAgentToRun<br/>(by event author)"]
-    plugins["pluginManager<br/>11 callback hooks"]
-    appendEv["sessionService.AppendEvent<br/>(per non-partial event)"]
+    plugins["plugin manager<br/>(12 callbacks)"]
+    appendEv["AppendEvent per non-partial event"]
+    compactPost["post-invocation compaction<br/>(sliding window)"]
   end
-  runFn --> findAgent --> flowBox
 
-  subgraph flowBox["llminternal.Flow<br/>(ReAct loop)"]
-    direction TB
-    preproc["11 RequestProcessors<br/>(instructions, contents, agent-transfer, ...)"]
-    cbBefore["BeforeModelCallback chain<br/>(plugin + agent-level)"]
-    llmCall["Model.GenerateContent<br/>(genai SDK)"]
-    cbAfter["AfterModelCallback chain"]
-    postproc["ResponseProcessors"]
-    toolDispatch["handleFunctionCalls<br/>(sync.WaitGroup,<br/>parallel goroutines)"]
-    cbBeforeTool["BeforeToolCallback chain"]
-    cbAfterTool["AfterToolCallback chain"]
+  runFn --> wfBox
+
+  subgraph wfBox["workflow engine (v2)"]
+    sched["scheduler<br/>(goroutine per node, single consumer)"]
+    nodes["AgentNode | FunctionNode | ToolNode<br/>JoinNode | ParallelWorker | WorkflowNode"]
+    hitl["RequestInput / long-running → NodeWaiting<br/>ReconstructRunState + Resume"]
   end
-  preproc --> cbBefore --> llmCall --> cbAfter --> postproc --> toolDispatch
-  toolDispatch --> cbBeforeTool --> userTool["tool.Tool.Run<br/>(your Go function)"]
-  userTool --> cbAfterTool
+  sched --> nodes
+  nodes --> flowBox
 
-  subgraph services["Service interfaces<br/>(pluggable)"]
-    direction TB
-    sessSvc["session.Service<br/>(InMemory | database | vertexai)"]
-    memSvc["memory.Service<br/>(InMemory | vertexai)"]
-    artSvc["artifact.Service<br/>(InMemory | gcsartifact)"]
+  subgraph flowBox["llminternal.Flow (ReAct)"]
+    preproc["request processors<br/>(instructions, compaction, contents, transfer, ...)"]
+    llm["model.GenerateContent"]
+    dispatch["handleFunctionCalls<br/>(platform.RunTasks)"]
+  end
+  preproc --> llm --> dispatch
+  dispatch --> tools
+
+  subgraph tools["tools"]
+    fn["functiontool / NewStreaming"]
+    at["agenttool, single-turn/task tools"]
+    mcpT["mcptoolset (+ auth.CredentialProvider)"]
+    sk["skilltoolset"]
+    gt["geminitool"]
+  end
+  mcpT --> mcpExt[("MCP servers")]
+
+  subgraph services["pluggable services"]
+    sessSvc["session.Service<br/>(InMemory | GORM | Vertex)"]
+    memSvc["memory.Service"]
+    artSvc["artifact.Service"]
+    credStore["auth.CredentialStore"]
   end
   appendEv --> sessSvc
-  flowBox -.-> memSvc
-  flowBox -.-> artSvc
+  compactPost --> sessSvc
+  flowBox -.-> memSvc & artSvc
+  mcpT -.-> credStore
 
-  subgraph stores["Persistent stores"]
-    pg[("Postgres<br/>(GORM)")]
-    sqlite[("SQLite<br/>(GORM)")]
-    spanner[("Spanner<br/>(GORM)")]
-    vertex[("Vertex Agent Engine<br/>(reasoning-engine)")]
-    gcs[("GCS bucket<br/>(artifacts)")]
-    ragVertex[("Vertex AI RAG<br/>(memory)")]
+  subgraph providers["models"]
+    gemini["gemini / apigee"]
+    oai["openaimodel (experimental)"]
+    byo["BYO model.LLM / model.Register"]
   end
-  sessSvc --> pg & sqlite & spanner & vertex
-  artSvc --> gcs
-  memSvc --> ragVertex
+  llm --> gemini & oai & byo
 
-  subgraph providers["LLM providers"]
-    gemini["model/gemini<br/>(genai SDK)"]
-    apigee["model/apigee<br/>(Vertex via proxy)"]
-    byo["BYO model.LLM"]
-  end
-  llmCall --> gemini --> vertexAI["Vertex AI / Gemini API"]
-  llmCall --> apigee --> vertexAI
-  llmCall --> byo
-
-  subgraph tools["Built-in toolsets"]
-    skillTS["skilltoolset<br/>(SKILL.md fs/merged/preload)"]
-    mcpTS["mcptoolset<br/>(MCP go-sdk)"]
-    agentT["agenttool<br/>(agent-as-tool)"]
-    fnT["functiontool<br/>(typed Go fn)"]
-    gemTT["geminitool<br/>(Google Search, etc)"]
-  end
-  flowBox -.-> tools
-  mcpTS --> mcpExt[("External MCP servers<br/>(stdio/SSE/HTTP)")]
-
-  subgraph subAgents["Sub-agent orchestration"]
-    par["parallelagent<br/>(errgroup goroutines)"]
-    seq["sequentialagent"]
-    loop["loopagent"]
-    transfer["LLM-emitted<br/>transfer_to_agent"]
-  end
-  flowBox --> subAgents
-
-  subgraph observ["Observability"]
-    otel["OTel TracerProvider /<br/>LoggerProvider<br/>(GenAI semconv)"]
-    debug["DebugTelemetry buffer<br/>(in-memory)"]
+  subgraph observ["observability"]
+    otel["OTel spans: invoke_agent, invoke_node,<br/>generate_content, execute_tool"]
+    bq["agentanalytics → BigQuery"]
+    debug["DebugTelemetry (debug API only)"]
   end
   flowBox --> otel
-  adkrest --> debug
+  plugins -.-> bq
+  runnerBox -.-> debug
 ```
 
 ---
 
 ## Appendix — Files worth reading first
 
-- `agent/agent.go` — base `Agent` interface, callbacks, the public surface for "what is an agent".
-- `agent/context.go` — invocation/callback context model (single most important file for understanding what a tool/callback can do).
-- `agent/llmagent/llmagent.go` — the configurable LLM agent (most common starting point for users).
-- `runner/runner.go` — outer run loop, session lookup/append, plugin lifecycle, sub-agent routing.
-- `internal/llminternal/base_flow.go` — the inner ReAct loop (`Flow.Run` → `Flow.runOneStep` → `handleFunctionCalls`). The single file with most of the harness logic.
-- `tool/tool.go` — `Tool`, `Toolset`, `Predicate`, `WithConfirmation`. The contract for authoring tools.
-- `tool/functiontool/function.go` — the typed-Go-function tool, schema inference, HITL integration.
-- `session/session.go` — `Event`, `EventActions`, state prefixes (`app:`, `user:`, `temp:`).
-- `session/database/service.go` — Postgres/SQLite/Spanner backend with optimistic concurrency (stale-session check).
-- `tool/skilltoolset/toolset.go` — Skill toolset (v1.2 spec) + auto-system-prompt injection.
-- `tool/skilltoolset/skill/source.go` — Skill loader abstraction.
-- `tool/skilltoolset/skill/merged_source.go` — Skill source composition (the closest thing to a resource manager).
-- `plugin/plugin.go` — 11 callback types ranked by frequency-of-use.
-- `server/adkrest/handler.go` — first-party REST server wiring.
-- `server/adkrest/controllers/runtime.go` — `/run`, `/run_sse`, `/run_live` controllers (the API contract).
-- `server/adkrest/internal/models/event.go` — REST wire-event shape (what clients consume).
+- `runner/runner.go` — `Runner.Run` / `RunLive`, plugin lifecycle, persistence, compaction hooks, HITL routing (`findAgentToRun`).
+- `runner/run_node.go` — how an `LlmAgent` root is wrapped in a single-node workflow and resumed from history.
+- `internal/llminternal/base_flow.go` — the ReAct loop, request processors, tool dispatch and callback chains.
+- `workflow/workflow.go`, `workflow/scheduler.go`, `workflow/persistence.go` — graph engine, concurrency, pause/resume reconstruction.
+- `agent/context.go`, `agent/common_context.go` — unified `agent.Context`, `Identity`, `IdentityFromContext`.
+- `agent/llmagent/llmagent.go` — `Config`, callbacks, `Mode`, auto-installed task tools.
+- `session/session.go`, `session/service.go` — `Event`, `EventActions`, `EventCompaction`, state prefixes, store contract.
+- `session/database/service.go`, `session/database/storage_session.go` — GORM backend, stale-session check, schema.
+- `session/compaction/compaction.go` — compaction strategies and their trade-offs.
+- `server/adkrest/handler.go`, `server/authn/authn.go`, `server/authz/authz.go` — REST server config, auth seams, origin guard.
+- `server/adkrest/controllers/runtime.go` — `/run`, `/run_sse`, `/run_live`.
+- `tool/tool.go`, `tool/functiontool/function.go` — tool contracts, filtering, confirmation.
+- `tool/skilltoolset/toolset.go`, `tool/skilltoolset/skill/source.go` — skills.
+- `tool/mcptoolset/set.go`, `auth/providers.go` — MCP client and outbound credentials.
+- `model/llm.go`, `model/openaimodel/doc.go`, `model/registry.go` — model seam, OpenAI adapter limits, registry.
+- `plugin/plugin.go`, `plugin/agentanalytics/` — plugin callbacks and the BigQuery sink.

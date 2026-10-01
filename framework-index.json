@@ -61,14 +61,14 @@
           "name": "eino",
           "repo_url": "https://github.com/cloudwego/eino",
           "framework_path": "frameworks/eino",
-          "commit_studied": "5e1305506c4fa89ef5d786035a947258e29a7593",
+          "commit_studied": "58d184303f4e73413c454a9626f79c17af0fd9fb",
           "branch": "main"
         },
         {
           "name": "eino-ext",
           "repo_url": "https://github.com/cloudwego/eino-ext",
           "framework_path": "frameworks/eino-ext",
-          "commit_studied": "176d453b133a7b4c8c337450aba744d1e0ab38b7",
+          "commit_studied": "3603a39473c3e7b2aa3bfc11216487c94b8c7fd9",
           "branch": "main"
         }
       ],
@@ -78,8 +78,8 @@
       "id": "genkit-go",
       "name": "Genkit Go",
       "ecosystem": "go",
-      "repo_url": "https://github.com/firebase/genkit",
-      "repo_note": "Multi-language monorepo; Go SDK lives under go/.",
+      "repo_url": "https://github.com/genkit-ai/genkit",
+      "repo_note": "Multi-language monorepo (moved from firebase/genkit); Go SDK lives under go/.",
       "framework_path": "frameworks/genkit",
       "report_path": "docs/reports/genkit-go.md"
     },
@@ -153,9 +153,10 @@
       "ecosystem": "python",
       "repos": [
         {
-          "name": "sdk-python",
-          "repo_url": "https://github.com/strands-agents/sdk-python",
-          "framework_path": "frameworks/strands-agents-sdk-python"
+          "name": "harness-sdk",
+          "repo_url": "https://github.com/strands-agents/harness-sdk",
+          "framework_path": "frameworks/strands-agents-harness-sdk",
+          "repo_note": "Monorepo (renamed from strands-agents/sdk-python); Python SDK lives under strands-py/."
         },
         {
           "name": "tools",
@@ -169,8 +170,9 @@
       "id": "strands-agents-typescript",
       "name": "Strands Agents TypeScript",
       "ecosystem": "typescript",
-      "repo_url": "https://github.com/strands-agents/sdk-typescript",
-      "framework_path": "frameworks/strands-agents-sdk-typescript",
+      "repo_url": "https://github.com/strands-agents/harness-sdk",
+      "repo_note": "Monorepo shared with the Python SDK; TypeScript SDK lives under strands-ts/. Previously strands-agents/sdk-typescript, archived 2026-06-02.",
+      "framework_path": "frameworks/strands-agents-harness-sdk",
       "report_path": "docs/reports/strands-agents-typescript.md"
     },
     {

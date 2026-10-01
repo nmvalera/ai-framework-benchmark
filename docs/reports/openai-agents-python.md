@@ -1,39 +1,39 @@
 # OpenAI Agents Python — Benchmark Analysis
 
 > **Repo**: https://github.com/openai/openai-agents-python
-> **Commit analysed**: `4bd459e403ac826c87b17fef8ffcbdf42a70b09a`
+> **Commit analysed**: `28e9f4fca26dd1c7e679398b87182868ecfad714`
 > **Branch**: `main`
 > **Framework path**: `frameworks/openai-agents-python/`
-> **Analysed on**: 2026-05-19
+> **Analysed on**: 2026-10-01
 
-Analysed at version `openai-agents 0.17.2` (`pyproject.toml:3`). All file paths in this document are relative to `frameworks/openai-agents-python/` unless otherwise noted.
+Analysed at version `openai-agents 0.22.3` (`pyproject.toml:3`) plus 169 commits on `main`. Previous analysis: commit `4bd459e4` (`0.17.2`, 2026-05-19). All file paths in this document are relative to `frameworks/openai-agents-python/` unless otherwise noted.
 
 ---
 
 ## TL;DR
 
-- ⭐ **What this is architecturally**: an in-process Python *library* (~36 kLOC under `src/agents/`) built directly on top of the official `openai>=2.26.0` SDK. There is no subprocess, no sister-repo runtime, no vendor cloud agent loop — the entire ReAct loop executes inside your Python process. The SDK is officially scoped as "a lightweight yet powerful framework for building multi-agent workflows" (`README.md:3`).
+- ⭐ **What this is architecturally**: an in-process Python *library* (~134k lines of Python under `src/agents/`, up from ~92k at `0.17.2`; most of the growth is in `run_state.py`, `run_internal/`, sandbox hardening, and the new `agents.testing` module) built directly on top of the official `openai>=3.0.0,<4` SDK (`pyproject.toml:10`). There is no subprocess, no sister-repo runtime, no vendor cloud agent loop — the entire ReAct loop executes inside your Python process. The SDK describes itself as "a lightweight yet powerful framework for building multi-agent workflows" (`README.md:3`). One exception is new and opt-in: the experimental **hosted multi-agent** model lets OpenAI's Responses API run sub-agents server-side while your function tools still execute locally.
 - **Ecosystem**: **Python** (primary, 3.10+). A separate `openai-agents-js` repo covers TypeScript.
-- **Open-source/license/support**: MIT-licensed, maintained by OpenAI. Community support via GitHub issues + OpenAI Developer Community; no paid SLA on the SDK itself (your OpenAI API contract is separate).
-- **Maturity/adoption snapshot**: pre-1.0 (`0.17.2`); active weekly minor releases; large GitHub community; explicit "leading `0` indicates the SDK is still evolving rapidly" warning in `docs/release.md:3`.
-- ⭐ **Guardrails are the standout feature of this stack** and the single strongest in the 11-stack comparison. Four decorator types — `@input_guardrail`, `@output_guardrail`, `@tool_input_guardrail`, `@tool_output_guardrail` (`src/agents/guardrail.py`, `src/agents/tool_guardrails.py`) — with a `tripwire_triggered` halt mechanism and three behaviors for tool-level guardrails (`allow`, `reject_content`, `raise_exception`). This is more granular than any sibling stack (Mastra, LangGraph, Vercel AI, Claude Agent SDK, Eino, ADK, Genkit, etc.) and is directly aimed at multi-tenant safety.
-- ⭐ **Sessions story is the other standout**: 10 first-party session backends ship in the box, more than any other stack we benchmarked. Core: `SQLiteSession`, `OpenAIConversationsSession`, `OpenAIResponsesCompactionSession`. Extensions: `AdvancedSQLiteSession`, `AsyncSQLiteSession`, `SQLAlchemySession` (Postgres/MySQL via asyncpg), `RedisSession`, `MongoDBSession`, `DaprSession`, plus the `EncryptedSession` Fernet/HKDF wrapper with TTL-based item expiration. All conform to the `Session` Protocol in `src/agents/memory/session.py:14`.
-- **Where the agent loop actually executes**: **inside your Python process**, single-threaded asyncio. `Runner.run` (`src/agents/run.py:197`) is the entrypoint; the loop, tool dispatch, guardrail evaluation, hook firing and session persistence all happen in your interpreter.
-- 🟢 **Strongest architectural choice for our use case**: `RunContextWrapper[TContext]` + `ToolContext` give clean tool-side access to tenant identity, OAuth tokens, etc., never passing through the LLM. Combined with `is_enabled` per-tool callables this lets you build tenant-scoped agents cleanly without registry support.
-- 🔴 **Weakest / biggest gap**: no first-party HTTP server, no runtime/scheduler, and no resource manager. The SDK is library-only — you bring your own FastAPI/Starlette layer, your own Celery/Temporal scheduler, your own skill registry (Git/S3/Postgres). Per-tenant USD budget cap and audit log are also BYO.
-- **Most surprising finding (good)**: 25+ partner tracing exporters ship as documented integrations (`docs/tracing.md:198-219`): Langfuse, Phoenix, MLflow, Braintrust, Pydantic Logfire, LangSmith, Comet Opik, Langtrace, Galileo, Portkey, etc. — all hook into `TracingProcessor`. Lock-in here is essentially zero.
-- **Most surprising finding (bad)**: there is **no first-class "force tool arguments" hook** — the closest you get is a `@tool_input_guardrail` that can reject_content but not rewrite, or you wrap the function tool yourself to read tenant from `ctx.context`. For a multi-tenant agent this is workable but blunter than Claude Agent SDK's `PreToolUse → updatedInput`.
-- 🟡 **Sub-agents are agents-as-tools** (`Agent.as_tool(...)` in `src/agents/agent.py:508`) OR `Handoff` (`src/agents/handoffs/__init__.py:94`). Both first-class. Parallelism is BYO `asyncio.gather` at the call site.
-- 🟢 **Skills (SKILL.md) ARE supported** — `src/agents/sandbox/capabilities/skills.py:401` defines `class Skill(BaseModel)` with name/description/content/scripts/references/assets, plus a `LazySkillSource` abstraction. Skills are *bound to sandbox/shell execution*, not a generic system-prompt loader.
-- **One-line verdicts** — **Sessions**: best in class (10 backends + Encrypted wrapper). **Skills**: present but narrower than Mastra (sandbox-bound). **Resource manager**: none. **Sub-agents**: first-class via `as_tool()` + `Handoff`, parallelism BYO. **Multi-tenancy**: `RunContextWrapper[TContext]` is solid; tool-arg forcing requires custom wrapping. **Hooks**: moderate (lifecycle only); guardrails fill the rejection role. **API**: library-only (host owns HTTP). **Observability**: tokens + tracing rich; USD cost BYO.
-- **Production-readiness verdict** for multi-tenant server-side deployment: usable, but you will write more glue (HTTP layer, tenant scoping at the registry layer, USD-cost calculation, scheduler) than with Mastra or LangGraph.
+- **Open-source/license/support**: MIT-licensed, maintained by OpenAI (a "SDKs team" was added as code owner in 0.22.3). Community support via GitHub issues + OpenAI Developer Community; no paid SLA on the SDK itself.
+- **Maturity/adoption snapshot** (captured 2026-10-01): still pre-1.0 (`0.22.3`, released 2026-09-17); ~29.8k stars, ~4.8k forks, ~396 contributors; five minor versions (0.18 → 0.22) and 22 releases since 2026-05-19; ~12M PyPI downloads in the last month. `docs/release.md:3` still states "The leading `0` indicates the SDK is still evolving rapidly."
+- ⭐ **Guardrails remain the standout feature** and got deeper since 0.17: four decorator types — `@input_guardrail`, `@output_guardrail`, `@tool_input_guardrail`, `@tool_output_guardrail` (`src/agents/guardrail.py`, `src/agents/tool_guardrails.py`) — with a `tripwire_triggered` halt and an `allow` / `reject_content` / `raise_exception` tri-state for tool-level guardrails. New: **pre-approval tool input guardrails** (`ToolExecutionConfig.pre_approval_tool_input_guardrails`, `src/agents/run_config.py:146`), **server-wide guardrails on every MCP tool** (`MCPServer(tool_input_guardrails=…, tool_output_guardrails=…)`, `src/agents/mcp/server.py:573-574`), and customizable output-guardrail blocked messages (`RunConfig.output_guardrail_blocked_message`, `src/agents/run_config.py:499`).
+- ⭐ **Sessions story is the other standout**: 10 first-party session backends ship in the box. Core: `SQLiteSession`, `OpenAIConversationsSession`, `OpenAIResponsesCompactionSession`. Extensions: `AdvancedSQLiteSession` (with conversation branching and usage tables), `AsyncSQLiteSession`, `SQLAlchemySession` (Postgres/MySQL), `RedisSession`, `MongoDBSession`, `DaprSession`, plus the `EncryptedSession` Fernet/HKDF wrapper. All conform to the `Session` Protocol (`src/agents/memory/session.py:53`). **New since 0.20**: a custom session can opt into receiving the active `RunContextWrapper` (`wrapper=` keyword on all four methods, `src/agents/memory/session.py:192-249`), which enables tenant routing at the storage layer.
+- **Where the agent loop actually executes**: **inside your Python process**, single-threaded asyncio. `Runner.run` (`src/agents/run.py:261`) is the entrypoint; the loop, tool dispatch, guardrail evaluation, hook firing and session persistence all happen in your interpreter.
+- 🟢 **Strongest architectural choice for our use case**: `RunContextWrapper[TContext]` + `ToolContext` give clean tool-side access to tenant identity, OAuth tokens, etc., never passing through the LLM. Combined with `is_enabled` per-tool callables, context-aware sessions and MCP `tool_meta_resolver`, this lets you build tenant-scoped agents without registry support.
+- 🔴 **Weakest / biggest gap**: no first-party HTTP server, no runtime/scheduler, and no resource manager. The SDK is library-only — you bring your own FastAPI/Starlette layer, your own Celery/Temporal scheduler, your own skill registry (Git/S3/Postgres). Per-tenant USD budget cap and audit log are also BYO. None of this changed between 0.17 and 0.22.
+- **Most surprising finding (good)**: the SDK now ships **provider-neutral test doubles** (`agents.testing.ScriptedModel`, `scripted_sandbox_session`, plus Realtime and Voice equivalents — `src/agents/testing/`, `docs/testing.md`) so you can unit-test tool loops, handoffs, guardrails, retries and streaming deterministically in CI without any model call. Tracing lock-in is also near zero: 30+ partner exporters are listed in `docs/tracing.md:225-256` (now including Datadog, PostHog, Laminar).
+- **Most surprising finding (bad)**: there is still **no first-class "force tool arguments" hook** — the closest you get is a `@tool_input_guardrail` that can `reject_content` but not rewrite, or you read tenant from `ctx.context` inside the tool. Also: a serialized `RunState` **includes your `TContext`** and is **not authenticated** by the SDK (`docs/human_in_the_loop.md:195-220`); secrets placed in context travel with every HITL snapshot.
+- 🟡 **Sub-agents are agents-as-tools** (`Agent.as_tool(...)`, `src/agents/agent.py:606`) OR `Handoff` (`src/agents/handoffs/__init__.py:126`). Both first-class. New: **experimental OpenAI-hosted sub-agents** (`OpenAIHostedMultiAgentModel`, `src/agents/extensions/experimental/hosted_multi_agent/model.py:369`) and **Programmatic Tool Calling** (`ProgrammaticToolCallingTool`, `src/agents/tool.py:1636`), where the model writes JavaScript that fans out tool calls in a hosted V8 sandbox.
+- 🟢 **Skills (SKILL.md) ARE supported** — `class Skill(BaseModel)` (`src/agents/sandbox/capabilities/skills.py:526`) with name/description/content/scripts/references/assets, plus a `LazySkillSource` abstraction and a synthetic `load_skill` tool. Skills are *bound to sandbox/shell execution*, not a generic system-prompt loader. Hosted container shells can also reference OpenAI-hosted skills by `skill_id` + `version` (`ShellToolSkillReference`, `src/agents/tool.py:1298`).
+- **One-line verdicts** — **Sessions**: best in class (10 backends + Encrypted wrapper + context-aware custom sessions). **Skills**: present but sandbox-bound. **Resource manager**: none (only hosted-shell `skill_id` references). **Sub-agents**: first-class via `as_tool()` + `Handoff`, plus experimental hosted sub-agents; programmatic fan-out still BYO `asyncio.gather`. **Multi-tenancy**: `RunContextWrapper[TContext]` is solid; tool-arg forcing still requires custom wrapping. **Hooks**: moderate (lifecycle hooks are read-only); guardrails fill the rejection role. **API**: library-only (host owns HTTP). **Observability**: tokens + tracing rich; USD cost BYO.
+- **Production-readiness verdict** for multi-tenant server-side deployment: usable, and hardened noticeably since 0.17 (redacted errors, owner-checked HITL guidance, sandbox mount credential checks, model-call timeouts), but you still write more glue (HTTP layer, registry-level tenant scoping, USD cost, scheduler) than with Mastra or LangGraph.
 
 ---
 
 ## 0. General
 
 ### 0.1 What is this stack?
-**Library/framework** — an in-process Python SDK. It is *not* a server, not a vendor-managed agent runtime, not a CLI wrapper. The `pyproject.toml` classifier `Topic :: Software Development :: Libraries :: Python Modules` confirms this.
+**Library/framework** — an in-process Python SDK. It is *not* a server, not a vendor-managed agent runtime, not a CLI wrapper. The `pyproject.toml` classifier `Topic :: Software Development :: Libraries :: Python Modules` confirms this. The optional hosted multi-agent model (Q9) is the only path where orchestration moves to OpenAI's service.
 
 ### 0.2 Ecosystem
 **Python** (primary, 3.10+ per `pyproject.toml:6`, also runs on 3.11/3.12/3.13/3.14).
@@ -41,35 +41,41 @@ Analysed at version `openai-agents 0.17.2` (`pyproject.toml:3`). All file paths 
 The vendor maintains a TypeScript sibling separately at https://github.com/openai/openai-agents-js (referenced from `README.md:8`). The Python and JS SDKs are independent codebases with broadly similar concepts but different APIs.
 
 ### 0.3 Project status & governance
-- **License**: MIT (`LICENSE`).
-- **Maintainer**: OpenAI (the company). All commits in `git log` are signed off by OpenAI engineers; there is no foundation or third-party maintainership.
-- **Commercial backing**: OpenAI uses this SDK internally (it underpins Codex and other OpenAI Agents products) so the funding/maintenance signal is strong.
-- **Support model**: community-only for the SDK itself (GitHub issues, OpenAI Developer Community). Your **OpenAI API contract** (rate limits, paid tier) is what backs the underlying LLM, not the SDK. There is no separate paid SLA for the SDK.
+- **License**: MIT (`LICENSE`, `pyproject.toml:7`).
+- **Maintainer**: OpenAI (the company). Most feature PRs in the 0.18 → 0.22 window are authored by OpenAI engineers; external contributors land fixes and smaller features. 0.22.3 added an OpenAI "SDKs team" as repository code owner. There is no foundation or third-party maintainership.
+- **Commercial backing**: OpenAI uses this SDK for its own agent products and examples; the funding/maintenance signal is strong.
+- **Support model**: community-only for the SDK itself (GitHub issues, OpenAI Developer Community). Your **OpenAI API contract** (rate limits, paid tier) backs the underlying LLM, not the SDK. There is no separate paid SLA for the SDK.
 
 ### 0.4 Project maturity / age
-- **Current version**: `0.17.2` (`pyproject.toml:3`).
-- **Stability signals**: per `docs/release.md:3`, "The project follows a slightly modified version of semantic versioning using the form `0.Y.Z`. The leading `0` indicates the SDK is still evolving rapidly." Pinning to `0.0.x` is recommended for users who want to avoid breaking changes.
-- **API stability**: most public APIs are stable enough for production (the breaking-change changelog at `docs/release.md:21+` is detailed and modest in scope), but features marked beta (e.g. the sandbox surface introduced in 0.14.0) can change in patch releases.
-- **Age signal**: the repo's first public release was Sonn 2024 / early 2025 (Spring's OpenAI Agents launch). Mature-enough-to-trust pattern, still evolving fast.
+- **Repository created**: 2025-03-11 (GitHub API). First PyPI release `0.0.2`.
+- **Current version**: `0.22.3` (`pyproject.toml:3`, released 2026-09-17).
+- **Stability signals**: per `docs/release.md:3`, "The project follows a slightly modified version of semantic versioning using the form `0.Y.Z`. The leading `0` indicates the SDK is still evolving rapidly." Minor (`Y`) bumps signal breaking changes to non-beta public interfaces; patches can change beta features (`docs/release.md:7-19`).
+- **API stability**: the breaking-change changelog (`docs/release.md:21+`) remains modest in scope per minor. Two of the five recent minors (0.18, 0.19) were explicitly non-breaking; 0.20–0.22 carry dependency migrations (MCP SDK v2, `openai` v3 / HTTPX2) and stricter failure handling. Features marked beta or experimental (Sandbox Agents, hosted multi-agent, Programmatic Tool Calling) can change in patch releases.
+- **Age signal**: ~19 months public at capture, 0.0.x → 0.22.x. Mature enough to trust for production, still evolving fast.
 
 ### 0.5 Adoption & community signal
-- Heavy GitHub activity: weekly minor releases (`docs/release.md` lists 0.10 → 0.17 over a few months), multiple breaking changelog entries.
-- Issues / PRs: actively triaged by OpenAI engineers per recent PR history.
-- Partner ecosystem (tracing): 25+ partner exporters integrated (Q12.5 below).
-- Multi-language docs: Japanese, Korean, Chinese translations (`docs/ja/`, `docs/ko/`, `docs/zh/`) — signal of significant non-English userbase.
-- (Star/fork numbers not captured live during this analysis; check the repo for current totals.)
+Captured **2026-10-01** via `gh api`:
+- **Stars**: ~29,795. **Forks**: ~4,842. **Watchers**: 231. **Contributors**: ~396.
+- **Activity**: 884 commits between 2026-05-19 (`0.17.2+21`) and this commit; ~756 PRs merged and ~288 issues opened over the same window. Last push 2026-10-01.
+- **Issue tracker**: 1 open issue and 3 open PRs at capture out of ~1,560 issues total — the tracker is aggressively triaged and closed.
+- **Release cadence**: 22 GitHub releases between 0.17.3 (2026-05-19) and 0.22.3 (2026-09-17); roughly one minor every 2–4 weeks with several patches in between.
+- **Package downloads**: ~12.1M PyPI downloads in the last month (pypistats.org, 2026-10-01).
+- **Partner ecosystem (tracing)**: 30+ listed exporters (Q12.5).
+- **Multi-language docs**: Japanese, Korean, Chinese translations (`docs/ja/`, `docs/ko/`, `docs/zh/`).
 
 ### 0.6 Ecosystem fit
-- **Package**: `openai-agents` on PyPI (`pyproject.toml:2`).
+- **Package**: `openai-agents` on PyPI (`pyproject.toml:2`) — https://pypi.org/project/openai-agents/
 - **Primary language**: Python (Q0.2).
-- **Used as**: a library imported into your own Python process (FastAPI app, Celery worker, Codex backend, etc.).
-- **Official examples/templates**: large `examples/` tree in the repo (`examples/basic/`, `examples/agent_patterns/`, `examples/sandbox/`, `examples/tools/skills/...`).
+- **Used as**: a library imported into your own Python process (FastAPI app, Celery worker, Temporal worker, etc.).
+- **Official examples/templates**: large `examples/` tree (`examples/basic/`, `examples/agent_patterns/`, `examples/sandbox/`, `examples/tools/`, `examples/memory/`, `examples/mcp/`, `examples/realtime/`).
+- **Machine-readable docs**: `docs/llms.txt` and `docs/llms-full.txt` for coding agents.
 
 ### 0.7 Documentation depth & cross-team contributor accessibility
 - Official site: https://openai.github.io/openai-agents-python/ (MkDocs Material).
 - Translated: Japanese (`docs/ja/`), Korean (`docs/ko/`), Chinese (`docs/zh/`).
-- Per-feature pages: agents, tools, sessions, guardrails, handoffs, MCP, realtime, sandbox, tracing, voice, visualization, REPL.
-- **Cross-team accessibility**: medium. The docs assume a Python developer comfortable with `asyncio`, `dataclasses`, and basic Pydantic. There is no markdown-only authoring flow for non-engineers (skills are bundled into Python code or pulled from a `LocalDir`). A Product/Data contributor cannot ship behavior changes without engineering review.
+- Per-feature pages: agents, tools, sessions, guardrails, handoffs, human-in-the-loop, MCP, models, realtime, sandbox (guide, clients, memory), streaming, results, testing, tracing, usage, voice, visualization, REPL.
+- Depth has increased noticeably: pages now carry explicit trust-boundary and failure-mode guidance (e.g. server-side HITL in `docs/human_in_the_loop.md:189-220`, SQLite storage trust boundary in `docs/sessions/index.md:500+`, Unix-local sandbox isolation limits in `docs/sandbox/clients.md:19-23`).
+- **Cross-team accessibility**: medium. The docs assume a Python developer comfortable with `asyncio`, dataclasses and basic Pydantic. There is no markdown-only authoring flow for non-engineers outside sandbox skills (`SKILL.md` files). A Product/Data contributor cannot ship behavior changes without engineering review.
 
 ### 0.8 Documentation entry points ⭐
 
@@ -82,7 +88,8 @@ The vendor maintains a TypeScript sibling separately at https://github.com/opena
   - https://openai.github.io/openai-agents-python/ref/guardrail/
   - https://openai.github.io/openai-agents-python/ref/memory/session/
   - https://openai.github.io/openai-agents-python/ref/tracing/
-- **Hosting / deployment / production guide**: none (this is a library; you host it inside your own Python service).
+- **Hosting / deployment / production guide**: none (this is a library; you host it inside your own Python service). Closest: https://openai.github.io/openai-agents-python/human_in_the_loop/#long-running-approvals and https://openai.github.io/openai-agents-python/sandbox/clients/
+- **Testing guide (new)**: https://openai.github.io/openai-agents-python/testing/
 - **Examples / demos repo**: https://github.com/openai/openai-agents-python/tree/main/examples
 - **Changelog / release notes**: https://openai.github.io/openai-agents-python/release/ (also `docs/release.md`)
 - **GitHub Releases**: https://github.com/openai/openai-agents-python/releases
@@ -107,7 +114,7 @@ The vendor maintains a TypeScript sibling separately at https://github.com/opena
 │                            │                                     │
 │                            ▼                                     │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │  agents.Runner.run / run_streamed (src/agents/run.py:195)  │  │
+│  │  agents.Runner.run / run_streamed (src/agents/run.py:259)  │  │
 │  │  ├── Agent[TContext] (instructions, tools, guardrails…)    │  │
 │  │  ├── RunContextWrapper[TContext]  ──► your typed context   │  │
 │  │  ├── Session protocol         (Sqlite/Redis/Postgres/…)    │  │
@@ -120,79 +127,95 @@ The vendor maintains a TypeScript sibling separately at https://github.com/opena
           │             │               │             │
           ▼             ▼               ▼             ▼
    ┌──────────┐  ┌─────────────┐  ┌──────────┐  ┌─────────────────┐
-   │ OpenAI   │  │ LiteLLM /   │  │  MCP     │  │  E2B / Modal /  │
-   │ Resp.API │  │ Any-LLM     │  │ servers  │  │ Daytona / etc.  │
-   │ (HTTP /  │  │ → 100+      │  │ (stdio / │  │ (sandboxes)     │
-   │  WS)     │  │  providers  │  │  SSE /   │  └─────────────────┘
-   └──────────┘  └─────────────┘  │ HTTP)    │
-                                  └──────────┘
+   │ OpenAI   │  │ LiteLLM /   │  │  MCP     │  │ Docker / E2B /  │
+   │ Resp.API │  │ Any-LLM     │  │ servers  │  │ Modal / Daytona │
+   │ (HTTP /  │  │ → 100+      │  │ (stdio / │  │ / Vercel / …    │
+   │  WS)     │  │  providers  │  │  SSE /   │  │ (sandboxes)     │
+   └────┬─────┘  └─────────────┘  │ HTTP)    │  └─────────────────┘
+        │                         └──────────┘
+        │ (opt-in, experimental)
+        ▼
+   ┌──────────────────────────────┐
+   │ OpenAI-hosted sub-agents     │  ← OpenAIHostedMultiAgentModel:
+   │ (Responses multi-agent beta) │    orchestration on OpenAI, local
+   │ + hosted V8 for Programmatic │    function tools injected back
+   │   Tool Calling               │    over the WebSocket
+   └──────────────────────────────┘
           │
           ▼
    ┌────────────────────────────┐
    │ OpenAI Traces dashboard /  │  ← default BatchTraceProcessor
-   │ 25+ partner exporters      │     exports tracing here
+   │ 30+ partner exporters      │     exports tracing here
    │ (Langfuse, Phoenix, MLflow,│
-   │  Braintrust, LangSmith …)  │
+   │  Datadog, LangSmith …)     │
    └────────────────────────────┘
 ```
 
 The whole loop, including streaming, tool dispatch, guardrail evaluation, hook firing, and session persistence, happens inside your Python process. No bundled CLI, no Node sidecar, no sister-repo server.
 
 ### 1.1 Where does the agent loop actually execute?
-**In your Python process**, single-threaded async on the asyncio event loop you own. The entrypoint is `Runner.run` (`src/agents/run.py:197`), which calls `DEFAULT_AGENT_RUNNER.run`, which in turn calls into `src/agents/run_internal/run_loop.py` (`run_single_turn`, `run_single_turn_streamed`, `execute_tools_and_side_effects`, `process_model_response`, …) — all in-process. The repo's `CLAUDE.md` confirms: "`src/agents/run.py` is the runtime entrypoint (`Runner`, `AgentRunner`). Keep it focused on orchestration and public flow control."
+**In your Python process**, single-threaded async on the asyncio event loop you own. The entrypoint is `Runner.run` (`src/agents/run.py:261`), which delegates to `AgentRunner.run` (`src/agents/run.py:548`), which in turn calls into `src/agents/run_internal/run_loop.py` and `src/agents/run_internal/turn_resolution.py` (`process_model_response` at `:2799`, `execute_tools_and_side_effects` at `:795`, `resolve_interrupted_turn` at `:1145`) — all in-process. The repo's `AGENTS.md:158` confirms: "`src/agents/run.py` is the runtime entrypoint (`Runner`, `AgentRunner`). Keep it focused on orchestration and public flow control."
 
-Compare to Claude Agent SDK Py (subprocesses a Node binary) or LangGraph Platform (vendor-managed server) — neither of those applies here. The closest analogs in shape are Mastra TS or Vercel AI SDK.
+**One opt-in exception (new, experimental since 0.18.2)**: with `OpenAIHostedMultiAgentModel` the root model creates and coordinates sub-agents on OpenAI's service; the local Runner still executes function tools and injects their outputs back into the active hosted response over WebSocket (`docs/models/index.md:238-263`). Programmatic Tool Calling (0.19) likewise runs model-generated JavaScript in a hosted V8 environment while the tools it calls run locally (`docs/tools.md:133-137`).
+
+Compare to Claude Agent SDK Py (subprocesses a Node binary) or LangGraph Platform (vendor-managed server) — neither applies in the default path. The closest analogs in shape are Mastra TS or Vercel AI SDK.
 
 ### 1.2 Runtime dependencies
 - **Python 3.10+** language runtime.
 - **No bundled binaries** the SDK subprocesses (no Node CLI, no `ffmpeg`, no language server). Pure Python.
 - **Required vendor service**: at least one LLM provider — by default the **OpenAI API** (Responses API). With LiteLLM/Any-LLM you can swap to any supported provider.
-- **Required infrastructure services**: **none** for the in-memory default. If you opt into a hosted session backend you need its dependency: Postgres/MySQL (via `SQLAlchemySession`), Redis (via `RedisSession`), MongoDB (via `MongoDBSession`), or a Dapr sidecar (via `DaprSession`). For tracing, by default exports go to OpenAI's hosted Traces dashboard; you can replace it with any of the 25+ partner exporters.
+- **Required infrastructure services**: **none** for the in-memory default. If you opt into a hosted session backend you need its dependency: Postgres/MySQL (`SQLAlchemySession`), Redis (`RedisSession`), MongoDB (`MongoDBSession`), or a Dapr sidecar (`DaprSession`). Sandbox agents need Docker or a hosted sandbox provider account for real isolation (Unix-local is for trusted development only, `docs/sandbox/clients.md:19-23`). For tracing, exports go to OpenAI's hosted Traces dashboard by default; you can replace it with any partner exporter.
+- **Dependency baseline changed in 0.21**: the core now requires `openai>=3.0.0,<4` and uses HTTPX2 instead of legacy `httpx` (`pyproject.toml:10`, `:18`; `docs/release.md:35-46`). MCP Python SDK v1 or v2 is accepted (`mcp>=1.19.0,<3`, `pyproject.toml:16`).
 - **No native libs** beyond pydantic-core wheels.
 
-The deployment story is therefore as light as you want: a single Python process with an OpenAI API key suffices for a working agent; everything else is opt-in.
+The deployment story is as light as you want: a single Python process with an OpenAI API key suffices for a working agent; everything else is opt-in.
 
 ### 1.3 Recommended deployment topology
 The SDK has no vendor opinion on topology. Examples uniformly assume **one Python process per host**, hosting many sessions via asyncio. Sessions are isolated by `session_id` at the store layer (each `Session` instance binds one id; see Q5.7). For horizontal scaling, run N stateless worker processes with a shared store (Postgres via `SQLAlchemySession`, Redis via `RedisSession`, MongoDB via `MongoDBSession`). Each worker can serve any session as long as it can reach the same store.
 
+The closest thing to a production topology guide is the server-side HITL guidance (`docs/human_in_the_loop.md:193-208`): keep the serialized `RunState` in application-controlled storage, authenticate and authorize the reviewer on the server, and use "an atomic owner-checked transition before starting resumed execution" in shared storage. The accompanying example (`examples/agent_patterns/human_in_the_loop_server.py`) is explicitly "not a deployable HTTP service".
+
 There is no first-party "container-per-tenant" recommendation — the typical pattern is one-process-many-tenants, with isolation enforced via per-request `RunContextWrapper[TContext]` and (optionally) per-tenant session stores.
 
 ### 1.4 Cold-start cost & instance footprint
-- **Cold start**: low — `import agents` triggers a chain of openai SDK + pydantic imports; in our quick read the lazy `SQLiteSession` import (`__init__.py:242`) and the lazy-imported extension backends (`src/agents/extensions/memory/__init__.py:41-74`) are exemplary. No 20–30 s startup like Claude Agent SDK's bundled Node.
-- **RAM baseline**: modest (~100–150 MB for the Python interpreter + pydantic + openai SDK). No persistent state in the SDK process beyond what your code keeps.
-- **Disk baseline**: tens of MB for the package itself. `SQLiteSession` defaults to `:memory:` (zero disk) unless you point it at a file.
+- **Cold start**: low — `import agents` triggers the openai SDK + pydantic imports. `SQLiteSession` is lazy-imported via module `__getattr__` (`src/agents/__init__.py:267-275`) and the extension session backends are lazy-imported (`src/agents/extensions/memory/__init__.py:44-74`). No 20–30 s startup like Claude Agent SDK's bundled Node. Not benchmarked in this analysis.
+- **RAM baseline**: modest (~100–150 MB for the Python interpreter + pydantic + openai SDK; estimate, not measured). No persistent state in the SDK process beyond what your code keeps.
+- **Disk baseline**: tens of MB for the package itself. `SQLiteSession` defaults to `:memory:` (zero disk) unless you point it at a file (`src/agents/memory/sqlite_session.py:31-38`).
 
 ### 1.5 Vendor lock-in
-- **LLM-provider lock-in**: 🟢 **low**. `MultiProvider` (`src/agents/models/multi_provider.py:61`) supports `openai/...`, `litellm/...`, `any-llm/...` prefixes natively. LiteLLM covers 100+ providers, Any-LLM adds OpenRouter and others. The Responses API gets first-class treatment but Chat Completions also works.
-- **Hosting-platform lock-in**: 🟢 **none**. Run anywhere Python 3.10+ runs (any container, any cloud, any laptop).
-- **Eval / observability lock-in**: 🟢 **none**. Default exporter sends to OpenAI Traces (free), but `add_trace_processor` / `set_trace_processors` (`src/agents/tracing/__init__.py:94-105`) replace or extend that with any of 25+ partner exporters.
+- **LLM-provider lock-in**: 🟢 **low**. `MultiProvider` (`src/agents/models/multi_provider.py:62`) supports `openai/...`, `litellm/...`, `any-llm/...` prefixes natively. LiteLLM covers 100+ providers, Any-LLM adds OpenRouter and others. The Responses API gets first-class treatment and a growing set of features are Responses-only (tool search, Programmatic Tool Calling, hosted multi-agent, server-side compaction), so the gap between "OpenAI path" and "other providers" is widening.
+- **Hosting-platform lock-in**: 🟢 **none**. Run anywhere Python 3.10+ runs.
+- **Eval / observability lock-in**: 🟢 **none**. Default exporter sends to OpenAI Traces, but `add_trace_processor` / `set_trace_processors` (`src/agents/tracing/__init__.py:94-105`) replace or extend that with any of 30+ partner exporters.
 - **Session-store lock-in**: 🟢 **none**. 10 first-party backends + the `Session` Protocol for BYO.
 
-The only "OpenAI-flavored" choice is that the Responses API server-managed conversation features (`conversation_id`, `previous_response_id`, `auto_previous_response_id`) only work end-to-end with OpenAI models. If you use LiteLLM/Any-LLM you should use the SDK's local Session backends instead.
+The "OpenAI-flavored" choices are: Responses API server-managed conversation features (`conversation_id`, `previous_response_id`, `auto_previous_response_id`), `OpenAIResponsesCompactionSession`, hosted tools, Programmatic Tool Calling and hosted multi-agent only work end-to-end with OpenAI models. With LiteLLM/Any-LLM you use the local Session backends and BYO compaction.
 
 ### 1.6 Framework weight / footprint
-**Medium-heavy** for a library. The SDK ships agents, sessions (10 backends), guardrails (4 types), MCP client + server-bridge, sandbox runtime with 7 providers, tracing, realtime (voice), Codex extension, hosted-tool wrappers, and a REPL (`run_demo_loop`). But it does **not** ship a dev UI, a frontend SDK, a scheduler, a deployer, a storage abstraction beyond sessions, or an eval harness. Compared to Mastra (which has all of those), this stack is leaner; compared to Claude Agent SDK Py (which is a ~10 kLOC wrapper around a Node binary), this is much bigger.
+**Medium-heavy** for a library, and growing. The SDK ships agents, sessions (10 backends), guardrails (4 types), MCP client, sandbox runtime with Docker + Unix-local + 7 hosted providers, sandbox memory, tracing, realtime (voice), Codex extension, hosted-tool wrappers, a REPL (`run_demo_loop`), and now first-party test doubles (`agents.testing`). It does **not** ship a dev UI, a frontend SDK, a scheduler, a deployer, a storage abstraction beyond sessions, or an eval harness. Compared to Mastra this stack is leaner; compared to Claude Agent SDK Py (a thin wrapper around a Node binary) this is much bigger.
 
-Optional deps (`pyproject.toml:37-60`) keep the install lean: `voice`, `viz`, `litellm`, `any-llm`, `realtime`, `sqlalchemy` (+asyncpg), `encrypt` (cryptography), `redis>=7`, `dapr`, `mongodb`, `docker`, `blaxel`, `daytona`, `cloudflare`, `e2b`, `modal`, `runloop`, `vercel`, `s3`, `temporal`.
+Optional deps (`pyproject.toml:42-93`) keep the install lean: `voice`, `viz`, `litellm`, `any-llm`, `realtime`, `sqlalchemy` (+asyncpg), `encrypt` (cryptography), `redis>=7`, `dapr`, `mongodb`, `docker`, `blaxel`, `daytona`, `cloudflare`, `e2b`, `modal`, `runloop`, `vercel`, `s3`, `temporal`.
 
 ### 1.7 Release-history signal
-Documented in-repo at `docs/release.md`. Key signals (most recent first):
+Documented in-repo at `docs/release.md` (breaking changes per minor) and in GitHub Releases (all changes). Key signals since the previous analysis (most recent first):
 
-- **0.17.0** (`docs/release.md:21-50`): sandbox local-source materialization tightened — `LocalFile.src` / `LocalDir.src` must now live within the sandbox `base_dir` unless granted via `Manifest.extra_path_grants`. Closes a local artifact boundary issue; can affect apps that copied trusted host files into a sandbox.
-- **0.16.0** (`docs/release.md:54-65`): default model is now `gpt-5.4-mini` instead of `gpt-4.1`. Implicit defaults include GPT-5 reasoning settings (`reasoning.effort="none"`, `verbosity="low"`). `Runner.run/run_sync/run_streamed` now accept `max_turns=None` to disable the turn limit. Tar-archive symlink hardening across sandbox backends.
-- **0.15.0** (`docs/release.md:67-82`): model refusals are now surfaced as `ModelRefusalError` instead of being treated as empty text. Handle with `error_handlers={"model_refusal": ...}` in `RunConfig`.
-- **0.14.0** (`docs/release.md:84-94`): introduced the **Sandbox Agents** beta — `SandboxAgent`, `Manifest`, `SandboxRunConfig`, plus seven provider backends (Blaxel, Cloudflare, Daytona, E2B, Modal, Runloop, Vercel). Skills-based progressive disclosure and S3-backed memory examples added.
-- **0.13.0** (`docs/release.md:96-105`): default Realtime websocket model bumped to `gpt-realtime-1.5`. `MCPServer` gains `list_resources()` / `read_resource()`; `MCPServerStreamableHttp` exposes `session_id` for resumable HTTP across reconnects/stateless workers. Chat Completions adapters can opt into reasoning-content replay.
-- **0.12.0 / 0.11.0 / 0.10.0**: non-breaking; 0.10 added websocket transport for the Responses API.
+- **0.22.0** (`docs/release.md:22-33`, 2026-08-19): stricter failure handling and data isolation. Output-guardrail rejections of terminal function-tool output now replace the payload with `"Output withheld by an output guardrail."` in session history, `RunState` and streamed state. Non-streaming Responses calls raise `ModelBehaviorError` on `failed`/`incomplete` terminal status. Each `RunResult.to_state()` checkpoint owns an independent usage snapshot. `OpenAIProvider(openai_client=…, organization=…/project=…)` now raises `UserError`. 0.22.1 added customizable output-guardrail messages, server-wide MCP tool guardrails, Unix-local environment isolation, and image results in web search.
+- **0.21.0** (`docs/release.md:35-46`, 2026-08-15): requires `openai` v3 and moves the SDK's OpenAI HTTP integrations to HTTPX2; apps that pass a custom `http_client` must migrate. Adds public provider-neutral testing utilities (`agents.testing`). 0.21.1 added model-call timeouts (`ModelSettings.timeout`), run-scoped sandbox working directories, and Docker network disable.
+- **0.20.0** (`docs/release.md:48-61`, 2026-08-11): default model is now `gpt-5.6-luna`. MCP Python SDK v2 support (v1 retained). `RunState.add_input()` stages durable user input before a resumed model call. Retry policies can explicitly approve unsafe replays. Custom sessions can receive the run context. Sandbox mount credential-exposure acknowledgements.
+- **0.19.0** (`docs/release.md:63-74`, 2026-07-27, non-breaking): **Programmatic Tool Calling** (`ProgrammaticToolCallingTool`), the `agents.decorators` module with `@tool` alias, consistent dict-or-typed-object configuration, hardened logging to avoid leaking raw payloads.
+- **0.18.0** (`docs/release.md:76-82`, 2026-07-07, non-breaking): Realtime default model `gpt-realtime-2.1`. Patches added GPT-5.6 request controls, the **hosted multi-agent beta** (0.18.2), and configurable task/turn tracing spans (0.18.3).
+- **0.17.x patches** (2026-05-19 → 2026-07-06): pre-approval tool input guardrails and SDK-only custom data on tool outputs (0.17.6), buffered Chat Completions tool-call streaming (0.17.7), invalid-final-output recovery handler (0.17.8).
+- **Earlier** (unchanged from previous analysis): 0.17.0 sandbox local-source boundary (`docs/release.md:84-115`); 0.16.0 default model `gpt-5.4-mini` + `max_turns=None` (`:117-130`); 0.15.0 `ModelRefusalError` (`:132-146`); 0.14.0 Sandbox Agents beta (`:148-159`); 0.13.0 MCP resources + streamable-HTTP `session_id` (`:161-170`).
 
-GitHub Releases: https://github.com/openai/openai-agents-python/releases. The release cadence is roughly one minor (`Y`) every 2–4 weeks, with multiple patches in between. Architecture-affecting changes in the last few months: sandbox runtime (0.14), websocket Responses transport (0.10), MCP streamable-HTTP resumability (0.13), default-model migration (0.16), sandbox boundary tightening (0.17). Production users should pin a minor and read this changelog before bumping.
+Post-0.22.3 `main` (169 commits) adds opt-in encrypted-history scan budgets, compaction rollback budgets, configurable MCP listing page limits, configurable sandbox memory consolidation turns and Docker removal protection — all bounded-work or hardening changes.
+
+**Pattern**: fast-moving areas are sandbox security, RunState durability/serialization (schema `1.10` → `1.18`, `src/agents/run_state.py:212`), MCP compatibility, and OpenAI-only Responses features. Production users should pin a minor and read `docs/release.md` before bumping.
 
 ---
 
 ## 2. Agent Loop
 
 ### 2.1 Run loop entrypoint(s)
-Two public flavors plus a streaming flavor. Defined on `class Runner` (`src/agents/run.py:195`):
+Two public flavors plus a streaming flavor. Defined on `class Runner` (`src/agents/run.py:259`):
 
 ```python
 class Runner:
@@ -203,30 +226,30 @@ class Runner:
         input: str | list[TResponseInputItem] | RunState[TContext],
         *,
         context: TContext | None = None,
-        max_turns: int | None = DEFAULT_MAX_TURNS,          # = 10
+        max_turns: int | None = DEFAULT_MAX_TURNS,          # = 10 (run_config.py:45)
         hooks: RunHooks[TContext] | None = None,
-        run_config: RunConfig | None = None,
+        run_config: RunConfig | dict[str, Any] | None = None,  # dicts accepted since 0.19
         error_handlers: RunErrorHandlers[TContext] | None = None,
         previous_response_id: str | None = None,
         auto_previous_response_id: bool = False,
         conversation_id: str | None = None,
         session: Session | None = None,
     ) -> RunResult: ...
-    # src/agents/run.py:197-211
+    # src/agents/run.py:261-275
 
     @classmethod
     def run_sync(...) -> RunResult: ...                       # blocking variant
-    # src/agents/run.py:280-360
+    # src/agents/run.py:366-467
 
     @classmethod
     def run_streamed(...) -> RunResultStreaming: ...          # async-iterable result
-    # src/agents/run.py:362-439
+    # src/agents/run.py:469-546
 ```
 
-`run` returns `RunResult` (`src/agents/result.py:333`); `run_streamed` returns `RunResultStreaming` (`src/agents/result.py:444`) which exposes `.stream_events()` — an async iterator over `StreamEvent`.
+`run` returns `RunResult` (`src/agents/result.py:486`); `run_streamed` returns `RunResultStreaming` (`src/agents/result.py:599`) which exposes `.stream_events()` (`src/agents/result.py:942`) — an async iterator over `StreamEvent`.
 
 ### 2.2 Per-iteration behavior
-Documented inline at `src/agents/run.py:215-222`:
+Documented inline at `src/agents/run.py:281-286`:
 
 ```
 1. The agent is invoked with the given input.
@@ -236,32 +259,36 @@ Documented inline at `src/agents/run.py:215-222`:
 4. Else, we run tool calls (if any), and re-run the loop.
 ```
 
-The per-iteration code path lives in `src/agents/run_internal/run_loop.py` (`run_single_turn`, `run_single_turn_streamed`) and `src/agents/run_internal/turn_resolution.py` (`process_model_response`, `execute_tools_and_side_effects`, `check_for_final_output_from_tools`, `execute_handoffs`).
+The per-iteration code path lives in `src/agents/run_internal/run_loop.py` and `src/agents/run_internal/turn_resolution.py` (`process_model_response` `:2799`, `execute_tools_and_side_effects` `:795`, `check_for_final_output_from_tools` `:760`, `execute_handoffs` `:529`). Tool planning and approval gating live in `run_internal/tool_planning.py` and `run_internal/approvals.py`.
 
 ### 2.3 ReAct loop
-**Built-in**. The above is a vanilla ReAct loop (LLM → tool dispatch → result → LLM). You don't assemble it yourself; you configure `Agent.tool_use_behavior` to choose:
+**Built-in**. The above is a vanilla ReAct loop (LLM → tool dispatch → result → LLM). You configure `Agent.tool_use_behavior` to choose:
 - `"run_llm_again"` (default): standard ReAct, feed tool results back to the LLM.
 - `"stop_on_first_tool"`: first tool result is the final output.
-- `StopAtTools(stop_at_tool_names=[...])`: stop on first matching tool call.
+- `StopAtTools(stop_at_tool_names=[...])`: stop on first matching tool call (`src/agents/agent.py:147`).
 - `ToolsToFinalOutputFunction`: custom decision function (see `examples/agent_patterns/forcing_tool_use.py`).
+
+New variant (0.19, OpenAI Responses only): with `ProgrammaticToolCallingTool()` the model can emit one JavaScript program that calls several tools with loops/branching inside a single model turn, instead of one round trip per tool call (`docs/tools.md:133-137`).
 
 ### 2.4 Tool dispatch + result handling
 LLM-emitted tool calls are routed through `src/agents/run_internal/tool_execution.py`:
-- `execute_function_tool_calls` (Python function tools)
-- `execute_computer_actions` (ComputerTool)
-- `execute_shell_calls` / `execute_local_shell_calls` (ShellTool / LocalShellTool)
-- `execute_apply_patch_calls` (ApplyPatchTool)
-- `execute_mcp_approval_requests` (MCP-side approvals, via `tool_planning.py`)
+- `execute_function_tool_calls` (`:2330`, Python function tools)
+- `execute_local_shell_calls` (`:2383`) / `execute_shell_calls` (`:2410`)
+- `execute_apply_patch_calls` (`:2437`)
+- `execute_computer_actions` (`:2464`)
+- MCP-side approvals via `run_internal/tool_planning.py`
 
-Each invocation receives a `ToolContext` (Q6.3 below) carrying `tool_name`, `tool_call_id`, `tool_arguments`, plus the parent `RunContextWrapper[TContext]`. Results are wrapped as `FunctionToolResult` (`src/agents/tool.py`) and threaded back into the LLM input list via `run_internal/items.py:run_items_to_input_items`.
+Each invocation receives a `ToolContext` (Q6.3) carrying `tool_name`, `tool_call_id`, `tool_arguments`, plus the parent `RunContextWrapper[TContext]`. Results are wrapped as `FunctionToolResult` (`src/agents/tool.py:388`) and threaded back into the LLM input list via `run_internal/items.py:run_items_to_input_items` (`:158`).
+
+New dispatch options since 0.17: `RunConfig.tool_not_found_behavior = "raise_error" | "return_error_to_model"` (`src/agents/run_config.py:482`) for hallucinated tool names, `tool_name_collision_policy` (`:490`), per-tool `timeout_seconds` / `timeout_behavior` on `FunctionTool` (`src/agents/tool.py:514-525`), and `custom_data_extractor` to attach SDK-only data to a tool output that is never sent to the model (`src/agents/tool.py:530`, surfaced as `ToolCallOutputItem.custom_data`, `src/agents/items.py:447`).
 
 ### 2.5 Explicit turn concept
-**A turn = one LLM call plus its dispatched tool calls**. From the docstring at `src/agents/run.py:237`: "A turn is defined as one AI invocation (including any tool calls that might occur)." `max_turns` (default 10, configurable, `None` for unlimited as of 0.16.0) is the cap. Resumed runs (from `RunState`) do **not** increment the turn counter — only fresh model calls do (per the repo's `CLAUDE.md`: "Input guardrails run only on the first turn and only for the starting agent. Resuming an interruption from `RunState` must not increment the turn counter; only actual model calls advance turns").
+**A turn = one LLM call plus its dispatched tool calls**. From the docstring at `src/agents/run.py:301-302`: "A turn is defined as one AI invocation (including any tool calls that might occur)." `max_turns` (default 10, `None` for unlimited since 0.16.0) is the cap. Resumed runs continue from the turn count stored in `RunState`; `RunState.add_input()` refuses to stage input when no model turns remain (`src/agents/run_state.py:1007-1019`). Input guardrails run only for the first agent in the chain (`docs/guardrails.md:14`, `src/agents/run.py:294`), and input staged with `add_input()` is also passed through them (`docs/release.md:60`).
 
 ### 2.6 Event emission mechanism (in-process)
-Streaming uses an internal `asyncio.Queue[StreamEvent | QueueCompleteSentinel]` (`src/agents/result.py:483`). The background run-loop task writes events; `RunResultStreaming.stream_events()` reads them. There is also a separate `_input_guardrail_queue` for streaming guardrail trips (`src/agents/result.py:486`).
+Streaming uses an internal `asyncio.Queue[StreamEvent | QueueCompleteSentinel]` (`src/agents/result.py:638`). The background run-loop task writes events; `RunResultStreaming.stream_events()` reads them. There is also a separate `_input_guardrail_queue` for streaming guardrail trips (`src/agents/result.py:641`).
 
-The yielded type is `StreamEvent` — the union `RawResponsesStreamEvent | RunItemStreamEvent | AgentUpdatedStreamEvent` (`src/agents/stream_events.py:61`). See Q3 for the full taxonomy of what flows through this queue.
+The yielded type is `StreamEvent` — the union `RawResponsesStreamEvent | RunItemStreamEvent | AgentUpdatedStreamEvent` (`src/agents/stream_events.py:61`, file unchanged since the previous analysis). See Q3 for the taxonomy.
 
 ---
 
@@ -270,47 +297,49 @@ The yielded type is `StreamEvent` — the union `RawResponsesStreamEvent | RunIt
 ### 3.1 Message layers
 Three layers, deliberately separated:
 
-1. **OpenAI wire layer** — `TResponseInputItem` (alias for `openai.types.responses.ResponseInputItemParam`, `src/agents/items.py:73`) and `TResponseOutputItem` (alias for `ResponseOutputItem`). These are the openai-python types the Responses API consumes/produces.
-2. **SDK "run item" layer** — `RunItem` subclasses (`src/agents/items.py:91-200+`): `MessageOutputItem`, `ToolCallItem`, `ToolCallOutputItem`, `HandoffCallItem`, `HandoffOutputItem`, `ToolApprovalItem`, `MCPApprovalRequestItem`, `MCPApprovalResponseItem`, `ReasoningItem`, `ToolSearchCallItem`, `ToolSearchOutputItem`, `CompactionItem`. Each wraps a `raw_item` from layer 1 plus the originating `Agent`.
+1. **OpenAI wire layer** — `TResponseInputItem` (alias for `openai.types.responses.ResponseInputItemParam`, `src/agents/items.py:79`) and `TResponseOutputItem` (alias for `ResponseOutputItem`, `:82`). These are the openai-python types the Responses API consumes/produces.
+2. **SDK "run item" layer** — `RunItem` subclasses (`src/agents/items.py:98-700`): `InputItem` (new), `MessageOutputItem`, `ToolCallItem`, `ToolCallOutputItem`, `HandoffCallItem`, `HandoffOutputItem`, `ToolApprovalItem`, `MCPListToolsItem`, `MCPApprovalRequestItem`, `MCPApprovalResponseItem`, `ReasoningItem`, `ToolSearchCallItem`, `ToolSearchOutputItem`, `CompactionItem`. Each wraps a `raw_item` from layer 1 plus the originating `Agent`.
 3. **Stream event layer** — `StreamEvent` is a union of `RawResponsesStreamEvent | RunItemStreamEvent | AgentUpdatedStreamEvent` (`src/agents/stream_events.py:61`).
 
-The runner converts layer-1 ↔ layer-2 via `RunItemBase.to_input_item()` (`src/agents/items.py:144`) and `run_internal/items.py:run_items_to_input_items` (the reverse).
+The runner converts layer-2 → layer-1 via `RunItemBase.to_input_item()` (`src/agents/items.py:151`) and `run_internal/items.py:run_items_to_input_items` (`:158`).
 
 ### 3.2 Concrete message types
 
 | Type | Purpose | File:line |
 |---|---|---|
-| `MessageOutputItem` | LLM assistant message | `items.py:157` |
-| `ToolCallItem` | LLM tool call (function / computer / shell / apply_patch) | `items.py` |
-| `ToolCallOutputItem` | Tool result returned to LLM | `items.py` |
-| `HandoffCallItem` | LLM-triggered handoff invocation | `items.py` |
-| `HandoffOutputItem` | Handoff target's first message | `items.py` |
-| `ToolApprovalItem` | Pending tool approval (HITL interrupt) | `items.py` |
-| `MCPApprovalRequestItem` | MCP server requested approval | `items.py` |
-| `MCPApprovalResponseItem` | User's MCP approval verdict | `items.py` |
-| `ReasoningItem` | LLM reasoning (o-series, gpt-5) | `items.py` |
-| `ToolSearchCallItem` | Responses API "tool search" deferred-loading call | `items.py:167` |
-| `ToolSearchOutputItem` | Tool search result | `items.py:181` |
-| `CompactionItem` | Marker for a compaction event in the session | `items.py` |
-| `ModelResponse` | One raw model response (group of items + usage) | `items.py` |
+| `InputItem` | Input admitted while resuming a run (`RunState.add_input`); carries a durable `input_id` for exactly-once tracking (new in 0.20) | `items.py:157` |
+| `MessageOutputItem` | LLM assistant message | `items.py:170` |
+| `ToolSearchCallItem` | Responses API "tool search" deferred-loading call | `items.py:180` |
+| `ToolSearchOutputItem` | Tool search result | `items.py:194` |
+| `HandoffCallItem` | LLM-triggered handoff invocation | `items.py:300` |
+| `HandoffOutputItem` | Handoff target's first message | `items.py:310` |
+| `ToolCallItem` | LLM tool call (function / computer / shell / apply_patch / custom / PTC `program`) | `items.py:383` |
+| `ToolCallOutputItem` | Tool result returned to LLM; optional SDK-only `custom_data` | `items.py:431` |
+| `ReasoningItem` | LLM reasoning (o-series, gpt-5.x) | `items.py:493` |
+| `MCPListToolsItem` | MCP tool catalog listing | `items.py:503` |
+| `MCPApprovalRequestItem` | Hosted MCP server requested approval | `items.py:513` |
+| `MCPApprovalResponseItem` | User's MCP approval verdict | `items.py:523` |
+| `CompactionItem` | Marker for a compaction event in the session | `items.py:533` |
+| `ToolApprovalItem` | Pending tool approval (HITL interrupt) | `items.py:556` |
+| `ModelResponse` | One raw model response (group of items + usage) | `items.py:706` |
 
 ### 3.3 Messages vs. events
 Two separate taxonomies:
 - **Messages/items** (`RunItem`) are persisted to the session and returned as `RunResult.new_items`.
-- **Events** (`StreamEvent`) flow through the streaming iterator. There are three event variants:
-  - `RawResponsesStreamEvent` — raw OpenAI Responses API events (text deltas, function-call argument deltas, lifecycle events).
-  - `RunItemStreamEvent` — wraps a newly-generated `RunItem` (`message_output_created`, `tool_called`, `tool_output`, `reasoning_item_created`, `handoff_requested`, `handoff_occured` [sic, kept for compat], `mcp_approval_requested`, `mcp_list_tools`, `tool_search_called`, `tool_search_output_created`, `mcp_approval_response`).
+- **Events** (`StreamEvent`) flow through the streaming iterator. Three event variants:
+  - `RawResponsesStreamEvent` — raw OpenAI Responses API events (text deltas, function-call argument deltas, lifecycle events; with hosted multi-agent also beta hosted-output items and `response.inject.created` acknowledgements).
+  - `RunItemStreamEvent` — wraps a newly-generated `RunItem` (`message_output_created`, `tool_called`, `tool_output`, `reasoning_item_created`, `handoff_requested`, `handoff_occured` [sic, kept for compat], `mcp_approval_requested`, `mcp_approval_response`, `mcp_list_tools`, `tool_search_called`, `tool_search_output_created` — `src/agents/stream_events.py:29-42`).
   - `AgentUpdatedStreamEvent` — fires when handoff swaps `current_agent`.
 
 ### 3.4 Event categories
 - **Stream-event (raw)**: text-delta, reasoning-delta, function-call-arg-delta, refusal-delta, response-created/completed/error (all `RawResponsesStreamEvent`).
 - **Turn-event / run-item event**: every newly-created `RunItem` (`RunItemStreamEvent`).
 - **Message-event**: subset of run-item events (`message_output_created`).
-- **Tool event**: subset of run-item events (`tool_called`, `tool_output`).
-- **Session-lifecycle event**: not surfaced on the stream — handled via session hooks (`on_agent_start`, `on_agent_end`) or via `RunHooks`.
-- **Hook event**: not on the stream — fires synchronously inside the loop.
+- **Tool event**: subset of run-item events (`tool_called`, `tool_output`). Programmatic Tool Calling `program` items and their child calls also appear as `tool_called` / `tool_output` (`docs/tools.md`, PTC section).
+- **Session-lifecycle event**: not surfaced on the stream — handled via `RunHooks` (`on_agent_start`, `on_agent_end`).
+- **Hook event**: not on the stream — fires inside the loop.
 - **Agent-lifecycle event**: `AgentUpdatedStreamEvent` (the only "agent changed" notification on the stream).
-- **Sub-agent event**: when sub-agents are invoked as tools, an `on_stream` callback on `as_tool(...)` can re-emit the sub-agent's events as `AgentToolStreamEvent` (`src/agents/agent.py:121`).
+- **Sub-agent event**: when sub-agents are invoked as tools, an `on_stream` callback on `as_tool(...)` can re-emit the sub-agent's events as `AgentToolStreamEvent` (`src/agents/agent.py:134`). Hosted multi-agent sub-agent messages are filtered out of the high-level result and only visible via raw events (`docs/models/index.md:285-289`).
 
 ### 3.5 Canonical type-definition file(s)
 - Items / messages: `src/agents/items.py`
@@ -318,11 +347,12 @@ Two separate taxonomies:
 - Run context: `src/agents/run_context.py`
 - Tool context: `src/agents/tool_context.py`
 - Run result / streaming result: `src/agents/result.py`
-- Run state (serializable snapshot): `src/agents/run_state.py` (3,305 lines — very rich)
+- Run state (serializable snapshot): `src/agents/run_state.py` (5,472 lines, up from 3,305 — very rich)
 - Run config: `src/agents/run_config.py`
+- Run error handlers: `src/agents/run_error_handlers.py`
 
 ### 3.6 Live agentic event stream taxonomy
-Sample frames as Python repr (in-process; not yet a wire format — see Q8 for wire-format BYO):
+Sample frames as Python repr (in-process; not a wire format — see Q8 for wire-format BYO):
 
 ```python
 # 1. Raw text delta from OpenAI Responses API (most common, fine-grained)
@@ -368,35 +398,40 @@ AgentUpdatedStreamEvent(
 
 ### 4.2 Concurrent session isolation
 Isolation is *per-`Session`-instance* and *per-`RunContextWrapper`*:
-- The `Session` Protocol (`src/agents/memory/session.py:14`) binds one `session_id` per instance; messages are scoped to that id at the store layer (`SQLiteSession` puts `session_id` in every row; see `src/agents/memory/sqlite_session.py:159`).
-- `RunContextWrapper[TContext]` is a fresh dataclass per `Runner.run` invocation (`src/agents/run.py:631`: `RunState(... context=context_wrapper ...)`).
-- Approvals (`_approvals: dict[str, _ApprovalRecord]`) are per-`RunContextWrapper` (`src/agents/run_context.py:60`).
+- The `Session` Protocol (`src/agents/memory/session.py:53`) binds one `session_id` per instance; messages are scoped to that id at the store layer (`SQLiteSession` puts `session_id` in every row, `src/agents/memory/sqlite_session.py:243-252`, `:272`).
+- `RunContextWrapper[TContext]` is a fresh dataclass per `Runner.run` invocation (`ensure_context_wrapper(context)`, `src/agents/run.py:669`; `RunState(... context=context_wrapper ...)` at `:796`).
+- Approvals (`_approvals: dict[_ApprovalKey, _ApprovalRecord]`) and the new tool-invocation records are per-`RunContextWrapper` (`src/agents/run_context.py:193-198`).
+- **Shared `Agent` objects across concurrent runs**: since 0.18–0.20 the SDK snapshots the agent's tool list per run and raises `UserError` if a hook *replaces* `agent.tools` while concurrent runs share the agent. In-place list mutation and changes to shared tool objects (`is_enabled`, `needs_approval`) are **not** isolated (`src/agents/lifecycle.py:40-47`). Use context-based `is_enabled` callbacks rather than mutating shared tools.
 
-Cross-session bleeding is not possible inside the SDK unless you explicitly share mutable state via your `TContext` object.
+Cross-session bleeding is not possible inside the SDK unless you explicitly share mutable state via your `TContext` or shared agent/tool objects.
 
 ### 4.3 Horizontal scaling / multi-instance
-Stateless workers + shared store. Run N Python workers; route the same `session_id` to any worker (sticky routing not required if your store is consistent). The 10 session backends are designed for this — `SQLAlchemySession`, `RedisSession`, `MongoDBSession`, `DaprSession`, and `OpenAIConversationsSession` all live in a shared external store.
+Stateless workers + shared store. Run N Python workers; route the same `session_id` to any worker (sticky routing not required if your store is consistent). `SQLAlchemySession`, `RedisSession`, `MongoDBSession`, `DaprSession`, and `OpenAIConversationsSession` all live in a shared external store.
 
-There is **no leader election, no consensus, no `langgraph_api`-style centralized run scheduler**. If two workers try to write the same session concurrently, the SDK has some retry logic for OpenAI-managed conversation locks (`src/agents/run.py:474-476`: "Track the most recent input batch we persisted so conversation-lock retries can rewind exactly those items") but you are responsible for application-level concurrency control.
+There is **no leader election, no consensus, no centralized run scheduler**. The SDK has retry logic for OpenAI-managed conversation locks (`src/agents/run.py:624-626`: "Track the most recent input batch we persisted so conversation-lock retries can rewind exactly those items") and `InputItem.input_id` gives exactly-once input tracking across resumes, but application-level concurrency control (e.g. two workers resuming the same `RunState`) is yours — the docs explicitly require "an atomic owner-checked transition" in shared storage (`docs/human_in_the_loop.md:204`).
+
+Hosted multi-agent cannot be resumed in-flight in a different process or event loop (`docs/models/index.md:301-303`).
 
 ### 4.4 Background / async / scheduled tasks
-🔴 **Not provided — BYO**. No scheduler, no cron, no webhook trigger, no long-running background-agent runtime. The optional `temporal` extra (`pyproject.toml:57`) integrates Temporal workflows for durable orchestration, but Temporal is a separate runtime you stand up yourself.
+🔴 **Not provided — BYO**. No scheduler, no cron, no webhook trigger, no long-running background-agent runtime. The optional `temporal` extra (`pyproject.toml:88`) integrates Temporal workflows for durable orchestration, but Temporal is a separate runtime you stand up yourself.
 
-This is the single biggest architectural gap vs. Mastra (which ships a `BackgroundTasks` runtime + scheduler + signals) or LangGraph (`task` / `interrupt` / cron triggers in the Platform).
+This remains the single biggest architectural gap vs. Mastra (which ships background tasks + scheduler) or LangGraph Platform (cron triggers, background runs).
 
 ### 4.5 Worker pool / queue model
 Not provided — the SDK assumes you embed the loop in your own HTTP request scope (or any async task). No internal task queue, no worker pool. For long-running agents, you would typically:
 - expose a streaming endpoint (FastAPI `StreamingResponse`) over `run_streamed()`;
 - or persist `RunState.to_json()` and resume later from a worker pulling jobs off your own queue (Celery / RQ / SQS / etc.).
 
+`ToolExecutionConfig.max_function_tool_concurrency` (`src/agents/run_config.py:139`) bounds concurrent local function tools *within* one run; it is not a cross-run worker pool.
+
 ---
 
 ## 5. Sessions & Persistence
 
-**This is OpenAI Agents Py's standout area.** Ten session backends ship in the box, more than any other stack in the 11-way comparison.
+**This is OpenAI Agents Py's standout area.** Ten session backends ship in the box, more than any other stack in the comparison.
 
 ### 5.1 Session / chat data model
-Defined as a `Protocol` (and parallel `ABC`) at `src/agents/memory/session.py:14`:
+Defined as a `Protocol` (and parallel `ABC`) at `src/agents/memory/session.py:53`:
 
 ```python
 @runtime_checkable
@@ -412,83 +447,83 @@ class Session(Protocol):
 
 The data model is intentionally minimal:
 - **`session_id: str`** — the only identity field on the protocol.
-- **`session_settings: SessionSettings | None`** — controls per-session limits (e.g. `limit` for history pagination, `resolve_session_limit` in `src/agents/memory/session_settings.py`).
-- **Items** are `TResponseInputItem` = `openai.types.responses.ResponseInputItemParam`, the wire format the Responses API expects.
+- **`session_settings: SessionSettings | None`** — controls per-session limits (e.g. `limit` for history pagination, `src/agents/memory/session_settings.py`).
+- **Items** are `TResponseInputItem` = `openai.types.responses.ResponseInputItemParam`.
 
-No native `tenant_id`, `user_id`, `cwd`, `metadata`, `usage`, `model`, `summary`, `parent_session_id`, or `created_at` fields on the protocol. The concrete `SQLiteSession` table does add `created_at`/`updated_at` (`src/agents/memory/sqlite_session.py:147-152`):
+No native `tenant_id`, `user_id`, `cwd`, `metadata`, `usage`, `model`, `summary`, `parent_session_id`, or `created_at` fields on the protocol. The concrete `SQLiteSession` tables add `created_at`/`updated_at` (`src/agents/memory/sqlite_session.py:229-259`; table names are now configurable via `sessions_table` / `messages_table`, `:31-38`):
 
 ```sql
-CREATE TABLE IF NOT EXISTS agent_sessions (
+CREATE TABLE IF NOT EXISTS {sessions_table} (
     session_id TEXT PRIMARY KEY,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS agent_messages (
+CREATE TABLE IF NOT EXISTS {messages_table} (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
     message_data TEXT NOT NULL,   -- JSON-serialized TResponseInputItem
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES agent_sessions (session_id)
+    FOREIGN KEY (session_id) REFERENCES {sessions_table} (session_id)
         ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_messages_session_id
-ON agent_messages (session_id, id);
+CREATE INDEX IF NOT EXISTS idx_{messages_table}_session_id
+ON {messages_table} (session_id, id);
 ```
 
 If you need richer fields (tenant scoping, summary, model), the convention is:
-- carry that in your **`TContext`** (which is passed via `RunContextWrapper`, never persisted by the SDK),
+- carry that in your **`TContext`** (passed via `RunContextWrapper`), and since 0.20 a custom session can receive that wrapper on every call (Q5.8);
 - and/or namespace your `session_id` (`acme:user-123:conv-abc`), see Q5.7.
 
 ### 5.2 What's stored on a session
-Only `TResponseInputItem`s — i.e., the input items list that gets prepended to the next model call. Concretely: user/assistant/system messages, tool calls and tool outputs, reasoning items, handoff items, MCP approval items. No scratchpad files, no embedded memory, no attachments, no token usage.
+Only `TResponseInputItem`s — the input items list that gets prepended to the next model call: user/assistant/system messages, tool calls and tool outputs, reasoning items, handoff items, MCP approval items. No scratchpad files, no embedded memory, no attachments, no token usage on the base protocol. (`AdvancedSQLiteSession.store_run_usage` adds usage tables, `src/agents/extensions/memory/advanced_sqlite_session.py:665`.)
 
-For OpenAI Responses API features specifically, there's also `OpenAIResponsesCompactionAwareSession` (`src/agents/memory/session.py:131`) which adds a `run_compaction` method, and the concrete `OpenAIResponsesCompactionSession` (521 lines in `src/agents/memory/openai_responses_compaction_session.py`) which can trigger server-side compaction.
+Since 0.22.0, if an output guardrail blocks a terminal function-tool output, the stored `function_call_output` payload is replaced by `"Output withheld by an output guardrail."` rather than retained (`docs/release.md:28`, `docs/guardrails.md:56`).
+
+For OpenAI Responses API compaction there is `OpenAIResponsesCompactionAwareSession` (`src/agents/memory/session.py:171`) adding `run_compaction`, and the concrete `OpenAIResponsesCompactionSession` (961 lines, `src/agents/memory/openai_responses_compaction_session.py`), which now serializes mutations with compaction and attempts history recovery if replacement fails (`docs/sessions/index.md:260`).
 
 ### 5.3 Granularity
-**Single conversation per `session_id`**. No native thread/branch model, no fork() semantics. If you need parallel branches (Mastra-style A/B testing of agent paths), you create separate `session_id`s and copy the prefix items yourself.
+**Single conversation per `session_id`** on the base protocol. No fork() semantics in `RunState`.
 
-For "resume from middle-of-tool-call" the SDK uses `RunState.to_json()` / `RunState.from_json()` (`src/agents/run_state.py`) — but that is *interruption resume*, not session forking.
+**Correction vs. previous analysis**: `AdvancedSQLiteSession` *does* ship a branch model — `create_branch_from_turn`, `create_branch_from_content`, `switch_to_branch`, `delete_branch`, `list_branches` (`src/agents/extensions/memory/advanced_sqlite_session.py:1063-1293`). This existed at 0.17.2 as well. Other backends have no branching; with them you create separate `session_id`s and copy the prefix items yourself.
+
+For "resume from middle-of-tool-call" the SDK uses `RunState.to_json()` / `RunState.from_json()` — that is *interruption resume*, not session forking.
 
 ### 5.4 Built-in persistence stores
-**Ten first-party backends** — the most of any stack in the comparison:
+**Ten first-party backends**:
 
 | Backend | File | Notes |
 |---|---|---|
-| **`SQLiteSession`** | `src/agents/memory/sqlite_session.py` (362 lines) | Default. Supports in-memory (`:memory:`) or file path. Per-file process lock (`_acquire_file_lock`). WAL journaling. |
-| **`OpenAIConversationsSession`** | `src/agents/memory/openai_conversations_session.py` (126 lines) | Backed by OpenAI's hosted Conversations API (`client.conversations.create / items.list / items.create / items.delete`). Lazy `session_id` resolution — created on first call. |
-| **`OpenAIResponsesCompactionSession`** | `src/agents/memory/openai_responses_compaction_session.py` (521 lines) | Pairs with the Responses API. Triggers server-side compaction at thresholds. Supports `compaction_mode = "previous_response_id" \| "input" \| "auto"`. |
-| **`AdvancedSQLiteSession`** | `src/agents/extensions/memory/advanced_sqlite_session.py` (1,357 lines) | Production-grade SQLite — adds metadata columns, query helpers, transactional bulk ops. |
-| **`AsyncSQLiteSession`** | `src/agents/extensions/memory/async_sqlite_session.py` (263 lines) | Pure-async SQLite (aiosqlite-style). |
-| **`SQLAlchemySession`** | `src/agents/extensions/memory/sqlalchemy_session.py` (440 lines) | Postgres (via `asyncpg`), MySQL, etc. `.from_url("postgresql+asyncpg://...", create_tables=True)`. Has per-engine init lock + SQLite busy-timeout config. Optional dep `sqlalchemy` extra. |
-| **`RedisSession`** | `src/agents/extensions/memory/redis_session.py` (279 lines) | Async Redis (`redis>=7`). Supports `key_prefix`, `ttl` for whole-session expiry. Optional dep `redis` extra. |
-| **`MongoDBSession`** | `src/agents/extensions/memory/mongodb_session.py` (387 lines) | `pymongo>=4.14`. Optional dep `mongodb` extra. |
-| **`DaprSession`** | `src/agents/extensions/memory/dapr_session.py` (457 lines) | Dapr state store. Exposes `DAPR_CONSISTENCY_STRONG` / `DAPR_CONSISTENCY_EVENTUAL` knobs. Optional dep `dapr` extra. |
-| **`EncryptedSession`** | `src/agents/extensions/memory/encrypt_session.py` (213 lines) | **Wraps any other session** with Fernet/HKDF encryption + TTL-based silent expiration. See ⭐ snippet below. |
+| **`SQLiteSession`** | `src/agents/memory/sqlite_session.py` (577 lines) | Default. In-memory (`:memory:`) or file path. Per-file process lock (`_acquire_file_lock`, `:96`). WAL journaling with retry (`:211`). Configurable table names. |
+| **`OpenAIConversationsSession`** | `src/agents/memory/openai_conversations_session.py` (149 lines) | Backed by OpenAI's hosted Conversations API. Lazy `session_id` resolution — created on first call (`:63-69`); 0.19.4 skips creation on empty `add_items`. |
+| **`OpenAIResponsesCompactionSession`** | `src/agents/memory/openai_responses_compaction_session.py` (961 lines) | Wraps another session; triggers server-side compaction. `compaction_mode = "previous_response_id" \| "input" \| "auto"`. Optional rollback item budget on `main`. |
+| **`AdvancedSQLiteSession`** | `src/agents/extensions/memory/advanced_sqlite_session.py` (2,071 lines) | Branching, usage tracking (`store_run_usage`, `get_session_usage`, `get_turn_usage`), turn queries. `add_items` made atomic in 0.17.7. |
+| **`AsyncSQLiteSession`** | `src/agents/extensions/memory/async_sqlite_session.py` (543 lines) | Pure-async SQLite. |
+| **`SQLAlchemySession`** | `src/agents/extensions/memory/sqlalchemy_session.py` (707 lines) | Postgres (`asyncpg`), MySQL, etc. `.from_url(...)` (`:259`). Unicode storage option (0.18.0). Optional `sqlalchemy` extra. |
+| **`RedisSession`** | `src/agents/extensions/memory/redis_session.py` (796 lines) | Async Redis (`redis>=7`). `key_prefix`, `ttl` (`:367-368`). |
+| **`MongoDBSession`** | `src/agents/extensions/memory/mongodb_session.py` (605 lines) | `pymongo>=4.14`. |
+| **`DaprSession`** | `src/agents/extensions/memory/dapr_session.py` (581 lines) | Dapr state store. Strong/eventual consistency knobs. |
+| **`EncryptedSession`** | `src/agents/extensions/memory/encrypt_session.py` (470 lines) | **Wraps any other session** with Fernet/HKDF encryption + TTL-based expiration. See snippet below. |
 
-The extension backends are lazy-imported (`src/agents/extensions/memory/__init__.py:41-74`) so importing `agents.extensions.memory` doesn't pull in `cryptography`, `sqlalchemy`, `redis`, `pymongo`, `dapr` unless you reference the specific class.
+The extension backends are lazy-imported (`src/agents/extensions/memory/__init__.py:44-74`) so importing `agents.extensions.memory` doesn't pull in `cryptography`, `sqlalchemy`, `redis`, `pymongo`, `dapr` unless you reference the specific class.
 
-⭐ **`EncryptedSession` is uniquely useful for multi-tenant compliance**. From `src/agents/extensions/memory/encrypt_session.py:99-160`:
+⭐ **`EncryptedSession` is useful for multi-tenant compliance**. From `src/agents/extensions/memory/encrypt_session.py:116-175` and `:312-322`:
 
 ```python
 class EncryptedSession(SessionABC):
     """Encrypted wrapper for Session implementations with TTL-based expiration.
 
-    Wraps any SessionABC implementation to provide transparent encryption/decryption
-    of stored items using Fernet encryption with per-session key derivation and
-    automatic expiration of old data. When items expire (exceed TTL), they are
-    silently skipped during retrieval.
+    Only authenticated, unexpired encrypted envelopes are returned as history.
+    Plaintext records and incomplete envelopes are skipped, not migrated.
+    ...
+    By default, finding valid items may read the entire retained history. Set
+    ``max_scan_items`` to bound the cumulative number of items retrieved and
+    unwrapped per ``get_items`` call ...
     """
 
-    def __init__(self, session_id, underlying_session, encryption_key, ttl=600):
-        self.session_id = session_id
-        self.underlying_session = underlying_session
-        self.ttl = ttl
-        master = _ensure_fernet_key_bytes(encryption_key)
-        self.cipher = _derive_session_fernet_key(master, session_id)  # HKDF per-session
-        self._kid = "hkdf-v1"
-        self._ver = 1
+    def __init__(self, session_id, underlying_session, encryption_key,
+                 ttl=600, max_scan_items=None): ...
 
     def _wrap(self, item):
         # ... payload to JSON ...
@@ -496,103 +531,127 @@ class EncryptedSession(SessionABC):
         return {"__enc__": 1, "v": self._ver, "kid": self._kid, "payload": token}
 ```
 
-Each session derives its own Fernet key via HKDF with `session_id` as salt, so encrypted blobs cannot be replayed across sessions. TTL is enforced at decrypt time (Fernet token expiry).
+Each session derives its own Fernet key via HKDF with `session_id` as salt (`_derive_session_fernet_key`, `:86`), so encrypted blobs cannot be replayed across sessions. TTL is enforced at decrypt time. The docstring now warns that low-entropy passwords are unsuitable as `encryption_key` and that expired records remain in the underlying store until compaction reclaims them.
 
 ### 5.5 Persistence timing
 Granular and explicit. From `src/agents/run_internal/session_persistence.py`:
-- `save_result_to_session` is called per-turn (after each `run_single_turn`).
-- The first user input is saved BEFORE the first turn (`src/agents/run.py:748`: `last_saved_input_snapshot_for_rewind = list(session_input_items_for_persistence)` then `await save_result_to_session(...)`).
-- During a turn, `_current_turn_persisted_item_count` (`src/agents/run.py:887`, `result.py:344`) tracks how many items already got saved, so streaming retries don't duplicate. The `save_resumed_turn_items` helper resumes mid-turn safely.
-- On guardrail trip, `persist_session_items_for_guardrail_trip` (`src/agents/run_internal/session_persistence.py:190`) persists the user input that triggered the trip so the next attempt can see it.
+- `save_result_to_session` (`:699`) is called per turn.
+- The first user input is saved BEFORE the first turn (`src/agents/run.py:967`: `last_saved_input_snapshot_for_rewind = list(session_input_items_for_persistence)` then `save_result_to_session(...)`).
+- During a turn, `_current_turn_persisted_item_count` (`src/agents/result.py:496`, set at `src/agents/run.py:1186`) tracks how many items already got saved, so streaming retries don't duplicate. `save_resumed_turn_items` (`:856`) resumes mid-turn safely; 0.22.1 recovers failed resumed session writes on a renewed interruption.
+- On guardrail trip, `persist_session_items_for_guardrail_trip` (`src/agents/run_internal/session_persistence.py:563`) persists the user input that triggered the trip. Streamed and non-streamed output-guardrail persistence were aligned in 0.20.
+- Session mutations are awaited through caller cancellation (`_await_mutation`, `src/agents/memory/session.py:22-41`), so a cancelled request does not leave a half-written turn.
 
-**Sync vs async**: persistence is always `async def` — it runs inside the loop's event loop but blocks the next turn until it completes. There is no `durability="async"` vs `"sync"` knob like LangGraph.
+**Sync vs async**: persistence is always `async def` — it runs inside the loop's event loop and blocks the next turn until it completes. There is no `durability="async"` vs `"sync"` knob like LangGraph.
 
 ### 5.6 Mid-run checkpointing (durable)
-**Yes — `RunState.to_json()` is the durable checkpoint primitive** (`src/agents/run_state.py`, 3,305 lines, the largest single file in the SDK). The full RunState includes: original input, current agent, current turn, generated items, session items, model responses, guardrail results, current step, tool-use tracker, approvals, trace state, sandbox resume state, schema version (`CURRENT_SCHEMA_VERSION`).
+**Yes — `RunState.to_json()` is the durable checkpoint primitive** (`src/agents/run_state.py`, 5,472 lines, the largest single file in the SDK). The full RunState includes: original input, current agent, current turn, generated items, session items, model responses, guardrail results, current step, tool-use tracker, approvals, staged input (new), per-checkpoint usage snapshot (new in 0.22), trace state, sandbox resume state, and schema version (`CURRENT_SCHEMA_VERSION = "1.18"`, `src/agents/run_state.py:212`).
 
 ```python
 result = await Runner.run(agent, "Delete temp files", session=session)
 if result.interruptions:
     state = result.to_state()                # RunState[TContext]
     state_json = state.to_json()             # JSON-serializable dict
-    # persist state_json to disk / Postgres / Redis / S3 / etc.
+    # persist state_json to server-owned storage
     # later, in a different process:
-    state = await RunState.from_json(agent, state_json)
-    state.approve(state.interruptions[0])
+    state = await RunState.from_json(agent, state_json)   # run_state.py:2339
+    state.approve(state.get_interruptions()[0])            # run_state.py:1051, :1321
+    state.add_input("Also clean /var/tmp")                 # optional, new in 0.20 (:1007)
     result = await Runner.run(agent, state, session=session)
 ```
 
-The runner detects `isinstance(input, RunState)` (`src/agents/run.py:467-505`) and resumes from the recorded `_current_step` (e.g., `NextStepInterruption`) — including mid-tool-call. See `src/agents/run_internal/turn_resolution.py:resolve_interrupted_turn`. This is the gold-standard pattern, comparable to LangGraph's `_runner.commit() → put_writes()`.
+The runner detects `isinstance(input, RunState)` (`src/agents/run.py:608`) and resumes from the recorded `_current_step` (e.g. `NextStepInterruption`) via `resolve_interrupted_turn` (`src/agents/run_internal/turn_resolution.py:1145`). This is comparable to LangGraph's `_runner.commit() → put_writes()`.
 
-**Caveat**: the *automatic* checkpoint is per-turn, not per-tool-call. If you want per-tool-call durability you call `result.to_state().to_json()` yourself in your HITL endpoint.
+**Caveats**: the *automatic* checkpoint is per-turn session persistence, not per-tool-call; durable resume requires you to call `result.to_state().to_json()` (typically on interruption). `from_json` does **not** authenticate the snapshot (`docs/human_in_the_loop.md:195`), and the snapshot includes your context object (Q6.6).
 
 ### 5.7 Session ID format
-**Arbitrary string** — opaque to the SDK. From `src/agents/memory/sqlite_session.py:32` the constructor takes `session_id: str` with no format constraint. Conventions seen in examples:
+**Arbitrary string** — opaque to the SDK. `SQLiteSession(session_id: str, ...)` (`src/agents/memory/sqlite_session.py:31-33`) has no format constraint. Conventions:
 - `"conversation_123"` (basic example)
 - `"user-123"` (per-user)
-- composite (`"acme:user-123:conv-abc"`) is something you do yourself for tenant scoping.
+- composite (`"acme:user-123:conv-abc"`) is something you do yourself for tenant scoping (`docs/sessions/index.md:479`, "Session ID naming").
 
-`OpenAIConversationsSession` differs: the `session_id` is the OpenAI-side `conversation.id` (e.g. `conv_abc`), allocated lazily on first call (`src/agents/memory/openai_conversations_session.py:67`).
+`OpenAIConversationsSession` differs: the `session_id` is the OpenAI-side `conversation.id` (e.g. `conv_abc`), allocated lazily on first use (`src/agents/memory/openai_conversations_session.py:63-69`).
 
 ### 5.8 Pluggable store interface
 **Yes, very clean.** Two equivalent options:
-- Implement the `Session` Protocol (`src/agents/memory/session.py:14`) — a duck-typed structural typing approach. No inheritance needed.
-- Subclass `SessionABC` (`src/agents/memory/session.py:57`) — for type-checker friendliness.
+- Implement the `Session` Protocol (`src/agents/memory/session.py:53`) — structural typing, no inheritance needed.
+- Subclass `SessionABC` (`src/agents/memory/session.py:96`) — for type-checker friendliness.
 
-The protocol has just **4 methods**: `get_items`, `add_items`, `pop_item`, `clear_session`. The minimal surface area is great for a custom store (Datadog log session, BigQuery session, Bun-backed Postgres session — all easy).
+The protocol has **4 methods**: `get_items`, `add_items`, `pop_item`, `clear_session`.
+
+**New in 0.20 — context-aware custom sessions**: if *all four* methods declare a keyword-compatible `wrapper` parameter, the runner passes the active `RunContextWrapper` (`_session_accepts_wrapper` / `_call_session_method`, `src/agents/memory/session.py:192-249`; docs at `docs/sessions/index.md:628-668`). The docs explicitly name "tenant routing, authorization, or other app-specific storage decisions" as the use case:
+
+```python
+class TenantSession:
+    async def get_items(self, limit=None, *, wrapper: RunContextWrapper[Any] | None = None):
+        tenant = wrapper.context.tenant_id          # route to the tenant's schema / prefix
+        ...
+    async def add_items(self, items, *, wrapper=None): ...
+    async def pop_item(self, *, wrapper=None): ...
+    async def clear_session(self, *, wrapper=None): ...
+```
+
+A generic `**kwargs` does not satisfy the signature check; sessions that omit `wrapper` keep the old call shape.
 
 ### 5.9 Schema evolution / migration
-- **At the session-store layer**: `SQLiteSession` uses `CREATE TABLE IF NOT EXISTS`; the `SQLAlchemySession` does the same. There's no migration helper; you bring your own (Alembic, etc.).
-- **At the RunState layer** (more interesting): `src/agents/run_state.py` ships `CURRENT_SCHEMA_VERSION` + `SCHEMA_VERSION_SUMMARIES` (`CLAUDE.md` of the repo enforces this). Released schema versions are kept readable; unreleased versions on `main` may be renumbered before release. This is OpenAI's explicit compatibility contract for the serializable resume state.
+- **At the session-store layer**: `SQLiteSession` and `SQLAlchemySession` use `CREATE TABLE IF NOT EXISTS`. No migration helper; bring your own (Alembic, etc.). `EncryptedSession` explicitly does not migrate plaintext history.
+- **At the RunState layer**: `src/agents/run_state.py` ships `CURRENT_SCHEMA_VERSION` (`:212`) + `SCHEMA_VERSION_SUMMARIES` (`:217`) + `SUPPORTED_SCHEMA_VERSIONS` (`:259`). The schema moved from `1.10` (0.17.2) to `1.18` in this window, with feature gates such as `_PROGRAMMATIC_TOOL_CALLING_MIN_SCHEMA_VERSION = "1.13"` (`:213`). Released versions remain readable; this is OpenAI's explicit compatibility contract for serialized resume state.
 
 ### 5.10 Export / replay
-- `RunResult.to_input_list(mode="preserve_all" | "normalized")` (`src/agents/result.py:287`) exports the run as a list of `TResponseInputItem`s ready to feed back into a new run.
-- `RunState.to_json()` / `RunState.from_json()` enables full state replay across processes.
+- `RunResult.to_input_list(mode="preserve_all" | "normalized")` (`src/agents/result.py:435`) exports the run as `TResponseInputItem`s ready to feed into a new run.
+- `RunState.to_json()` / `to_string()` / `from_json()` / `from_string()` enable full state replay across processes (`docs/human_in_the_loop.md:191`).
 - `result.raw_responses: list[ModelResponse]` is the unmodified per-call log.
+- **New**: `agents.testing.ScriptedModel` lets you replay a scripted model conversation deterministically against the real Runner (`docs/testing.md:37-206`) — not trace replay, but a deterministic replay harness for orchestration.
 
-No first-party replay viewer; you use the tracing dashboard or your chosen exporter (Langfuse, Phoenix, LangSmith) for visual replay.
+No first-party replay viewer; use the tracing dashboard or a partner exporter for visual replay.
 
 ### 5.11 Cross-session memory
-Not built into the Session protocol. The SDK does not ship a vector store or semantic recall (cross-reference: see Q17 — Memory & Knowledge). Cross-tenant/cross-session memory is something you implement on top of your own vector store and surface as a function tool.
+Not built into the Session protocol. Sandbox agents can use the file-based `Memory()` capability to carry distilled lessons across runs (`src/agents/sandbox/capabilities/memory.py:18`). There is no vector-backed semantic recall. See Q17.
 
 ---
 
-## 6. Multi-tenancy & Arbitrary Context ⭐ THE KEY QUESTION
+## 6. Multi-tenancy & Tenant Identity ⭐ THE KEY QUESTION
 
-### 6.1 Full run-loop input struct
-Beyond `input: str | list[TResponseInputItem] | RunState[TContext]`, the runner accepts (per `src/agents/run.py:197-211`):
+### 6.1 Run-loop tenant identity
+The only first-class carrier of caller/tenant/user/locale identity is the generic **`context: TContext`** argument (`src/agents/run.py:267`). Everything else on the run call is conversation plumbing:
 
 ```python
 async def run(
     starting_agent: Agent[TContext],
     input: str | list[TResponseInputItem] | RunState[TContext],
     *,
-    context: TContext | None = None,                # YOUR typed context
+    context: TContext | None = None,                # YOUR typed tenant identity
     max_turns: int | None = 10,
     hooks: RunHooks[TContext] | None = None,
-    run_config: RunConfig | None = None,            # See run_config.py:202
+    run_config: RunConfig | dict[str, Any] | None = None,
     error_handlers: RunErrorHandlers[TContext] | None = None,
     previous_response_id: str | None = None,        # OpenAI Responses chaining
     auto_previous_response_id: bool = False,
     conversation_id: str | None = None,             # OpenAI Conversations API
     session: Session | None = None,                 # SDK-managed history
 ) -> RunResult: ...
+# src/agents/run.py:261-275
 ```
 
-`RunConfig` (`src/agents/run_config.py:202`) carries: `model`, `model_provider`, `model_settings`, `handoff_input_filter`, `handoff_history_mapper`, `input_guardrails`, `output_guardrails`, `tracing_disabled`, `tracing`, `trace_include_sensitive_data`, `workflow_name`, `trace_id`, `group_id`, `trace_metadata`, `session_input_callback`, `call_model_input_filter`, `tool_error_formatter`, `session_settings`, `reasoning_item_id_policy`, `sandbox`, `tool_execution`.
+`RunConfig` (`src/agents/run_config.py:354`) carries run-wide knobs, some of which are identity-adjacent: `trace_metadata` (`:436`, e.g. `{"tenant_id": "acme"}`), `group_id` (`:430`), `workflow_name`, `trace_id`, plus `model`, `model_provider`, `model_settings`, `handoff_input_filter`, `input_guardrails`, `output_guardrails`, `session_input_callback`, `call_model_input_filter`, `tool_error_formatter`, `session_settings`, `sandbox`, `tool_execution`, `tool_not_found_behavior`, `tool_name_collision_policy`, `output_guardrail_blocked_message`.
 
-### 6.2 Context propagation into a tool call
-The user-supplied `context: TContext` is wrapped at run start (`src/agents/run.py:629`: `context_wrapper = ensure_context_wrapper(context)`), producing a `RunContextWrapper[TContext]`. That wrapper is then propagated:
-- to **agent instructions** (when `instructions` is a callable: `Callable[[RunContextWrapper[TContext], Agent[TContext]], str]` — `src/agents/agent.py:283-297`),
-- to **input/output guardrails** (`src/agents/guardrail.py:87` and `:146`),
-- to **tool execution**: extended to a `ToolContext` (`src/agents/tool_context.py:36`, a subclass of `RunContextWrapper`) with per-call metadata, then passed into `on_invoke_tool(ctx, input)` (`src/agents/tool.py:297`).
+**Tenant scope on the session**: not a first-class field. `Session.session_id: str` is the only identity. Options:
+- Encode in the id: `acme:user-123:conv-abc`.
+- Since 0.20, a context-aware custom session reads `wrapper.context.tenant_id` on every call (Q5.8) — the cleanest way to enforce per-tenant storage.
+- Or instantiate one `SQLAlchemySession` / `RedisSession` per tenant with a different engine / `key_prefix`.
 
-The path is `Runner.run → run_single_turn → execute_function_tool_calls → ToolContext.from_agent_context → on_invoke_tool(ctx, input)`. The `RunContextWrapper` reference is the same object across the whole run (it carries the cumulative `Usage` and `_approvals`).
+### 6.2 Tenant identity propagation into tool calls
+The user-supplied `context` is wrapped at run start (`context_wrapper = ensure_context_wrapper(context)`, `src/agents/run.py:669`), producing a `RunContextWrapper[TContext]`. That wrapper is then propagated:
+- to **agent instructions** (when `instructions` is a callable `[RunContextWrapper[TContext], Agent[TContext]] -> MaybeAwaitable[str]`, `src/agents/agent.py:332-339`),
+- to **input/output guardrails** (`src/agents/guardrail.py:86-89` and `:144-147`),
+- to **tool execution**: extended to a `ToolContext` (`src/agents/tool_context.py:43`, a subclass of `RunContextWrapper`) with per-call metadata, then passed into `on_invoke_tool(ctx, input)` (`src/agents/tool.py:468`),
+- to **context-aware sessions** (`wrapper=`, Q5.8) and **MCP `_meta`** via `tool_meta_resolver` (Q6.6).
+
+The path is `Runner.run → run_single_turn → execute_function_tool_calls (tool_execution.py:2330) → ToolContext → on_invoke_tool(ctx, input)`. The wrapper object is shared across the whole run (it carries the cumulative `Usage` and approvals).
 
 ### 6.3 Tool call interface
-`FunctionTool.on_invoke_tool: Callable[[ToolContext[Any], str], Awaitable[Any]]` (`src/agents/tool.py:297`).
+`FunctionTool.on_invoke_tool: Callable[[ToolContext[Any], str], Awaitable[Any]]` (`src/agents/tool.py:468`).
 
-For the user-facing `@function_tool` decorator (`src/agents/tool.py:1765`), the wrapped function's first argument can optionally be a `RunContextWrapper` or `ToolContext`, detected via `schema.takes_context` (`src/agents/tool.py:1861-1869`):
+For the `@function_tool` decorator (`src/agents/tool.py:2623`, aliased as `@tool` in `agents.decorators` since 0.19, `src/agents/decorators.py:10`), the wrapped function's first argument can optionally be a `RunContextWrapper` or `ToolContext`, detected via `schema.takes_context` (`src/agents/tool.py:2771-2780`):
 
 ```python
 if not is_sync_function_tool:
@@ -607,7 +666,7 @@ else:
         result = await asyncio.to_thread(the_func, *args, **kwargs_dict)
 ```
 
-`ToolContext` (`src/agents/tool_context.py:36`) — the extended context the tool sees:
+`ToolContext` (`src/agents/tool_context.py:43-64`) — the extended context the tool sees:
 
 ```python
 @dataclass(eq=False)
@@ -619,22 +678,24 @@ class ToolContext(RunContextWrapper[TContext]):
     tool_namespace: str | None = None
     agent: AgentBase[Any] | None = None
     run_config: RunConfig | None = None
-    # inherited from RunContextWrapper:
+    # inherited from RunContextWrapper (run_context.py:176-199):
     #   context: TContext
     #   usage: Usage
     #   turn_input: list[TResponseInputItem]
-    #   _approvals: dict[str, _ApprovalRecord]
     #   tool_input: Any | None
+    #   _approvals, _tool_invocations (private)
 ```
 
+Return type: `str`, `ToolOutputText` / `ToolOutputImage` / `ToolOutputFileContent` (`src/agents/tool.py:218-282`), a list of those, or anything `str()`-able. `RunHooks.on_tool_end` now types `result` as `object` rather than `str` (`src/agents/lifecycle.py:98-115`).
+
 ### 6.4 Forcing tool arguments from the harness
-🟡 **Partial — no first-class "force arg" hook, but multiple workarounds.**
+🟡 **Partial — still no first-class "force arg" hook** (unchanged since 0.17).
 
-The SDK does **not** ship a `prepareStep` (Vercel AI) / `experimental_refineToolInput` / `_inject_tool_args` (Claude Agent SDK PreToolUse updatedInput) / typed `spec T` (Mastra typed-tool args) — i.e., there is no documented hook that says "before this tool runs, replace its args with X."
+The SDK does **not** ship a `prepareStep` / `experimental_refineToolInput` / `PreToolUse → updatedInput` equivalent. A search of `docs/` and `src/agents/` at this commit found no API that rewrites tool arguments before dispatch; `docs/tools.md:886` instead tells you to "Enforce those checks inside the tool implementation, or use tool input guardrails and approvals".
 
-Available workarounds, in order of clean-ness:
+Available workarounds, in order of cleanliness:
 
-1. **Wrap your `function_tool` to ignore LLM-supplied tenant args** and read them from `ctx.context`. Recommended.
+1. **Don't expose tenant to the LLM at all** — read it from `ctx.context` inside the tool. Recommended.
    ```python
    @function_tool
    async def topicSearch(ctx: RunContextWrapper[MyCtx], query: str) -> list[Topic]:
@@ -643,16 +704,18 @@ Available workarounds, in order of clean-ness:
    ```
    The LLM never sees a `tenantId` parameter, so it can't lie about it.
 
-2. **Tool input guardrail** (`@tool_input_guardrail`, see Q7) can `reject_content(message=...)` if the LLM tries to pass an unauthorized tenant id, but it cannot rewrite — only block.
+2. **Tool input guardrail** (`@tool_input_guardrail`, Q18) can `reject_content(message=...)` if the LLM tries to pass an unauthorized id, but it cannot rewrite — only block. With `pre_approval_tool_input_guardrails=True` (`src/agents/run_config.py:146`) the check runs before a human sees the approval prompt as well.
 
-3. **Custom `on_invoke_tool`**: build a `FunctionTool` instance directly and intercept `(ctx, input_json)` to rewrite `input_json` before delegating. This is what `as_tool()` does internally (see `src/agents/agent.py:599-660`).
+3. **Custom `on_invoke_tool`**: build a `FunctionTool` instance directly and intercept `(ctx, input_json)` to rewrite `input_json` before delegating. This is what `as_tool()` does internally (`src/agents/agent.py:721`).
 
-4. **Read `ctx.tool_arguments` in a `PreToolUse`-like hook**: `RunHooks.on_tool_start(context, agent, tool)` fires *before* invocation (`src/agents/lifecycle.py:70`) but cannot mutate. You can `raise` to abort.
+4. **`RunHooks.on_tool_start(context, agent, tool)`** fires *before* invocation (`src/agents/lifecycle.py:83`) with `tool_arguments` visible but cannot mutate. You can `raise` to abort.
 
-**Verdict**: the recommended pattern is #1 (don't expose tenant to the LLM at all). For "the LLM must provide a tenant-scoped resource id" scenarios, #2 + per-tenant tool catalogs (Q6.5) is the typical answer.
+5. **MCP tools**: `tool_meta_resolver` (`src/agents/mcp/server.py:570`) injects a server-side `_meta` payload (e.g. tenant id) on every `call_tool`, independent of the LLM's arguments (`docs/mcp.md:281-304`). This forces *metadata*, not arguments, but it is the right channel when the MCP server reads tenant from `_meta`.
 
-### 6.5 Filtering visible tools
-🟢 **Yes, per-turn dynamic filtering**. `Tool.is_enabled` accepts a bool or a callable `(RunContextWrapper, AgentBase) → bool | Awaitable[bool]` (`src/agents/agent.py:250-263`, `src/agents/tool.py:314`):
+**Verdict**: pattern #1 for function tools, #5 for MCP tools. The gap remains real for third-party tools whose schema includes a tenant field you cannot remove.
+
+### 6.5 Tenant-aware visible tool selection
+🟢 **Yes, per-turn dynamic filtering**. `FunctionTool.is_enabled` accepts a bool or a callable `(RunContextWrapper, AgentBase) → bool | Awaitable[bool]` (`src/agents/tool.py:485`), evaluated inside `Agent.get_all_tools` (`src/agents/agent.py:286-316`):
 
 ```python
 async def _check_tool_enabled(tool: Tool) -> bool:
@@ -661,74 +724,67 @@ async def _check_tool_enabled(tool: Tool) -> bool:
     attr = tool.is_enabled
     if isinstance(attr, bool):
         return attr
-    res = attr(run_context, self)
+    res = attr(run_context, get_public_agent(self))
     if inspect.isawaitable(res):
         return bool(await res)
     return bool(res)
 
-results = await asyncio.gather(*(_check_tool_enabled(t) for t in self.tools))
-enabled: list[Tool] = [t for t, ok in zip(self.tools, results) if ok]
+results = await gather_with_cancel(*(_check_tool_enabled(t) for t in tools))
+enabled: list[Tool] = [t for t, ok in zip(tools, results, strict=False) if ok]
 ```
 
-This fires inside `Agent.get_all_tools` (`src/agents/agent.py:246`) which the runner calls per-turn. So you can hide `webFetch` from tenant `acme` and show it only to `bigco` without restarting the agent.
+The runner calls this per turn, and also re-evaluates `is_enabled` before invocation (`docs/tools.md:886`). So you can hide `webFetch` from tenant `acme` and show it to `bigco` without restarting the agent. Note that `is_enabled` only gates `FunctionTool`; hosted tools are always included.
 
-Handoffs also have `is_enabled` callables (`src/agents/agent.py:208-214`), so you can filter sub-agents the same way.
+Other selection primitives:
+- **Per-agent**: `tools=[...]` at construction, or `agent.clone(tools=[...])` per request (`src/agents/agent.py:571`). `clone()` is shallow — pass a new list (`docs/release.md:33`).
+- **Per-handoff**: handoffs have `is_enabled` callables too (`src/agents/agent.py:233-240`).
+- **Per-MCP-server**: static and dynamic `tool_filter` (`docs/mcp.md:407-461`); dynamic filters receive the run context.
+- **Programmatic Tool Calling**: `allowed_callers=["direct" | "programmatic"]` per tool controls *how* a visible tool may be invoked (`src/agents/tool.py:536`).
+- **Per-tenant at the registry layer**: 🔴 none (see Q11).
 
-### 6.6 Tenant scope on session
-**Not a first-class field.** `Session.session_id: str` is the only identity. Conventions:
-- Encode in the id: `acme:user-123:conv-abc`.
-- Carry in your `TContext`: `MyCtx(tenant_id="acme", user_id="u-123")`.
-- For OpenAI-hosted conversations, use `RunConfig.trace_metadata` to attach `{"tenant_id": "acme"}` to all traces.
+Do not mutate shared tool objects per request; concurrent runs sharing them are not isolated (`src/agents/lifecycle.py:40-47`).
 
-If you want strict isolation at the *store* layer (one Postgres schema per tenant, one Redis prefix per tenant), instantiate one `SQLAlchemySession` / `RedisSession` per tenant with a different `engine` / `key_prefix`. The Session protocol's simplicity helps here.
-
-### 6.7 Per-tool-call auth propagation
+### 6.6 Per-tool-call auth propagation
 🟢 **Yes — via `ToolContext` + `RunContextWrapper.context`**. Your typed `TContext` reaches every tool call automatically, so tools can carry user OAuth tokens, tenant scoping rules, RLS predicates, etc.
 
 ```python
 @dataclass
 class RequestCtx:
     user_id: str
-    okta_token: str
     tenant_id: str
+    token_ref: str        # an opaque handle, not the raw token (see caution below)
 
 @function_tool
 async def list_assets(ctx: RunContextWrapper[RequestCtx]) -> list[Asset]:
-    # OAuth token reaches the tool without ever passing through the LLM
-    return await dam_api.list(token=ctx.context.okta_token, tenant=ctx.context.tenant_id)
+    token = await token_vault.get(ctx.context.token_ref)
+    return await dam_api.list(token=token, tenant=ctx.context.tenant_id)
 
-await Runner.run(
-    agent,
-    "List my assets",
-    context=RequestCtx(user_id="u-123", okta_token="eyJ...", tenant_id="acme"),
-)
+await Runner.run(agent, "List my assets",
+                 context=RequestCtx(user_id="u-123", tenant_id="acme", token_ref="tok-42"))
 ```
 
-This is the cleanest model in the comparison alongside Mastra's `requestContext`. The ToolContext additionally exposes `tool_call_id`, `tool_arguments`, `tool_namespace`, `agent`, `run_config` so a guardrail or hook can correlate a specific tool call without thread-local hacks.
+For MCP servers, `tool_meta_resolver` forwards identity in the MCP `_meta` field on each call (`docs/mcp.md:281-304`); transport-level credentials go in headers (Q14.5).
 
-### 6.8 Resource scoping primitives
-- **Per-agent**: at construction time you pass `tools=[...]` so each tenant gets its own `Agent` instance with the right tools.
-- **Per-call**: `is_enabled` callables filter the visible toolset.
-- **Per-handoff**: same `is_enabled` story.
-- **Per-tenant at the registry layer**: 🔴 **none** — the SDK doesn't have a registry concept (see Q11). You roll your own dict-of-agent-per-tenant.
+⚠️ **Caution (newly documented)**: "Serialized run state includes your app context ... treat `RunContextWrapper.context` as persisted data and avoid placing secrets there unless you intentionally want them to travel with the state" (`docs/human_in_the_loop.md:220`). Use `context_serializer` / `context_override` (`src/agents/run_state.py:1595`, `:2343`) or keep only handles in context if you persist HITL snapshots.
 
-### 6.9 Per-tenant rate limit + budget cap
-🔴 **Not provided — BYO**. `Usage` (`src/agents/usage.py:102`) reports tokens (input/output/total/cached/reasoning) and request counts. There is no dollar-cost field, no per-tenant budget cap, no "stop the run if usage exceeds $X" mechanism. You enforce that in your hooks (`on_llm_end`) or post-hoc against your billing store.
+### 6.7 Per-tenant rate limit + budget cap
+🔴 **Not provided — BYO**. `Usage` (`src/agents/usage.py:196`) reports tokens (input/output/total/cached/cache-write/reasoning) and request counts. There is no dollar-cost field, no per-tenant budget cap, no "stop the run if usage exceeds $X" mechanism. `max_turns`, `ModelSettings.timeout` (`src/agents/model_settings.py:215`, 0.21.1) and per-tool timeouts bound work, not spend. Enforce budgets in `on_llm_end` (raise to abort) or upstream against your billing store.
 
 ### ⭐ Light usage example — multi-tenant long-running agent piloted by skills
 
 ```python
 from dataclasses import dataclass
 from agents import Agent, Runner, RunContextWrapper, function_tool
+from agents.extensions.memory import SQLAlchemySession
 
-# (1) Define your typed context, including tenant id (server-side truth)
+# (1) Typed context carries tenant identity (server-side truth)
 @dataclass
 class PredictCtx:
     tenant_id: str
     targeting_strategy_id: str
     user_id: str
 
-# (2) Define tools that read tenant from ctx, NOT from LLM input
+# (3) Tools read tenant from ctx, NOT from LLM input — the LLM has no tenantId param
 @function_tool
 async def topicSearch(ctx: RunContextWrapper[PredictCtx], query: str) -> list[str]:
     """Search the topics catalogue for the current tenant."""
@@ -741,42 +797,34 @@ async def iabSearch(ctx: RunContextWrapper[PredictCtx], query: str) -> list[str]
 @function_tool
 async def audienceCreate(ctx: RunContextWrapper[PredictCtx], name: str,
                          topic_ids: list[str]) -> str:
-    return await audiences.create(
-        name=name, topic_ids=topic_ids,
-        tenant=ctx.context.tenant_id,
-        strategy=ctx.context.targeting_strategy_id,
-    )
+    return await audiences.create(name=name, topic_ids=topic_ids,
+                                  tenant=ctx.context.tenant_id,
+                                  strategy=ctx.context.targeting_strategy_id)
 
-# (3) Build the agent with ONLY the 3 allowed tools; bashExec/webFetch are not registered
+# (2) Only the 3 allowed tools are registered; bashExec/webFetch are not
 predict_agent = Agent[PredictCtx](
     name="predict-supervisor",
     instructions="You assemble audiences from briefs.",
-    tools=[topicSearch, iabSearch, audienceCreate],   # whitelist only
-    model="gpt-5.1",
+    tools=[topicSearch, iabSearch, audienceCreate],
+    model="gpt-5.6-sol",
 )
 
-# (4) Run with tenant id passed via context, NOT via LLM-visible arg
+# (1) Run with identity via context
 result = await Runner.run(
     predict_agent,
     input="Build an audience of young moms interested in hiking.",
-    context=PredictCtx(
-        tenant_id="acme",
-        targeting_strategy_id="strat-42",
-        user_id="u-123",
-    ),
+    context=PredictCtx(tenant_id="acme", targeting_strategy_id="strat-42", user_id="u-123"),
     session=SQLAlchemySession.from_url(
-        session_id=f"acme:u-123:conv-abc",
-        url="postgresql+asyncpg://app:pw@db/predict",
-    ),
+        "acme:u-123:conv-abc", url="postgresql+asyncpg://app:pw@db/predict"),
 )
 ```
 
 All three requirements are satisfied:
-1. Tenant context is passed via `context=PredictCtx(...)` — **not visible to the LLM**.
+1. Tenant identity is passed via `context=PredictCtx(...)` — **not visible to the LLM**.
 2. Only `topicSearch`, `iabSearch`, `audienceCreate` are registered on the agent.
-3. `topicSearch` reads `tenant=ctx.context.tenant_id` server-side — the LLM has no `tenantId` parameter and cannot override.
+3. Step 3 is satisfied by *removal* rather than rewrite: `topicSearch` reads `tenant=ctx.context.tenant_id` server-side and exposes no `tenantId` parameter. True argument rewriting is **Not provided — BYO** (wrap `on_invoke_tool`, Q6.4 #3).
 
-For a tenant-driven dynamic toolset (different tenants get different tools at *runtime* from the same agent definition), wrap each tool with `is_enabled=lambda ctx, _agent: ctx.context.tenant_id in ALLOW_LIST` or build per-tenant `Agent` instances at request time using `agent.clone(tools=[...])`.
+For a dynamic toolset from one agent definition, wrap each tool with `is_enabled=lambda ctx, _agent: ctx.context.tenant_id in ALLOW_LIST`, or build per-tenant agents with `agent.clone(tools=[...])`.
 
 ---
 
@@ -784,83 +832,91 @@ For a tenant-driven dynamic toolset (different tenants get different tools at *r
 
 ### 7.1 Enumerate every hook / middleware / lifecycle callback
 
-Two parallel hook classes — global (`RunHooks`) and per-agent (`AgentHooks`) — both at `src/agents/lifecycle.py`:
+Two parallel hook classes — global (`RunHooks`, `src/agents/lifecycle.py:13`) and per-agent (`AgentHooks`, `:119`):
 
 | Method | Fires when | Read | Mutate | Block | Branch |
 |---|---|---|---|---|---|
-| `on_llm_start(ctx, agent, system_prompt, input_items)` | Just before LLM call | ✔ | ✗ (read-only args) | ✗ | ✗ |
-| `on_llm_end(ctx, agent, response)` | Right after LLM call returns | ✔ (usage, response) | ✗ | ✗ | ✗ |
-| `on_agent_start(ctx, agent)` | When current agent changes (handoff or run start) | ✔ | ✗ | raise to abort | ✗ |
-| `on_agent_end(ctx, agent, output)` | When agent produces final output | ✔ | ✗ | ✗ | ✗ |
-| `on_handoff(ctx, from_agent, to_agent)` | When handoff occurs | ✔ | ✗ | raise to abort | ✗ |
-| `on_tool_start(ctx, agent, tool)` | Just before local tool invocation (ctx is `ToolContext` for function tools) | ✔ (incl. `tool_arguments`) | ✗ | raise to abort | ✗ |
-| `on_tool_end(ctx, agent, tool, result)` | Just after local tool invocation | ✔ | ✗ | ✗ | ✗ |
+| `on_llm_start(ctx, agent, system_prompt, input_items)` (`:18`) | Just before LLM call | ✔ | ✗ | raise to abort | ✗ |
+| `on_llm_end(ctx, agent, response)` (`:28`) | Right after LLM call returns | ✔ (usage, response) | ✗ | raise to abort | ✗ |
+| `on_agent_start(ctx, agent)` (`:37`) | When current agent changes (handoff or run start) | ✔ | ✗ (replacing `agent.tools` on a shared agent raises `UserError`) | raise to abort | ✗ |
+| `on_agent_end(ctx, agent, output)` (`:59`) | When agent produces final output | ✔ | ✗ | ✗ | ✗ |
+| `on_handoff(ctx, from_agent, to_agent)` (`:74`) | When handoff occurs | ✔ | ✗ | raise to abort | ✗ |
+| `on_tool_start(ctx, agent, tool)` (`:83`) | Just before local tool invocation (ctx is `ToolContext` for function tools) | ✔ (incl. `tool_arguments`) | ✗ | raise to abort | ✗ |
+| `on_tool_end(ctx, agent, tool, result: object)` (`:98`) | Just after local tool invocation | ✔ | ✗ | ✗ | ✗ |
 
-`AgentHooks` mirrors `RunHooks` but is scoped to one specific agent via `Agent.hooks = MyHooks()`.
+`AgentHooks` mirrors these (`on_start`, `on_end`, `on_handoff`, `on_tool_start`, `on_tool_end`, `on_llm_start`, `on_llm_end`) scoped to one agent via `Agent.hooks = MyHooks()`.
 
-Plus four guardrail decorators (covered in Q18): `@input_guardrail`, `@output_guardrail`, `@tool_input_guardrail`, `@tool_output_guardrail`. These can **block** (`raise_exception`) and *partially* mutate (`reject_content(message=...)` replaces the tool result with a synthetic message).
+Plus four guardrail decorators (Q18): `@input_guardrail`, `@output_guardrail`, `@tool_input_guardrail`, `@tool_output_guardrail` — exposed together in `agents.decorators` (`src/agents/decorators.py:6-10`). These can **block** (`raise_exception`) and *replace* a tool result with a synthetic message (`reject_content`). Tool guardrails can now be attached server-wide to every tool of a local MCP server (`src/agents/mcp/server.py:573-574`).
 
-Plus `RunConfig.call_model_input_filter` (`src/agents/run_config.py:289`) — a function that runs immediately before each LLM call and **CAN mutate** the input list and instructions:
+Plus `RunConfig` callbacks:
+- `call_model_input_filter` (`src/agents/run_config.py:448`) — runs immediately before each LLM call and **can mutate** the input list and instructions. Signature `Callable[[CallModelData[Any]], MaybeAwaitable[ModelInputData]]` with `CallModelData(model_data, agent, context)` (`:68-73`).
+- `session_input_callback` (`:441`) — merges retrieved session history with new turn input; cap, redact, reorder.
+- `tool_error_formatter` (`:458`) — customize model-visible messages for `approval_rejected` and `tool_not_found` (`ToolErrorFormatterArgs`, `:83-101`).
+- `output_guardrail_blocked_message` (`:499`, 0.22.1) — string or formatter for the message shown when an output guardrail blocks.
+- `error_handlers={"max_turns" | "model_refusal" | "invalid_final_output": ...}` on `Runner.run` (`src/agents/run_error_handlers.py:50-55`) — turn terminal failures into a final output instead of an exception.
 
-```python
-CallModelInputFilter = Callable[[CallModelData[Any]], MaybeAwaitable[ModelInputData]]
-```
-
-This is the closest the SDK has to a "pre-LLM mutate" hook. It receives `(model_data, agent, context)` and must return a (possibly modified) `ModelInputData(input: list[TResponseInputItem], instructions: str | None)`.
-
-Plus `RunConfig.session_input_callback` (`src/agents/run_config.py:282`) — merges retrieved session history with new turn input. Lets you cap history, redact, reorder. Receives `(history, new_input)`, returns the combined list.
-
-Plus `RunConfig.tool_error_formatter` (`src/agents/run_config.py:299`) — customize tool error messages returned to the model.
+Plus per-tool callbacks: `needs_approval` callable, `failure_error_function`, `timeout_error_function`, `custom_data_extractor` (`src/agents/tool.py:499-534`), and MCP `tool_meta_resolver`.
 
 ### 7.2 Hook concurrency model
-**Sequential, awaited.** Each hook is `await`ed in turn; there's no parallel-fold combinator. Guardrails are different: input guardrails can `run_in_parallel=True` (default) so they run concurrently with the model call (`src/agents/guardrail.py:100`).
+**Sequential, awaited.** Each hook is `await`ed in turn; there's no parallel-fold combinator. Input guardrails can `run_in_parallel=True` (default) so they run concurrently with the model call (`src/agents/guardrail.py:100`). Tool guardrails run inline around each tool call; tool calls themselves run concurrently (bounded by `max_function_tool_concurrency`), so tool guardrails of different calls may interleave.
 
 ### 7.3 Specific capability tests
 
 | Capability | Supported? | How |
 |---|---|---|
-| Inject system messages at session start (tenant, locale, today) | ✔ | Use `instructions=callable` on `Agent` (dynamic system prompt — `examples/basic/dynamic_system_prompt.py`); OR use `call_model_input_filter` to prepend a system message; OR write a `RunHooks.on_agent_start` that mutates your `TContext`. |
-| Expand user input (slash commands, attachments) | ✔ | Pre-process input before passing to `Runner.run`; OR use `call_model_input_filter` to rewrite. |
-| Mutate messages list before each LLM call (prompt-cache breakpoints, redaction) | ✔ | `call_model_input_filter` (per-turn). |
-| Mutate tool input before dispatch (force `tenantId`) | 🟡 Partial — you wrap the function or read from `ctx.context` (see Q6.4). No first-class mutate-args hook. |
-| Mutate tool result before it returns to LLM (redact, summarize) | 🟢 | `@tool_output_guardrail` with `reject_content(message=summary)` replaces the result with the synthetic message; or define your own wrapper inside the function tool. |
-| Emit additional tool calls in response to a tool result (`additional_messages`) | 🔴 | Not provided. The closest is a tool that itself calls a sub-agent (`agent.as_tool`). |
+| Inject system messages at session start (tenant, locale, today) | ✔ | `instructions=callable` on `Agent` (`examples/basic/dynamic_system_prompt.py`); or `call_model_input_filter` to prepend context. |
+| Expand user input (slash commands, attachments) | ✔ | Pre-process before `Runner.run`; `call_model_input_filter` to rewrite; or `RunState.add_input()` to stage input on resume. |
+| Mutate messages list before each LLM call (cache breakpoints, redaction) | ✔ | `call_model_input_filter` (per turn). |
+| Mutate tool input before dispatch (force `tenantId`) | 🟡 Partial | No mutate-args hook; read from `ctx.context` or wrap `on_invoke_tool` (Q6.4). |
+| Mutate tool result before it returns to LLM (redact, summarize) | 🟢 | `@tool_output_guardrail` with `reject_content(message=summary)` replaces the result; or transform inside the tool. |
+| Emit additional tool calls in response to a tool result (`additional_messages`) | 🔴 | Not provided. Closest: a tool that runs a sub-agent (`agent.as_tool`), or a PTC program that chains tool calls. |
 
 ### 7.4 Auto-compaction
-🟢 **Yes for OpenAI Responses API**. `OpenAIResponsesCompactionSession` (521 lines, `src/agents/memory/openai_responses_compaction_session.py`) implements `run_compaction(args: OpenAIResponsesCompactionArgs)` with three modes: `"auto"`, `"previous_response_id"`, `"input"`. It coordinates with server-side compaction on OpenAI.
+🟢 **Yes for OpenAI Responses API**. `OpenAIResponsesCompactionSession` (`src/agents/memory/openai_responses_compaction_session.py`) implements `run_compaction(args)` with modes `"auto"`, `"previous_response_id"`, `"input"`, triggered by a `should_trigger_compaction` predicate or called manually (`docs/sessions/index.md:227-281`). Compaction is now serialized with other session mutations and attempts history recovery on failure; it can delay `stream_events()` completion by a few seconds.
 
-For non-OpenAI providers (LiteLLM/Any-LLM): no auto-compaction. You implement truncation/summarization in `session_input_callback` or `call_model_input_filter`.
+Sandbox agents also have a `Compaction` capability (`src/agents/sandbox/capabilities/compaction.py`). Hosted multi-agent compacts each hosted agent context server-side.
+
+For non-OpenAI providers: no auto-compaction. Implement truncation/summarization in `session_input_callback` or `call_model_input_filter`.
 
 ### 7.5 Prompt cache optimization
-🟢 **Yes, OpenAI-specific**. `src/agents/run_internal/prompt_cache_key.py` defines `PromptCacheKeyResolver`. The runner generates a per-run cache key (visible at `RunResult._generated_prompt_cache_key`) and threads it through model settings via `model_settings_with_prompt_cache_key` (`src/agents/run_internal/prompt_cache_key.py`). This lets you opt into OpenAI's prompt-caching pricing tier.
+🟢 **Yes, OpenAI-specific**. `src/agents/run_internal/prompt_cache_key.py` defines `PromptCacheKeyResolver` (`:17`); the runner generates a per-run cache key and threads it through model settings via `model_settings_with_prompt_cache_key` (`:97`). The key survives `RunState` round trips (`src/agents/result.py:149-157`). `Usage.input_tokens_details` now tracks `cache_write_tokens` in addition to `cached_tokens` (`src/agents/usage.py:71-80`).
 
-Anthropic-style explicit cache breakpoints (Claude Agent SDK's `cache_control`) are not natively wired; with LiteLLM you would pass through the appropriate provider-specific extras.
+Anthropic-style explicit cache breakpoints are not natively wired; with LiteLLM you pass provider-specific extras.
 
-### 7.6 Tool result clearing / progressive disclosure
-🟢 **Partial via `defer_loading`** on `FunctionTool` (`src/agents/tool.py:351`):
+### 7.6 Tool result clearing
+🟡 **Partial**.
+- `src/agents/extensions/tool_output_trimmer.py` trims large tool outputs before they go back to the model.
+- `@tool_output_guardrail` + `reject_content` replaces an output in place at call time.
+- **SDK-only custom data** (0.17.6): a `custom_data_extractor` stores rich data on `ToolCallOutputItem.custom_data` (`src/agents/items.py:447`) that never reaches the model, so the model-visible output can stay small while the app keeps the full payload.
+- Clearing an output from history *after* later turns: BYO via `session_input_callback` / `call_model_input_filter`, or by editing the session (`pop_item`, custom session).
 
-> `defer_loading: bool = False` — Whether the Responses API should hide this tool definition until tool search loads it.
+### 7.7 Progressive disclosure
+🟢 **Several mechanisms**:
+- **Deferred tool loading**: `FunctionTool.defer_loading` (`src/agents/tool.py:527`) + `ToolSearchTool` (`:1619`) + `ToolSearchCallItem` / `ToolSearchOutputItem` (`src/agents/items.py:180-205`). The LLM searches a tool catalogue and loads only the definitions it needs.
+- **Lazy skills**: skill index in the prompt, body materialized by `load_skill` (Q10.5).
+- **Sandbox memory**: a small `memory_summary.md` is injected; the agent searches `MEMORY.md` and opens rollout summaries only when needed (`docs/sandbox/memory.md:43-49`).
+- **Programmatic Tool Calling**: intermediate tool results stay inside the hosted JS program; only the program's result returns to the model (`docs/tools.md:133-137`).
+- **Filesystem stash**: sandbox agents can write large artifacts to the workspace and re-read on demand; 0.21+ adds bounded workspace reads.
 
-This pairs with `ToolSearchTool` (`src/agents/__init__.py:178`) and `ToolSearchCallItem` / `ToolSearchOutputItem` (`src/agents/items.py:167-191`). The LLM searches a tool catalogue and explicitly loads the ones it wants; the rest never enter the prompt.
-
-For large tool *outputs*, the Codex/Shell tools have a `tool_output_trimmer` extension (`src/agents/extensions/tool_output_trimmer.py`) that truncates output before it goes back to the model. For ad-hoc tools, use `@tool_output_guardrail` to summarize.
-
-### 7.7 Architectural diagram — hook fire-points
+### 7.8 Architectural diagram — hook fire-points
 
 ```
                      ┌─ Runner.run(agent, input, context=…, session=…) ─┐
                      │                                                  │
                      ▼                                                  │
-              (session.add_items: first user input)  ◄── save_result_to_session
+   (session.get_items/add_items — wrapper=ctx if session opts in)  ◄── save_result_to_session
                      │
                      ▼
-          ┌── run_input_guardrails (first turn only) ──┐  trip → InputGuardrailTripwireTriggered
-          │                                            │  (RunErrorHandlers can intercept)
+          ┌── run_input_guardrails (first agent only) ─┐  trip → InputGuardrailTripwireTriggered
+          │                                            │
           ▼                                            ▼
    ┌─────────────────── while loop (per turn) ───────────────────┐
    │                                                             │
    │    on_agent_start(ctx, agent)         ← RunHooks            │
    │            │                            AgentHooks.on_start │
+   │            ▼                                                │
+   │    get_all_tools → is_enabled(ctx, agent) per FunctionTool  │
+   │            │                                                │
    │            ▼                                                │
    │    call_model_input_filter(model_data) → ModelInputData     │
    │            │                                                │
@@ -868,33 +924,34 @@ For large tool *outputs*, the Codex/Shell tools have a `tool_output_trimmer` ext
    │    on_llm_start(ctx, agent, sys_prompt, input_items)        │
    │            │                                                │
    │            ▼                                                │
-   │      LLM call (Responses API / Chat / LiteLLM / Any-LLM)    │
+   │      LLM call (Responses / Chat / LiteLLM / Any-LLM)        │
+   │      [ModelSettings.timeout, RetryPolicy]                   │
    │            │                                                │
    │            ▼                                                │
    │    on_llm_end(ctx, agent, response)                         │
    │            │                                                │
    │            ▼                                                │
    │    process_model_response                                   │
-   │       │                                                     │
-   │       ├─► no tool_calls + final_output? ──► break           │
-   │       │                                                     │
+   │       ├─► final_output? ──► break                           │
    │       └─► tool_calls: ─┐                                    │
    │                        ▼                                    │
-   │             for each tool call:                             │
+   │             for each tool call (concurrently):              │
+   │               [pre-approval @tool_input_guardrail(s)]       │
+   │               needs_approval? → ToolApprovalItem (pause)    │
    │               on_tool_start(toolCtx, agent, tool)           │
    │                @tool_input_guardrail(s) → maybe reject      │
    │                tool.on_invoke_tool(toolCtx, input_json)     │
    │                @tool_output_guardrail(s) → maybe reject     │
+   │                custom_data_extractor (SDK-only data)        │
    │               on_tool_end(toolCtx, agent, tool, result)     │
    │                                                             │
    │             save_result_to_session(turn items)              │
-   │                                                             │
    │             handoff requested? ── on_handoff(...) ── swap   │
-   │                                                             │
    └────────────────────────── continue ─────────────────────────┘
                                   │
                                   ▼
               run_output_guardrails(final_output)  ← may raise
+              (blocked terminal tool output → placeholder text)
                                   │
                                   ▼
            on_agent_end(ctx, agent, final_output)
@@ -907,105 +964,84 @@ For large tool *outputs*, the Codex/Shell tools have a `tool_output_trimmer` ext
 
 ```python
 import json
+from dataclasses import dataclass
 from datetime import date
 from agents import (
-    Agent, Runner, RunHooks, RunConfig,
-    CallModelData, ModelInputData, RunContextWrapper,
-    tool_input_guardrail, tool_output_guardrail,
+    Agent, Runner, RunConfig, CallModelData, ModelInputData, RunContextWrapper,
     ToolInputGuardrailData, ToolOutputGuardrailData, ToolGuardrailFunctionOutput,
-    function_tool,
 )
-from dataclasses import dataclass
+from agents.decorators import tool, tool_input_guardrail, tool_output_guardrail
 
 @dataclass
 class PredictCtx:
     tenant_id: str
     locale: str = "fr-FR"
 
-# (1) Inject "tenant=acme, locale=fr-FR, today=2026-05-16" via call_model_input_filter
+# (1) "SessionStart": inject tenant/locale/today on every model call
 async def inject_session_preamble(data: CallModelData[PredictCtx]) -> ModelInputData:
-    preamble = (
-        f"Operational context: tenant={data.context.tenant_id}, "
-        f"locale={data.context.locale}, today={date.today().isoformat()}."
-    )
-    new_instructions = (data.model_data.instructions or "") + "\n\n" + preamble
-    return ModelInputData(input=data.model_data.input, instructions=new_instructions)
+    preamble = (f"Operational context: tenant={data.context.tenant_id}, "
+                f"locale={data.context.locale}, today={date.today().isoformat()}.")
+    instructions = (data.model_data.instructions or "") + "\n\n" + preamble
+    return ModelInputData(input=data.model_data.input, instructions=instructions)
 
-# (2) Tool input guardrail: ensure topicSearch never receives a foreign tenantId
+# (2) "PreToolUse": cannot rewrite args; reject foreign tenantId instead
 @tool_input_guardrail
 def enforce_tenant(data: ToolInputGuardrailData) -> ToolGuardrailFunctionOutput:
-    if data.context.tool_name != "topicSearch":
-        return ToolGuardrailFunctionOutput.allow()
     args = json.loads(data.context.tool_arguments or "{}")
-    # If the LLM tried to pass tenantId, reject (the tool reads ctx.context.tenant_id anyway)
     if "tenantId" in args:
         return ToolGuardrailFunctionOutput.reject_content(
-            message=f"Drop tenantId from topicSearch args; resolved server-side.",
-            output_info={"removed": args["tenantId"]},
-        )
+            message="Drop tenantId; it is resolved server-side.",
+            output_info={"removed": args["tenantId"]})
     return ToolGuardrailFunctionOutput.allow()
 
-# (3) Tool output guardrail: summarize tool output > 50 results
+# (3) "PostToolUse": summarize > 50 results in place
 @tool_output_guardrail
-def summarize_large_topic_results(data: ToolOutputGuardrailData) -> ToolGuardrailFunctionOutput:
-    if data.context.tool_name != "topicSearch":
-        return ToolGuardrailFunctionOutput.allow()
+def summarize_large(data: ToolOutputGuardrailData) -> ToolGuardrailFunctionOutput:
     results = data.output if isinstance(data.output, list) else []
     if len(results) > 50:
-        summary = (
-            f"topicSearch returned {len(results)} topics. Top 10 by relevance: "
-            + ", ".join(results[:10])
-        )
         return ToolGuardrailFunctionOutput.reject_content(
-            message=summary,
-            output_info={"truncated": len(results)},
-        )
+            message=f"{len(results)} topics. Top 10: " + ", ".join(results[:10]),
+            output_info={"truncated": len(results)})
     return ToolGuardrailFunctionOutput.allow()
 
-@function_tool(tool_input_guardrails=[enforce_tenant],
-               tool_output_guardrails=[summarize_large_topic_results])
+@tool(tool_input_guardrails=[enforce_tenant], tool_output_guardrails=[summarize_large])
 async def topicSearch(ctx: RunContextWrapper[PredictCtx], query: str) -> list[str]:
-    return await topics_db.search(query, tenant=ctx.context.tenant_id)
+    return await topics_db.search(query, tenant=ctx.context.tenant_id)   # tenant forced here
 
-agent = Agent[PredictCtx](
-    name="predict-supervisor",
-    instructions="You build audiences from briefs.",
-    tools=[topicSearch],
-    model="gpt-5.1",
-)
-
-result = await Runner.run(
-    agent, "Find topics about hiking gear.",
-    context=PredictCtx(tenant_id="acme"),
-    run_config=RunConfig(call_model_input_filter=inject_session_preamble),
-)
+agent = Agent[PredictCtx](name="predict-supervisor", instructions="Build audiences.",
+                          tools=[topicSearch])
+result = await Runner.run(agent, "Find topics about hiking gear.",
+                          context=PredictCtx(tenant_id="acme"),
+                          run_config=RunConfig(call_model_input_filter=inject_session_preamble))
 ```
+
+Step 2 note: the guardrail can only block; the actual forcing happens inside the tool via `ctx.context.tenant_id`.
 
 ---
 
 ## 8. HTTP API
 
 ### 8.1 Does the framework ship an HTTP server?
-🔴 **No.** Library only. The realtime sibling (`src/agents/realtime/`) DOES expose WebSocket-based real-time voice agents on the **OpenAI Realtime API endpoint** — but that's the client-side wire to OpenAI's hosted realtime service, not a server you stand up for your own clients to call.
+🔴 **No.** Library only. The realtime module (`src/agents/realtime/`) opens WebSockets to the **OpenAI Realtime API**, and examples include small FastAPI apps (`examples/realtime/app/server.py`, `examples/mcp/manager_example/app.py`) — but no reusable server package ships. The new server-side HITL example (`examples/agent_patterns/human_in_the_loop_server.py`) states it "is not a deployable HTTP service" (`docs/human_in_the_loop.md:206`).
 
-The host is expected to embed `Runner.run` / `Runner.run_streamed` in their own FastAPI/Starlette/aiohttp/Flask endpoint.
+The host embeds `Runner.run` / `Runner.run_streamed` in its own FastAPI/Starlette/aiohttp/Flask endpoint.
 
-### 8.2 HTTP streaming transport
-🔴 **N/A at the SDK layer** — `run_streamed` yields `StreamEvent`s as an async iterator. You serialize them to SSE/WebSocket/your-own-protocol in your handler. There is no stock SSE adapter shipped.
+### 8.2 HTTP streaming protocol (SSE/WS)
+🔴 **Not provided — BYO HTTP layer.** `run_streamed` yields `StreamEvent`s as an async iterator; you serialize them to SSE/WebSocket/your own protocol. No stock SSE adapter ships.
 
 ### 8.3 HTTP endpoints that start an agent run
-🔴 **N/A — your code defines them.** A typical FastAPI pattern:
+🔴 **Not provided — BYO HTTP layer.** A typical FastAPI pattern:
 
 ```python
 from fastapi import FastAPI, Header
 from fastapi.responses import StreamingResponse
-from agents import Agent, Runner
+from agents import Runner
 
 app = FastAPI()
 
 @app.post("/runs")
 async def start_run(body: dict, x_tenant_id: str = Header(...)):
-    ctx = PredictCtx(tenant_id=x_tenant_id, ...)
+    ctx = PredictCtx(tenant_id=x_tenant_id, ...)       # after JWT validation
     stream = Runner.run_streamed(agent, body["input"], context=ctx)
     async def gen():
         async for event in stream.stream_events():
@@ -1013,127 +1049,118 @@ async def start_run(body: dict, x_tenant_id: str = Header(...)):
     return StreamingResponse(gen(), media_type="text/event-stream")
 ```
 
-### 8.4 Live agentic event stream format
-🔴 **N/A** — see Q3.6 for the in-process event taxonomy you would serialize. Wire format is yours to design.
+### 8.4 Interrupt / cancel in-flight run
+🔴 **Not provided at the wire layer.** In-process, `RunResultStreaming.cancel(mode="immediate" | "after_turn")` (`src/agents/result.py:878`) stops a streamed run; `ModelSettings.timeout` bounds each model call. Your handler calls `cancel()` on client disconnect or on a `POST /runs/{id}/cancel`. With hosted multi-agent, an abandoned run must also `await model.close()` to release the WebSocket (`docs/models/index.md:303`).
 
-### 8.5 Auth termination at the HTTP boundary
-🔴 **Not provided** — your HTTP layer handles JWT / Okta / API-key validation. The SDK consumes the validated identity via `RunContextWrapper.context`.
+### 8.5 Resume / replay endpoint
+🔴 **Not provided — BYO.** Pattern: persist `RunResult.to_state().to_json()` server-side, expose `POST /runs/{id}/resume` that loads JSON, calls `RunState.from_json(agent, json)`, optionally `state.add_input(...)`, and re-runs. For "user reopens a tab", re-read session history via `session.get_items()`; there is no event-log replay of a past stream.
 
-### 8.6 Resume / replay endpoint
-🔴 **Not provided.** Pattern: persist `RunResult.to_state().to_json()` on interruption, expose a `POST /runs/{id}/resume` that loads JSON, calls `RunState.from_json(agent, json)`, applies approvals, and re-runs.
-
-### 8.7 Interrupt / cancel via HTTP
-🔴 **Not provided at the wire layer.** `run_streamed` returns a `RunResultStreaming` with `_cancel_mode: Literal["none", "immediate", "after_turn"]` (`src/agents/result.py:496`) so you can call `result.cancel()` from your handler when the client disconnects, but the public HTTP surface is yours to design.
-
-### 8.8 Tool-arg streaming (partial JSON)
-🟢 **Yes — via Responses API raw events.** The OpenAI Responses API emits `response.function_call_arguments.delta` events as the model generates JSON for a tool call. Those flow through `RawResponsesStreamEvent` directly (`examples/basic/stream_function_call_args.py` shows it end-to-end). When you serialize these to SSE, the client sees argument tokens before the tool call is finalized.
-
-### 8.9 HITL approval workflow over HTTP
-🟢 **First-class at the SDK layer**, BYO at the wire layer. Per `examples/agent_patterns/human_in_the_loop.py`:
+### 8.6 HITL approval workflow
+🟢 **First-class at the SDK layer**, BYO at the wire layer, with **new server-side guidance**. Tools opt in via `needs_approval=True | callable` (`src/agents/tool.py:499`); MCP servers via `require_approval` (`src/agents/mcp/server.py:568`, policy normalization at `:741-842`) accepting `"always" | "never" | {"always": {...}, "never": {...}} | mapping | callable | bool`. The paused state is observable as `result.interruptions: list[ToolApprovalItem]`.
 
 ```python
 result = await Runner.run(agent, "Delete temp files")
-if result.interruptions:                          # list[ToolApprovalItem]
-    state = result.to_state()
-    state_json = state.to_json()                  # serialize
-    # ... user clicks Approve in your UI ...
-    state = await RunState.from_json(agent, state_json)
-    state.approve(state.interruptions[0])
-    # or: state.reject(state.interruptions[0])
-    result = await Runner.run(agent, state)       # resume
+if result.interruptions:
+    store[run_id] = result.to_state().to_json()     # keep on the server
+# ... authenticated reviewer POSTs {decision_id: true/false} ...
+state = await RunState.from_json(agent, store.pop_atomic(run_id))
+for item in state.get_interruptions():
+    state.approve(item) if decisions[item.call_id] else state.reject(item)
+result = await Runner.run(agent, state)
 ```
 
-Tools mark themselves as needing approval via `function_tool(needs_approval=True | callable)` (`src/agents/tool.py:328`). MCP tools have an analogous `require_approval` (`src/agents/mcp/server.py:55-91`) supporting `"always" | "never" | dict | callable`.
+`docs/human_in_the_loop.md:193-208` now prescribes: authenticate the reviewer from the session (not the request body), authorize per pending call, accept only decision ids + booleans (never replacement arguments or serialized state from the client), and consume each pending request atomically. `RunState.reject(..., message=...)` supports custom rejection messages. Hosted multi-agent does **not** support approvals (`docs/models/index.md:263`).
 
-You design the wire format (POST endpoint, payload shape) for sending the approval verdict.
+### 8.7 Token streaming
+🔴 Wire format BYO; 🟢 all three signals exist in-process:
+- **Text delta**: `RawResponsesStreamEvent(data=ResponseTextDeltaEvent(type="response.output_text.delta", delta="Hel"))`.
+- **Partial tool args**: `response.function_call_arguments.delta` raw events (`examples/basic/stream_function_call_args.py`). Chat Completions models gained buffered tool-call streaming in 0.17.7.
+- **Agent activity**: `RunItemStreamEvent(name="tool_called" | "tool_output" | "handoff_requested" | ...)` and `AgentUpdatedStreamEvent`.
 
-### 8.10 Tool-call state reconstruction
-⭐ **Explicit `tool_call_id`** flows through `ResponseFunctionToolCall.call_id` (OpenAI wire), exposed as `ToolCallItem.raw_item.call_id` and on `ToolCallOutputItem` via the matching `call_id` field on the output. The `ToolApprovalItem` carries `call_id`. The linkage is preserved end-to-end — no implicit/positional matching needed.
+Example SSE frames once you serialize them (your design):
+```
+data: {"type":"raw","data":{"type":"response.output_text.delta","delta":"Hel"}}
+data: {"type":"raw","data":{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"q\":\"hik"}}
+data: {"type":"run_item","name":"tool_called","call_id":"call_xyz","tool":"topicSearch"}
+```
+
+### 8.8 Authentication & Authorisation
+🔴 **Not provided** — your HTTP layer handles JWT / OIDC / API-key validation and resource authorization. The SDK consumes the validated identity via `RunContextWrapper.context`. The HITL docs are explicit that "possession of a run ID or decision ID is not authorization" (`docs/human_in_the_loop.md:202`).
+
+### 8.9 Tool-call state reconstruction
+⭐ **Explicit `call_id`** flows through `ResponseFunctionToolCall.call_id`, exposed as `ToolCallItem.raw_item.call_id` and on the matching `ToolCallOutputItem` raw output. `ToolApprovalItem` carries `call_id`. Programmatic Tool Calling preserves each child call's program-caller relationship, and hosted multi-agent tells you to "Route outputs with the call ID supplied by the SDK" (`docs/models/index.md:283`). No positional matching needed.
 
 ```python
-# tool_use event from RunItemStreamEvent
-{
-  "type": "tool_called",
-  "call_id": "call_xyz",
-  "name": "audienceCreate",
-  "arguments": "{\"name\":\"Hikers\"}"
-}
-# Later, tool_output event:
-{
-  "type": "tool_output",
-  "call_id": "call_xyz",   # same id → client links them
-  "output": "audience_id=aud_42"
-}
+# tool_use event (RunItemStreamEvent name="tool_called")
+{"type": "tool_called", "call_id": "call_xyz", "name": "audienceCreate",
+ "arguments": "{\"name\":\"Hikers\"}"}
+# later (name="tool_output")
+{"type": "tool_output", "call_id": "call_xyz", "output": "audience_id=aud_42"}
 ```
 
-### 8.11 Health checks / graceful shutdown
-🔴 **Not provided at SDK layer.** Your HTTP server adds `/healthz`, `/readyz`, `/metrics`, SIGTERM drain, etc.
+### 8.10 Health checks / graceful shutdown
+🔴 **Not provided at SDK layer.** Your server adds `/healthz`, `/readyz`, `/metrics`, SIGTERM drain. `MCPServerManager` now applies finite default timeouts to connect/cleanup (0.20), which helps shutdown.
 
-### ⭐ Light usage example — HITL approval over BYO HTTP
+### ⭐ Light usage example — BYO HTTP layer
 
 ```bash
-# (1) Start a run with X-Tenant-Id header (FastAPI handler above)
-curl -N -H "X-Tenant-Id: acme" -H "Content-Type: application/json" \
-  -d '{"input":"Use the audienceCreate tool"}' \
+# (1) Start a run with X-Tenant-Id (FastAPI handler from 8.3)
+curl -N -H "Authorization: Bearer $JWT" -H "X-Tenant-Id: acme" \
+  -H "Content-Type: application/json" -d '{"input":"Create the Hikers audience"}' \
   http://localhost:8000/runs
 
-# Server streams SSE; sample frames (you build these by serializing StreamEvent):
-data: {"type":"agent_updated","new_agent":"predict-supervisor"}
-data: {"type":"raw_response","data":{"type":"response.created","sequence":1}}
-data: {"type":"run_item","name":"tool_called","item":{"type":"tool_call_item","name":"audienceCreate","call_id":"call_xyz","arguments":"{\"name\":\"Hikers\"}"}}
-data: {"type":"interruption","call_id":"call_xyz","tool_name":"audienceCreate","arguments":{"name":"Hikers"}}
+# (2) Sample SSE frames (you build these by serializing StreamEvent)
+data: {"type":"agent_updated","new_agent":"predict-supervisor","run_id":"r-42"}
+data: {"type":"run_item","name":"tool_called","call_id":"call_xyz","tool":"audienceCreate"}
+data: {"type":"interruption","decision_id":"d-1","tool":"audienceCreate"}
 data: {"type":"done","run_id":"r-42"}
 
-# (2) Cancel mid-flight: close the SSE connection; FastAPI signals run.cancel() on disconnect.
-# (Or expose POST /runs/{id}/cancel that calls stream.cancel() on a stored RunResultStreaming.)
-curl -X POST http://localhost:8000/runs/r-42/cancel
+# (3) Cancel mid-flight: handler calls stream.cancel() on the stored RunResultStreaming
+curl -X POST -H "Authorization: Bearer $JWT" http://localhost:8000/runs/r-42/cancel
 
-# (3) Send approval verdict
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"call_id":"call_xyz","verdict":"approve"}' \
-  http://localhost:8000/runs/r-42/approvals
-# The handler: state = RunState.from_json(agent, stored_json);
-#              state.approve(matching_interruption);
-#              result = await Runner.run(agent, state); ...
+# (4) HITL verdict: only decision ids + booleans; server loads its own RunState snapshot
+curl -X POST -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"decisions":{"d-1":true}}' http://localhost:8000/runs/r-42/approvals
 ```
 
-Every part of the wire format (SSE event names, JSON shapes, HTTP paths) is yours to design. The SDK gives you the state primitives but not the HTTP contract.
+Every part of the wire format (SSE event names, JSON shapes, HTTP paths) is yours to design. **Not provided — BYO HTTP layer.**
 
 ---
 
 ## 9. Sub-agents
 
 ### 9.1 Mechanism
-**Two first-class mechanisms.**
-- **Agents-as-tools** via `Agent.as_tool(tool_name, tool_description, ...)` (`src/agents/agent.py:508`). The parent stays in charge; the sub-agent is wrapped as a function tool the LLM can call.
-- **Handoffs** via `Handoff[TContext, TAgent]` (`src/agents/handoffs/__init__.py:94`). The parent transfers control: the new agent takes over the conversation. The previous agent's context can be filtered via `HandoffInputFilter`.
-
-Both are first-class — no "special tool" hack.
+**Two first-class local mechanisms, plus one experimental hosted one.**
+- **Agents-as-tools** via `Agent.as_tool(tool_name, tool_description, ...)` (`src/agents/agent.py:606`). The parent stays in charge; the sub-agent is wrapped as a function tool. `as_tool` now also accepts `run_config`, `max_turns`, `hooks`, `session`, `needs_approval`, structured `parameters`, and `input_builder` (`:606-628`).
+- **Handoffs** via `Handoff[TContext, TAgent]` (`src/agents/handoffs/__init__.py:126`). The new agent takes over the conversation; history can be filtered via `HandoffInputFilter` or nested via `nest_handoff_history`. Docs now warn that nested history is "not a redaction mechanism" (`:168-174`).
+- **Hosted multi-agent (experimental, 0.18.2+)**: `OpenAIHostedMultiAgentModel` (`src/agents/extensions/experimental/hosted_multi_agent/model.py:369`) lets a GPT-5.6 root model create sub-agents on OpenAI's service. Local function tools still run in your Runner; handoffs are rejected in this mode (`docs/models/index.md:291-297`).
 
 ### 9.2 Configuration
-**Programmatic** — declared as Python `Agent` instances at boot time. No markdown-file-as-sub-agent format. Each sub-agent is its own `Agent(name=..., instructions=..., tools=..., handoffs=...)`.
+**Programmatic** — Python `Agent` instances declared at boot or per request. No markdown-file-as-sub-agent format. Hosted multi-agent sub-agents are not configured by you at all: they share the root request's model and tools (`docs/models/index.md:263`), with `HostedMultiAgentConfig(max_concurrent_subagents=...)` the only knob (`model.py:77-86`).
 
 ### 9.3 LLM-generated configs
-🔴 **No.** Sub-agent configs are static Python objects. The parent LLM cannot synthesize a `system_prompt` for a fresh sub-agent at runtime. (You could implement it yourself by giving the parent a tool that constructs an `Agent` from arguments and runs it, but that's BYO.)
+🔴 **No for local sub-agents.** Configs are static Python objects; the parent LLM cannot synthesize a system prompt for a fresh local sub-agent (BYO: give the parent a tool that builds an `Agent` from arguments and runs it).
+🟡 **Hosted multi-agent** is the exception in spirit: the root model decides which sub-agents to spawn and what to tell them, but they inherit the same toolset and model — you cannot restrict per-sub-agent tools.
 
 ### 9.4 Output handling
-- **Agents-as-tools**: the nested agent's `final_output` is returned as the tool result string. A `custom_output_extractor` callback can rewrite (`src/agents/agent.py:512-514`). `on_stream` callback can re-emit nested stream events to the parent stream (`src/agents/agent.py:517` returning `AgentToolStreamEvent`).
-- **Handoffs**: the new agent receives the full conversation history (possibly filtered by `HandoffInputFilter`) and continues the same `RunResult`.
-
-The parent links the result back to the original tool call via the standard `call_id` (`AgentToolInvocation` in `src/agents/result.py:57`).
+- **Agents-as-tools**: the nested agent's `final_output` is returned as the tool result. `custom_output_extractor` can rewrite (`src/agents/agent.py:610-612`). `on_stream` re-emits nested events as `AgentToolStreamEvent` (`:615`, `:134`). Linked back to the parent via `call_id` (`AgentToolInvocation`, `src/agents/result.py:68`).
+- **Handoffs**: the new agent receives the (filtered) history and continues the same `RunResult`.
+- **Hosted multi-agent**: only the `/root` `final_answer` message becomes a normal final message; sub-agent messages are filtered out of `RunResult` and visible only as raw events (`docs/models/index.md:285-289`). `get_hosted_agent_metadata(ctx)` attributes a tool call to a hosted agent (`model.py:138`).
 
 ### 9.5 Concurrency model
-🟡 **Serial by default; parallel BYO via `asyncio.gather`.** When an LLM emits multiple parallel tool calls (multi-tool turn), the runner dispatches them concurrently via `execute_function_tool_calls`. So if the LLM calls three `as_tool` sub-agents in one turn, they DO run in parallel — bounded by `RunConfig.tool_execution.max_function_tool_concurrency` (`src/agents/run_config.py:98`).
-
-But for *programmatic* fan-out, you write the `asyncio.gather(Runner.run(...), Runner.run(...), Runner.run(...))` yourself (see `examples/agent_patterns/parallelization.py:30-43`). There is no `swarm()` or `fan_out()` helper.
+🟡 **Parallel when the LLM fans out; programmatic fan-out is BYO.**
+- When an LLM emits multiple tool calls in one turn, `execute_function_tool_calls` (`src/agents/run_internal/tool_execution.py:2330`) dispatches them concurrently, bounded by `RunConfig.tool_execution.max_function_tool_concurrency` (`src/agents/run_config.py:139`). Three `as_tool` personas called in one turn therefore run in parallel.
+- **Programmatic Tool Calling** (0.19) lets the model write one JS program that issues parallel calls to tools allowed with `allowed_callers=["programmatic"]` — agent-tools included — without a model round trip per call (`docs/tools.md:133-137`, `examples/tools/programmatic_tool_calling.py`).
+- **Hosted multi-agent** runs sub-agents concurrently on the service, up to `max_concurrent_subagents`.
+- For deterministic fan-out you write `asyncio.gather(Runner.run(...), ...)` yourself (`examples/agent_patterns/parallelization.py:30-43`). No `fan_out()` helper.
 
 ### 9.6 Context isolation
-🟢 **Sub-agent gets a fresh `ToolContext` derived from the parent's `RunContextWrapper`** (`src/agents/agent.py:633-660`). The sub-agent does NOT see the parent's conversation history; it only sees the input string the parent generated (or the structured `parameters` Pydantic model). Approvals propagate (parent and sub-agent share `_approvals`).
+🟢 **Agents-as-tools start fresh**: the sub-agent gets a new `ToolContext` built from the parent's (`src/agents/agent.py:760-772`): same `context` object and shared `usage`, but "a fresh ToolContext to avoid sharing approval state with parent runs". **Correction vs. previous analysis**: approvals are *not* shared between parent and sub-agent. The sub-agent sees only the input the parent generated (or structured `parameters`), not the parent's history.
 
-Handoffs are the opposite: full history flows by default; you use a `HandoffInputFilter` to redact.
+Handoffs are the opposite: full history flows by default; use `HandoffInputFilter` to redact. Hosted multi-agent sub-agents share whatever the service gives them; tool arguments and outputs cross the Responses API boundary.
 
 ### 9.7 Lifecycle events
-🟢 **Yes via `on_stream`** on `as_tool(...)`. Set `on_stream=callback` and your callback receives `AgentToolStreamEvent` (`src/agents/agent.py:121`):
+🟢 **Yes via `on_stream`** on `as_tool(...)`, receiving `AgentToolStreamEvent` (`src/agents/agent.py:134-145`):
 
 ```python
 class AgentToolStreamEvent(TypedDict):
@@ -1142,93 +1169,79 @@ class AgentToolStreamEvent(TypedDict):
     tool_call: ResponseFunctionToolCall | None
 ```
 
-This lets the parent stream forward sub-agent progress events to its own consumer.
+`on_stream_max_pending_events` (default 1024, `:628`) bounds the buffer; overflow raises. Handoffs surface as `AgentUpdatedStreamEvent` + `handoff_requested`/`handoff_occured`. Hosted sub-agent lifecycle is only in raw beta events.
+
+### 9.8 Sub-agent model override
+🟢 **Yes**. Each `Agent` has its own `model: str | Model | None` (`src/agents/agent.py:360`), so a supervisor on `gpt-5.6-sol` can dispatch to a worker on `gpt-5.6-luna` (or a `litellm/anthropic/...` model) via `as_tool()` or handoff. `as_tool(run_config=...)` can also override the nested run's config. `RunConfig.model` (`src/agents/run_config.py:357`) forces one model for every agent in a run. Hosted multi-agent: all sub-agents use the root model.
 
 ### ⭐ Light usage example — 3 persona sub-agents invoked in parallel
 
 ```python
-from agents import Agent, Runner, function_tool, RunContextWrapper, trace
 import asyncio
 from dataclasses import dataclass
+from agents import Agent, Runner, RunContextWrapper, trace
+from agents.decorators import tool
 
 @dataclass
 class PredictCtx:
     tenant_id: str
 
-@function_tool
+@tool
 async def topicSearch(ctx: RunContextWrapper[PredictCtx], q: str) -> list[str]:
     return await topics_db.search(q, tenant=ctx.context.tenant_id)
 
-# (1) Define 3 persona sub-agents
-persona_young_mom = Agent[PredictCtx](
-    name="persona-young-mom",
-    instructions="You impersonate a young mom interested in family activities. "
-                 "Suggest topics relevant to that persona.",
-    tools=[topicSearch],
-)
-persona_tech_bro = Agent[PredictCtx](
-    name="persona-tech-bro",
-    instructions="You impersonate a tech professional in their 30s. "
-                 "Suggest topics relevant to that persona.",
-    tools=[topicSearch],
-)
-persona_retiree = Agent[PredictCtx](
-    name="persona-retiree",
-    instructions="You impersonate a retiree interested in travel and gardening. "
-                 "Suggest topics relevant to that persona.",
-    tools=[topicSearch],
-)
+# (1) Three persona sub-agents (cheaper model than the supervisor)
+def persona(name: str, brief: str) -> Agent[PredictCtx]:
+    return Agent[PredictCtx](name=name, model="gpt-5.6-luna", tools=[topicSearch],
+                             instructions=f"You impersonate {brief}. Suggest relevant topics.")
 
-# (2) Parent supervisor invokes them in parallel
+young_mom = persona("persona-young-mom", "a young mom interested in family activities")
+tech_bro  = persona("persona-tech-bro", "a tech professional in their 30s")
+retiree   = persona("persona-retiree", "a retiree interested in travel and gardening")
+
 async def main():
     ctx = PredictCtx(tenant_id="acme")
     with trace("persona-fan-out"):
-        # Either via raw asyncio.gather (full control):
-        young_mom_r, tech_bro_r, retiree_r = await asyncio.gather(
-            Runner.run(persona_young_mom, "Brief: hiking gear",  context=ctx),
-            Runner.run(persona_tech_bro,  "Brief: hiking gear",  context=ctx),
-            Runner.run(persona_retiree,   "Brief: hiking gear",  context=ctx),
-        )
-        # Or via agents-as-tools (LLM picks which personas to call, in parallel):
+        # (2a) Deterministic parallel fan-out
+        results = await asyncio.gather(*(Runner.run(p, "Brief: hiking gear", context=ctx)
+                                         for p in (young_mom, tech_bro, retiree)))
+        # (2b) LLM-driven fan-out: parallel tool calls in one turn
         supervisor = Agent[PredictCtx](
-            name="persona-supervisor",
-            instructions="Call all relevant personas for the brief.",
-            tools=[
-                persona_young_mom.as_tool("ask_young_mom", "Get young-mom perspective"),
-                persona_tech_bro.as_tool("ask_tech_bro",   "Get tech-bro perspective"),
-                persona_retiree.as_tool("ask_retiree",     "Get retiree perspective"),
-            ],
-        )
-        result = await Runner.run(supervisor, "Brief: hiking gear", context=ctx)
+            name="persona-supervisor", model="gpt-5.6-sol",
+            instructions="Call all relevant personas for the brief, then merge.",
+            tools=[young_mom.as_tool("ask_young_mom", "Young-mom perspective"),
+                   tech_bro.as_tool("ask_tech_bro", "Tech-bro perspective"),
+                   retiree.as_tool("ask_retiree", "Retiree perspective")])
+        merged = await Runner.run(supervisor, "Brief: hiking gear", context=ctx)
 
-    # (3) Parent receives each result either as a Python value (gather) or as the
-    #     final_output of the supervisor run (which collated tool outputs).
-    print(young_mom_r.final_output)
-    print(result.final_output)
+    # (3) Results: per-persona RunResult (gather) or tool outputs linked by call_id
+    for r in results:
+        print(r.last_agent.name, r.final_output)
+    print(merged.final_output)
 
 asyncio.run(main())
 ```
-
-Direct `asyncio.gather` is the simpler pattern; `agents-as-tools` is preferable when you want the LLM to dynamically choose which sub-agents to invoke.
 
 ---
 
 ## 10. Skills
 
 ### 10.1 First-class concept?
-🟡 **Yes — but narrower than Mastra**. The SDK ships a real `Skill` model (`src/agents/sandbox/capabilities/skills.py:401`) with the canonical `SKILL.md` frontmatter format. **However**, skills here are scoped to **sandbox / shell execution** — they materialize into a Codex / Shell / Apply-Patch sandbox workspace, not into the LLM's system prompt directly. They are *progressive-disclosure instructions for an agent operating on a sandbox filesystem*, not general workflow templates.
+🟡 **Yes — but sandbox-bound**. The SDK ships a real `Skill` model (`src/agents/sandbox/capabilities/skills.py:526`) with the canonical `SKILL.md` frontmatter format, delivered through the `Skills` capability (`:621`) of a `SandboxAgent`. Skills materialize into a sandbox workspace and are read by the agent through shell/filesystem tools; they are *progressive-disclosure instructions for an agent operating on a sandbox filesystem*, not general workflow templates injected into any `Agent`.
 
-This is the same conceptual model that Anthropic uses (Claude Code's `SKILL.md`) and what OpenAI Codex uses internally. It is *not* equivalent to Mastra's runtime-pluggable skill catalogue with a `skill` tool — but it covers many of the same use cases for filesystem/code-execution skills.
+A second, hosted path exists: `ShellTool` with an OpenAI-hosted container environment accepts `ShellToolSkillReference(skill_id, version)` or inline zipped skills (`src/agents/tool.py:1290-1324`, `docs/tools.md` "Hosted container shell + skills").
+
+No change to the skills model between 0.17.2 and 0.22.3 beyond bug fixes (multiline frontmatter descriptions, lazy-load metadata preservation, run-scoped working directories).
 
 ### 10.2 File format
-Markdown with YAML frontmatter. Schema (`src/agents/sandbox/capabilities/skills.py:401-493`):
+Markdown with YAML frontmatter. Schema (`src/agents/sandbox/capabilities/skills.py:526-537`):
 
 ```python
 class Skill(BaseModel):
-    name: str                                       # required, must be relative path-safe
+    name: str                                       # required, relative-path-safe
     description: str                                # required, shown in skill index
     content: str | bytes | BaseEntry                # the SKILL.md body
-    compatibility: str | None = None                # version/compat marker
+    compatibility: str | None = None                # opaque version/compat marker
     scripts: dict[str | Path, BaseEntry] = {}       # scripts/ folder contents
     references: dict[str | Path, BaseEntry] = {}    # references/ folder contents
     assets: dict[str | Path, BaseEntry] = {}        # assets/ folder contents
@@ -1255,250 +1268,207 @@ Use this skill when the user asks for quick analysis of tabular data.
 ```
 
 ### 10.3 Loader mechanism
-Three loader modes (`src/agents/sandbox/capabilities/skills.py:496-555`):
-- **Inline `skills=[Skill(...), ...]`**: in-Python objects, materialized to the sandbox at session start.
-- **`from_=BaseEntry`**: bulk-load from a directory entry (LocalDir, archive, etc.), eager.
-- **`lazy_from=LazySkillSource`**: skill *index* (name + description + path) is shown to the LLM up front; bodies/scripts/assets load on demand when the LLM calls the synthetic `load_skill(skill_name)` tool (`src/agents/sandbox/capabilities/skills.py:267-291`).
+Three loader modes on `Skills` (`src/agents/sandbox/capabilities/skills.py:621-628`):
+- **Inline `skills=[Skill(...), ...]`**: Python objects materialized to the sandbox.
+- **`from_=BaseEntry`**: bulk-load from a directory entry (LocalDir, archive, Git repo entry), eager.
+- **`lazy_from=LazySkillSource`** (`:132`): the index (name + description + path, `SkillMetadata` at `:124`) is shown up front; bodies/scripts/assets load on demand through the synthetic `load_skill` tool (`_LoadSkillTool`, `:295-318`).
 
-`LocalDirLazySkillSource` (`src/agents/sandbox/capabilities/skills.py:138`) scans a host directory, reads each subfolder's `SKILL.md` frontmatter, and exposes the index.
+`LocalDirLazySkillSource` (`:154`) scans a host directory and reads each subfolder's `SKILL.md` frontmatter.
 
 ### 10.4 Invocation
-- **System-prompt injection**: skill metadata (name + description + path) is rendered as a `### Skills` section in the agent's system prompt (`_HOW_TO_USE_SKILLS_SECTION` / `_HOW_TO_USE_LAZY_SKILLS_SECTION` in `src/agents/sandbox/capabilities/skills.py:33-104`).
-- **For lazy skills**: the SDK adds a synthetic `load_skill` function tool — when the LLM calls it, the skill body is fetched into the sandbox and the LLM is told to open `SKILL.md`.
-- **For eager skills**: the LLM is instructed to open the listed `SKILL.md` paths directly using the shell/file-read tool.
+- **System-prompt injection**: skill metadata is rendered as a skills section in the agent's instructions (`_HOW_TO_USE_SKILLS_SECTION` / `_HOW_TO_USE_LAZY_SKILLS_SECTION`, `src/agents/sandbox/capabilities/skills.py:49-120`).
+- **Lazy skills**: the LLM calls `load_skill(skill_name)`, which stages exactly one skill under the listed path; the LLM is then told to open `SKILL.md`.
+- **Eager skills**: the LLM opens the listed `SKILL.md` paths directly with the shell/filesystem tool.
 
-So invocation is "system prompt instructions + filesystem access via shell tool" — *not* a tool call per skill (unlike Mastra's `skill` tool).
+So invocation is "system-prompt index + filesystem access via shell tool" (plus a `load_skill` tool call for lazy skills) — not one tool per skill.
 
 ### 10.5 Loading mode
-**Both eager and lazy** supported (Q10.3).
+**Both eager and lazy** (Q10.3). Lazy mode keeps only name + description in the prompt.
 
-### 10.6 Runtime scoping (global / tenant / user)
-🟡 **Per-agent, per-instance, at construction time**. Skills are configured on a `ShellTool` or `SandboxAgent` at agent construction. To vary the skill catalogue per tenant at runtime, you build a per-tenant `Agent` instance (or use `agent.clone(tools=[...])`) with the right skill set.
-
-🔴 **No dynamic per-turn filtering** of skills like there is for tools (`is_enabled` callable). If you want "show different skills to different tenants from the same agent definition", you need to wrap the tools yourself or build per-tenant agents.
-
-### 10.7 Skill composition
-🟢 **Yes** — `Skill` has `scripts: dict[Path, BaseEntry]`, `references: dict[Path, BaseEntry]`, `assets: dict[Path, BaseEntry]` fields (`src/agents/sandbox/capabilities/skills.py:409-411`). The progressive-disclosure prompt explicitly instructs the LLM to "open `scripts/` instead of retyping large code blocks" and "reuse `assets/` instead of recreating". Skills do not cross-reference each other directly, but a skill's body can mention other skill names — the LLM is expected to load them via the same mechanism.
+### 10.6 Skill composition
+🟢 **Yes for bundled resources** — `scripts`, `references`, `assets` fields (`src/agents/sandbox/capabilities/skills.py:534-536`); the prompt tells the LLM to reuse `scripts/` and `assets/` instead of retyping them. Skills do not formally include each other, but a skill body can name other skills and the LLM loads them via the same mechanism. A skill can instruct use of agent-tools if those are registered on the sandbox agent.
 
 ### ⭐ Light usage example — author + load a `Generate-Audience-From-Brief` skill
 
 ```python
-# (1) Author the SKILL.md on disk: ./skills/generate-audience/SKILL.md
+# (1) ./skills/generate-audience/SKILL.md
 # ---
 # name: generate-audience
-# description: Generate a Predict audience from a long-running agent brief by combining
-#              topic IDs and IAB categories scoped to the current tenant.
+# description: Generate a Predict audience from a brief by combining topic IDs and
+#              IAB categories scoped to the current tenant.
 # ---
-#
 # # Generate Audience From Brief
-#
-# When the user provides a long-running agent brief, follow these steps:
 # 1. Extract themes from the brief.
-# 2. Use scripts/extract_topics.py to map themes → topic_ids.
-# 3. Use scripts/select_iabs.py to pick IAB categories.
-# 4. Emit a JSON audience spec to /mnt/data/audience.json.
+# 2. Run scripts/extract_topics.py to map themes -> topic_ids.
+# 3. Run scripts/select_iabs.py to pick IAB categories.
+# 4. Write a JSON audience spec to /mnt/data/audience.json.
 
-# (2) Load it lazily at runtime (filesystem source)
+# (2) Load lazily at runtime from the filesystem
 from pathlib import Path
-from agents import Agent, Runner, ShellTool
-from agents.sandbox.capabilities.skills import (
-    Skills, LocalDirLazySkillSource,
-)
-from agents.sandbox.entries import LocalDir
-from agents.sandbox.sandboxes import UnixLocalSandboxClient
+from agents import Runner, RunConfig
 from agents.sandbox import Manifest, SandboxAgent, SandboxRunConfig
-from agents.run import RunConfig
+from agents.sandbox.capabilities import Shell, Filesystem
+from agents.sandbox.capabilities.skills import Skills, LocalDirLazySkillSource
+from agents.sandbox.entries import LocalDir
+from agents.sandbox.sandboxes import DockerSandboxClient
 
-skills_dir = Path("./skills").resolve()
-skills_cap = Skills(
-    lazy_from=LocalDirLazySkillSource(source=LocalDir(src=str(skills_dir))),
-    skills_path=".agents",
-)
-
+skills = Skills(lazy_from=LocalDirLazySkillSource(source=LocalDir(src=Path("skills"))),
+                skills_path=".agents")
 agent = SandboxAgent(
     name="predict-audience-builder",
-    instructions=(
-        "You build Predict audiences. Use the available skills via "
-        "progressive disclosure: call load_skill, then read SKILL.md."
-    ),
-    default_manifest=Manifest(capabilities=[skills_cap]),
+    instructions="Build Predict audiences. Use skills via load_skill, then read SKILL.md.",
+    capabilities=[skills, Shell(), Filesystem()],
 )
-
 result = await Runner.run(
-    agent,
-    "Brief: target young moms who hike on weekends.",
-    run_config=RunConfig(sandbox=SandboxRunConfig(client=UnixLocalSandboxClient())),
+    agent, "Brief: target young moms who hike on weekends.",
+    run_config=RunConfig(sandbox=SandboxRunConfig(client=DockerSandboxClient())),
 )
-# Internally:
-# - The skill index is injected into the system prompt (name + description + path).
-# - The LLM emits `load_skill(skill_name="generate-audience")` → materializes the
-#   skill folder under .agents/generate-audience/ inside the sandbox.
-# - The LLM then uses the ShellTool to open SKILL.md, run scripts/, etc.
+# (3) What the LLM sees: a skills index (name + description + path) in its instructions
+#     and a `load_skill` tool. It calls load_skill("generate-audience"), which stages
+#     .agents/generate-audience/ in the sandbox, then opens SKILL.md with the shell tool.
 ```
 
-For non-sandbox use cases (you just want a markdown-file workflow library injectable into a regular `Agent`'s system prompt), **the SDK does not ship that** — you'd hand-roll it by reading frontmatter and concatenating into `Agent(instructions=...)`.
+`LocalDir(src=...)` must resolve inside the SDK process base directory or be granted via `Manifest.extra_path_grants` (0.17.0 rule). For a non-sandbox `Agent` that just needs markdown workflows in its system prompt, **the SDK does not ship that** — read frontmatter yourself and build `Agent(instructions=...)`.
 
 ---
 
 ## 11. Resource Manager
 
 ### 11.1 First-class Resource Manager?
-🔴 **No — BYO**. The SDK has no concept of a registry, source abstraction, publishing workflow, or version manager for skills/sub-agents/prompts. All such artifacts are Python objects constructed at boot.
+🔴 **No — BYO**. No registry, source abstraction, publishing workflow, or version manager for skills/sub-agents/prompts. Agents and tools are Python objects constructed at boot.
 
-The two registry-shaped pieces:
-- **`MultiProviderMap`** (`src/agents/models/multi_provider.py:17`) — a prefix→provider map for model routing. This is a model registry, not a skills/prompts registry.
-- **`set_default_openai_agent_registration`** (`src/agents/__init__.py:296`) — registers an OpenAI agent harness ID with OpenAI's hosted infrastructure (telemetry attribution). Not a resource manager in the multi-tenant skills sense.
+Registry-shaped pieces:
+- **`MultiProviderMap`** (`src/agents/models/multi_provider.py:18`) — prefix→provider map for model routing.
+- **`set_default_openai_agent_registration`** (`src/agents/__init__.py:324`) — registers an OpenAI agent harness id for attribution; not a resource manager.
+- **`LazySkillSource`** (`src/agents/sandbox/capabilities/skills.py:132`) — an abstract skill source you can subclass; one implementation ships (`LocalDirLazySkillSource`).
+- **OpenAI-hosted skills** referenced by `skill_id` + optional `version` for hosted container shells (`ShellToolSkillReference`, `src/agents/tool.py:1298-1303`). The SDK only references them; uploading/publishing happens through the OpenAI platform, not this SDK.
 
 ### 11.2 Loading sources
 
 | Source | Supported? | How |
 |---|---|---|
-| Local filesystem | 🟢 | `LocalDirLazySkillSource(source=LocalDir(src="./skills"))` for skills. For agents/tools, just `import` the Python module. |
-| Git / GitHub repos | 🟡 Partial | `agents.sandbox.entries.GitRepo` materializes a Git repo INTO a sandbox at run time (see `README.md:57-67`). Not for loading skills/agents into the SDK process — only into the sandbox. |
+| Local filesystem | 🟢 | `LocalDirLazySkillSource(source=LocalDir(src="./skills"))`; for agents/tools, `import` the module. |
+| Git / GitHub repos | 🟡 Partial | `agents.sandbox.entries.GitRepo` materializes a repo *into a sandbox* (`README.md:83-90`). Not a loader into the SDK process. |
 | OCI / container registries | 🔴 No | Not provided. |
-| Cloud object storage (S3/GCS/Azure/R2) | 🔴 No native skill source | `BaseEntry` supports `archive` entries you build yourself; no `S3SkillSource` ships. (The `s3` optional extra exists for sandbox workspace mounts, not skill loading.) |
-| Postgres / DB | 🔴 No | The 4 DB-backed sessions store *conversations*, not resources. |
-| Vendor cloud / managed registry | 🔴 No | No OpenAI-hosted skill registry. (OpenAI Conversations stores chats, not skills.) |
+| Cloud object storage (S3/GCS/Azure/R2) | 🟡 Partial | Sandbox mounts (`s3` extra, rclone, `VercelCloudBucketMountStrategy`) can expose a bucket inside the sandbox workspace; no `S3SkillSource` ships. |
+| Postgres / DB | 🔴 No | DB-backed sessions store conversations, not resources. |
+| Vendor cloud / managed registry | 🟡 Partial | OpenAI-hosted skills via `ShellToolSkillReference(skill_id, version)` — hosted container shell only. |
 | HTTP fetch | 🔴 No | Not provided. |
 
 ### 11.3 Source composition / priority
-🔴 **N/A** — no source abstraction to compose.
+🔴 **Not provided — BYO.** One `lazy_from` source per `Skills` capability; no stacking or conflict resolution.
 
 ### 11.4 Versioning model
-🔴 **None.** `Skill.compatibility: str | None` is an opaque marker (`src/agents/sandbox/capabilities/skills.py:408`) but the SDK does not enforce semver/content-hash/immutable refs.
+🔴 **None in the SDK.** `Skill.compatibility` is an opaque marker (`src/agents/sandbox/capabilities/skills.py:533`). Hosted skill references accept a `version` string, but versioning lives on the OpenAI platform.
 
-### 11.5 Scoping at the registry layer
-🔴 **Not provided.** (Runtime per-tenant scoping via `is_enabled` on tools/handoffs exists at Q6.5/Q6.8, but there is no publish-time scoping.)
+### 11.5 Scoping
+🔴 **No publish-time scoping.** Runtime scoping is per agent instance: skills are fixed when you construct the `SandboxAgent` / `ShellTool`, and there is no `is_enabled`-style per-turn filter for skills. To vary skills per tenant, build a per-tenant agent (or `LocalDirLazySkillSource` pointed at `./skills/{tenant_id}`) per request. Tools and handoffs do have per-turn `is_enabled` (Q6.5).
 
-### 11.6 Publishing workflow
+### 11.6 Deployment workflow
 🔴 **None.**
 
 ### 11.7 Lifecycle / governance
 🔴 **None.**
 
 ### 11.8 Programmatic API
-🔴 **N/A.**
+🔴 **Not provided** beyond `LazySkillSource.list_skill_metadata()` / `load_skill()` on a single source.
 
 ### 11.9 Caching & sync model
-For lazy skills, `LazySkillSource.list_skill_metadata` is called once per session to build the index; `load_skill(name)` materializes a specific skill on demand. There's no background sync, no TTL refresh.
+For lazy skills, the `Skills` capability caches the metadata list (`_skills_metadata` + cache key, `src/agents/sandbox/capabilities/skills.py:630-631`); `load_skill(name)` materializes on demand. No background sync, no TTL refresh, no watch.
 
 ### ⭐ Light usage example
-🔴 **Not provided — BYO**.
+**Not provided — BYO** for all three steps (git + S3 sources with tenant priority, draft → active promotion, listing active skills for a tenant).
 
-If you want a registry layer on top, the typical recipe would be:
-- Maintain a `skills/<tenant>/<skill-name>/SKILL.md` tree synced from S3 via your own job.
-- At request time, instantiate `LocalDirLazySkillSource(source=LocalDir(src=f"./skills/{tenant_id}"))` and pass it to a fresh `SandboxAgent`.
-- For multi-source priority (e.g. `tenant-bucket > global-registry`), write your own `LazySkillSource` subclass that consults sources in order and de-duplicates by name.
+Closest workaround: sync `skills/<tenant>/<skill>/SKILL.md` from Git/S3 with your own job, then subclass `LazySkillSource` to consult `tenant` before `global` and de-duplicate by name; keep lifecycle state in your own table and filter in `list_skill_metadata`.
 
-This is a meaningful gap compared to Mastra (which has a versioned skill source) or LangGraph (which has the LangGraph Hub + langgraph_store row-as-resource pattern).
+This remains a meaningful gap compared to Mastra (versioned skill sources) or LangGraph (`langgraph_store` rows-as-resources).
 
 ---
 
 ## 12. Observability: Usage, Cost, Tracing, Audit
 
 ### 12.1 Where tokens are surfaced
-- On every `RunResult` via `result.context_wrapper.usage: Usage` (`src/agents/result.py:205`, `src/agents/usage.py:102`).
-- On every `ModelResponse` in `result.raw_responses[i].usage` (per-call breakdown).
-- Inside hooks: `RunHooks.on_llm_end(ctx, agent, response)` — read `response.usage`.
-- Inside the tracing pipeline: each `GenerationSpanData` includes serialized usage (`src/agents/tracing/span_data.py`).
+- On every result via `result.context_wrapper.usage: Usage` (`src/agents/result.py:341`, `src/agents/usage.py:196`).
+- On every `ModelResponse` in `result.raw_responses[i].usage` (per-call). Since 0.20 the provider's raw usage payload is preserved alongside (`_attach_raw_usage_snapshot`, `src/agents/usage.py:48`).
+- In hooks: `RunHooks.on_llm_end(ctx, agent, response)` → `response.usage`.
+- In tracing: `GenerationSpanData` / `ResponseSpanData` include usage; task/turn spans carry rollups (`src/agents/tracing/span_data.py:64`, `:98`).
+- Realtime sessions track response usage in the session context (0.18.3).
 
-`Usage` fields (`src/agents/usage.py:103-136`):
+`Usage` fields (`src/agents/usage.py:196-218`):
 
 ```python
 @dataclass
 class Usage:
     requests: int = 0
     input_tokens: int = 0
-    input_tokens_details: InputTokensDetails           # incl. cached_tokens
+    input_tokens_details: InputTokensDetails     # cached_tokens, cache_write_tokens
     output_tokens: int = 0
-    output_tokens_details: OutputTokensDetails         # incl. reasoning_tokens
+    output_tokens_details: OutputTokensDetails   # reasoning_tokens
     total_tokens: int = 0
-    request_usage_entries: list[RequestUsage]          # per-API-call breakdown
+    request_usage_entries: list[RequestUsage]    # per-API-call breakdown
 ```
 
 ### 12.2 Per-call / per-turn / per-session / per-tenant rollups
-- **Per-call**: `request_usage_entries` (`Usage.request_usage_entries[i]`) preserves the per-API-call breakdown even after aggregation.
-- **Per-turn**: aggregated via `usage_delta(...)` in `src/agents/run.py:760` and emitted in `turn_span` metadata.
-- **Per-session**: aggregated in `task_span` (`task_usage_to_span_data`, `src/agents/usage.py:304`).
-- **Per-tenant**: 🔴 BYO. Attach `RunConfig.trace_metadata={"tenant_id": "acme"}` and roll up in your tracing backend.
+- **Per-call**: `Usage.request_usage_entries[i]` (`RequestUsage`, `src/agents/usage.py:151`).
+- **Per-turn**: `usage_delta(turn_usage_start, context_wrapper.usage)` (`src/agents/run.py:1804`) feeds `TurnSpanData`.
+- **Per-run (task)**: `usage_delta(task_usage_start, …)` (`src/agents/run.py:981`) → `task_usage_to_span_data` (`src/agents/usage.py:481`). Task/turn spans can be disabled with `TracingConfig(include_task_and_turn_spans=False)` (`src/agents/tracing/config.py:12`).
+- **Per-checkpoint**: since 0.22 each `RunResult.to_state()` snapshot owns its own usage totals (`docs/release.md:31`).
+- **Per-session**: `AdvancedSQLiteSession.store_run_usage` / `get_session_usage` / `get_turn_usage` (`src/agents/extensions/memory/advanced_sqlite_session.py:665`, `:1810`, `:1868`).
+- **Per-tenant**: 🔴 BYO. Tag with `RunConfig.trace_metadata={"tenant_id": "acme"}` and roll up in your backend.
 
 ### 12.3 USD cost computation
-🔴 **Not provided — BYO**. Only tokens are reported. You compute cost in your hook or in your trace processor using a model→$/Mtok table.
+🔴 **Not provided — BYO**. Only tokens. `docs/usage.md:3` says usage can be used "to monitor costs", but no price table or `cost_usd` field exists.
 
 ### 12.4 Per-tenant / per-conversation cost
-🔴 **BYO** via metadata-tagged tracing (`RunConfig.trace_metadata`, `RunConfig.group_id`).
+🔴 **BYO** via metadata-tagged tracing (`RunConfig.trace_metadata`, `RunConfig.group_id`) or a hook that writes to your metric store.
 
 ### 12.5 LLM / tool tracing
-🟢 **Built-in `TraceProvider` + `BatchTraceProcessor` + 25+ partner exporters**. The `TracingProcessor` interface (`src/agents/tracing/processor_interface.py`) is the extension point; the default `BackendSpanExporter` (`src/agents/tracing/processors.py`) ships traces to OpenAI's hosted Traces dashboard. `add_trace_processor(processor)` appends additional processors (`src/agents/tracing/__init__.py:94`); `set_trace_processors([...])` replaces them entirely.
+🟢 **Built-in `TraceProvider` + `BatchTraceProcessor` + 30+ partner exporters**. `TracingProcessor` (`src/agents/tracing/processor_interface.py`) is the extension point; the default `BackendSpanExporter` (`src/agents/tracing/processors.py`) ships to OpenAI's Traces dashboard. `add_trace_processor(processor)` appends (`src/agents/tracing/__init__.py:94`); `set_trace_processors([...])` replaces (`:101`).
 
-Per `docs/tracing.md:198-219`, partner integrations include: **Weights & Biases, Arize-Phoenix, Future AGI, MLflow (self-hosted + Databricks), Braintrust, Pydantic Logfire, AgentOps, Scorecard, Respan, LangSmith, Maxim AI, Comet Opik, Langfuse, Langtrace, Okahu-Monocle, Galileo, Portkey AI, LangDB AI, Agenta**.
+Per `docs/tracing.md:225-256`: Weights & Biases, Arize Phoenix, Future AGI, MLflow (OSS and Databricks), Braintrust, Pydantic Logfire, AgentOps, Scorecard, Respan, LangSmith, Maxim AI, Comet Opik, Langfuse, Langtrace, Okahu-Monocle, Galileo, Portkey AI, LangDB AI, Agenta, PostHog, Traccia, PromptLayer, HoneyHive, Asqav, **Datadog**, Latitude, DProvenanceKit, Tuning Engines, Laminar, Noveum. The list now has explicit listing criteria and a "not an OpenAI endorsement" disclaimer (`docs/tracing.md:219-221`).
 
-Span data types (`src/agents/tracing/span_data.py` per `src/agents/tracing/__init__.py:25-40`): `AgentSpanData`, `CustomSpanData`, `FunctionSpanData`, `GenerationSpanData`, `GuardrailSpanData`, `HandoffSpanData`, `MCPListToolsSpanData`, `ResponseSpanData`, `SpeechGroupSpanData`, `SpeechSpanData`, `TaskSpanData`, `TranscriptionSpanData`, `TurnSpanData`. Rich coverage.
+Span types (`src/agents/tracing/span_data.py`): `AgentSpanData`, `TaskSpanData`, `TurnSpanData`, `FunctionSpanData`, `GenerationSpanData`, `ResponseSpanData`, `HandoffSpanData`, `CustomSpanData`, `GuardrailSpanData`, `TranscriptionSpanData`, `SpeechSpanData`, `SpeechGroupSpanData`, `MCPListToolsSpanData`. Sensitive data in spans is controlled by `RunConfig.trace_include_sensitive_data`; 0.19 hardened logging to avoid leaking raw payloads.
 
 ### 12.6 Audit logging (who / when / what)
-🔴 **Not first-class.** Tracing serves a similar role but is not tamper-evident. For audit, hook into `RunHooks.on_tool_start/on_tool_end` and ship to your own append-only log.
+🔴 **Not first-class.** Tracing is not tamper-evident. For audit, hook `RunHooks.on_tool_start/on_tool_end` (with `ToolContext.tool_call_id`) and approval decisions into your own append-only log.
 
 ### 12.7 Canonical "where do I read token counts" code path
-`result.context_wrapper.usage` (`src/agents/usage.py:102`). For per-call: `result.raw_responses[i].usage`. The same `Usage` type is used at every layer; aggregation happens via `Usage.add(other_usage)`.
+`result.context_wrapper.usage` (`src/agents/result.py:341` → `Usage` at `src/agents/usage.py:196`). Per call: `result.raw_responses[i].usage`. Aggregation is `Usage.add(other)` (`src/agents/usage.py:257`).
 
 ### ⭐ Light usage example — token + cost rollup per tenant
 
 ```python
+from dataclasses import dataclass
 from agents import Agent, Runner, RunConfig, RunHooks, RunContextWrapper
 from agents.items import ModelResponse
-from agents.tracing import TracingProcessor, add_trace_processor
-from dataclasses import dataclass
 
 @dataclass
 class PredictCtx:
     tenant_id: str
 
-# Approximate price table; replace with the real one.
-PRICE_PER_MTOK = {
-    "gpt-5.1": {"in": 1.25, "out": 10.0, "cached_in": 0.125},
-    "o4-mini": {"in": 1.10, "out": 4.40, "cached_in": 0.275},
-}
+PRICE_PER_MTOK = {"gpt-5.6-sol": {"in": 1.25, "cached_in": 0.125, "out": 10.0}}  # illustrative
 
-def compute_cost(usage, model: str) -> float:
-    p = PRICE_PER_MTOK.get(model, {"in": 0, "out": 0, "cached_in": 0})
-    cached = usage.input_tokens_details.cached_tokens or 0
-    uncached = max(0, usage.input_tokens - cached)
-    return (
-        uncached      * p["in"]         / 1_000_000
-      + cached        * p["cached_in"]  / 1_000_000
-      + usage.output_tokens * p["out"]  / 1_000_000
-    )
+def cost_usd(u, model: str) -> float:
+    p = PRICE_PER_MTOK[model]
+    cached = u.input_tokens_details.cached_tokens or 0
+    return ((u.input_tokens - cached) * p["in"] + cached * p["cached_in"]
+            + u.output_tokens * p["out"]) / 1_000_000
 
-# (1) Hook to push per-tenant token + cost to Datadog at end of every LLM call
-import datadog  # pseudocode
+# (2) Push per-tenant usage to a metric sink after every model call
 class TenantUsageHook(RunHooks[PredictCtx]):
-    async def on_llm_end(self, ctx: RunContextWrapper[PredictCtx],
-                         agent, response: ModelResponse) -> None:
-        usage = response.usage
-        cost_usd = compute_cost(usage, model=getattr(response, "model", "gpt-5.1"))
-        datadog.statsd.gauge("predict.tokens.input",
-                              usage.input_tokens, tags=[f"tenant:{ctx.context.tenant_id}"])
-        datadog.statsd.gauge("predict.tokens.output",
-                              usage.output_tokens, tags=[f"tenant:{ctx.context.tenant_id}"])
-        datadog.statsd.gauge("predict.cost_usd",
-                              cost_usd, tags=[f"tenant:{ctx.context.tenant_id}"])
+    async def on_llm_end(self, ctx: RunContextWrapper[PredictCtx], agent, response: ModelResponse):
+        tags = [f"tenant:{ctx.context.tenant_id}", f"agent:{agent.name}"]
+        statsd.increment("agent.tokens.in",  response.usage.input_tokens,  tags=tags)
+        statsd.increment("agent.tokens.out", response.usage.output_tokens, tags=tags)
 
-agent = Agent[PredictCtx](name="supervisor", instructions="...", model="gpt-5.1")
-result = await Runner.run(
-    agent, "Build audience...",
-    context=PredictCtx(tenant_id="acme"),
-    hooks=TenantUsageHook(),
-    run_config=RunConfig(
-        trace_metadata={"tenant_id": "acme"},   # propagates through trace pipeline
-        group_id="conv-abc",                    # tie multiple runs into one trace group
-    ),
-)
+agent = Agent[PredictCtx](name="supervisor", instructions="...", model="gpt-5.6-sol")
+result = await Runner.run(agent, "Build audience...", context=PredictCtx("acme"),
+                          hooks=TenantUsageHook(),
+                          run_config=RunConfig(trace_metadata={"tenant_id": "acme"}))
 
-# (2) Read totals from RunResult
-print(f"requests={result.context_wrapper.usage.requests} "
-      f"input={result.context_wrapper.usage.input_tokens} "
-      f"output={result.context_wrapper.usage.output_tokens} "
-      f"cost_usd≈{compute_cost(result.context_wrapper.usage, 'gpt-5.1'):.4f}")
+# (1) Totals for one completed run
+u = result.context_wrapper.usage
+print(u.input_tokens, u.output_tokens, f"{cost_usd(u, 'gpt-5.6-sol'):.4f}")
 ```
 
 ---
@@ -1506,35 +1476,35 @@ print(f"requests={result.context_wrapper.usage.requests} "
 ## 13. Built-in Tools & Tool Authoring API
 
 ### 13.1 Built-in tools shipped in the box
-From `src/agents/__init__.py:131-179` and `src/agents/tool.py`:
+From `src/agents/__init__.py:140-200` and `src/agents/tool.py` (the `Tool` union at `:1644-1658`):
 
-| Tool | Purpose |
-|---|---|
-| `WebSearchTool` | Hosted web search (OpenAI). |
-| `FileSearchTool` | Hosted file search over OpenAI Vector Stores. |
-| `CodeInterpreterTool` | Hosted Python sandbox. |
-| `ImageGenerationTool` | Hosted DALL-E / GPT-Image. |
-| `ComputerTool` (+ `ComputerProvider`, `AsyncComputer`) | Computer-use control (mouse/keyboard) — local or cloud computer. |
-| `LocalShellTool` | Local shell exec; receives `LocalShellCommandRequest`, `LocalShellExecutor` callback. |
-| `ShellTool` | Container/local shell exec with rich env spec: `ShellToolLocalEnvironment`, `ShellToolContainerAutoEnvironment`, `ShellToolContainerReferenceEnvironment`, `ShellToolHostedEnvironment`, with `ShellToolContainerNetworkPolicyAllowlist`, `ShellToolContainerNetworkPolicyDisabled`, `ShellToolContainerNetworkPolicyDomainSecret`. Container skills via `ShellToolContainerSkill`. |
-| `ApplyPatchTool` (+ `ApplyPatchEditor`, `ApplyPatchOperation`) | Codex-style code patching. |
-| `HostedMCPTool` | Connect to a hosted MCP server (OpenAI-managed). |
-| `ToolSearchTool` | Lazy tool catalogue — load tool defs on demand. |
-| `CustomTool` | Bring-your-own arbitrary tool wrapper. |
-| `FunctionTool` + `@function_tool` | The standard Python-function tool. |
+| Tool | Purpose | Thin wrapper vs. agent-aware |
+|---|---|---|
+| `WebSearchTool` (`tool.py:836`) | Hosted web search (OpenAI); image results since 0.22.1 | Thin pass-through |
+| `FileSearchTool` (`:798`) | Hosted search over OpenAI Vector Stores | Thin |
+| `CodeInterpreterTool` (`:1167`) | Hosted Python sandbox | Thin |
+| `ImageGenerationTool` (`:1232`) | Hosted image generation; current options since 0.22.2 | Thin |
+| `HostedMCPTool` (`:1136`) | OpenAI-hosted MCP connector | Thin, with approval callback |
+| `ComputerTool` (`:891`) | Computer-use control (local or cloud); `on_safety_check` | Agent-aware (safety checks) |
+| `LocalShellTool` (`:1275`) | Local shell exec via executor callback | Thin |
+| `ShellTool` (`:1471`) | Local or OpenAI-hosted container shell with network policies and container skills | Rich config model |
+| `ApplyPatchTool` (`:1526`) | Codex-style structured patch editing | Agent-aware (structured ops) |
+| `ToolSearchTool` (`:1619`) | Deferred tool catalogue loading | Agent-aware (progressive disclosure) |
+| `ProgrammaticToolCallingTool` (`:1636`) | **New (0.19)**: model-generated JS orchestrates tools in hosted V8 | Agent-aware (multi-call programs) |
+| `CustomTool` (`:1564`) | Free-form/grammar custom tools | Thin |
+| `FunctionTool` + `@function_tool` / `@tool` | Standard Python-function tool | — |
 
-### 13.2 Built-in tool quality
-**Mixed depth.** `WebSearchTool` / `FileSearchTool` / `CodeInterpreterTool` / `ImageGenerationTool` / `HostedMCPTool` are thin pass-throughs to the Responses API hosted-tools surface. `ShellTool` is the richest one — it encodes a full sandbox configuration model (network policies, container references, inline skill bundles). `ApplyPatchTool` encodes the Codex apply-patch protocol with structured `ApplyPatchOperation` types. `ToolSearchTool` is a thoughtful pattern for keeping large tool catalogs out of the prompt (similar to Claude Agent SDK's tool-by-tool unlock).
+Sandbox agents add capability-provided tools: `Shell`, `Filesystem` (apply-patch editing + `view_image`; reads go through `Shell`), `Skills` (`load_skill`), `Memory`, `Compaction` (`src/agents/sandbox/capabilities/`). The Codex extension (`src/agents/extensions/experimental/codex/`) wraps the Codex CLI as a tool.
 
-There's no `Edit` (anchor matching) or `Monitor` (stream-of-events) primitive like Claude Code's; if you need those you build them with `function_tool`.
+No `Monitor`-style line-event streaming tool and no anchor-matching `Edit` like Claude Code's; `ApplyPatchTool` and the sandbox `Filesystem` capability cover editing.
 
-### 13.3 Tool authoring API
-The smallest possible function tool (`src/agents/tool.py:1765`):
+### 13.2 Tool authoring API
+The smallest possible function tool (`src/agents/tool.py:2623`, alias `agents.decorators.tool`):
 
 ```python
-from agents import function_tool
+from agents.decorators import tool
 
-@function_tool
+@tool
 def topicSearch(query: str) -> list[str]:
     """Search topics by query.
 
@@ -1544,206 +1514,186 @@ def topicSearch(query: str) -> list[str]:
     return ["hiking", "outdoor", "gear"]
 ```
 
-That's it. The decorator:
-- Inspects the signature and docstring (Griffe-style parsing — `griffelib` dep) to generate a JSON schema (`src/agents/function_schema.py`).
-- Generates a strict-mode schema by default (`strict_mode=True` — Responses API "guaranteed JSON").
-- Builds a `FunctionTool` with `name`, `description`, `params_json_schema`, `on_invoke_tool`.
+The decorator:
+- Inspects the signature and docstring (`griffelib`) to generate a JSON schema (`src/agents/function_schema.py`), strict mode by default.
+- Builds a `FunctionTool` with `name`, `description`, `params_json_schema`, `on_invoke_tool` (`src/agents/tool.py:454-468`).
+- Validates input with Pydantic at runtime (`schema.params_pydantic_model(...)`, `:2734-2743`); on `ValidationError` raises `ModelBehaviorError("Invalid JSON input for tool …")`, which `failure_error_function` can turn into a model-visible message.
+- New options since 0.17: `timeout` / `timeout_behavior` / `timeout_error_function`, `custom_data_extractor`, `allowed_callers`, `output_type` / `output_json_schema` (strict output schema for PTC), async callable objects (0.19), and `wrapped` access to the original callable (0.19.2) (`src/agents/tool.py:2623-2645`).
 
-For context-aware tools, add `ctx: RunContextWrapper[MyCtx]` (or `ToolContext`) as the first arg. For approval-gated tools, pass `needs_approval=True` (or a callable).
+Rich outputs: `ToolOutputText`, `ToolOutputImage`, `ToolOutputFileContent` (`src/agents/tool.py:218-282`).
 
-### 13.4 Typed tool I/O
-🟢 **Runtime Pydantic validation**. The decorator builds a Pydantic model from the signature and calls `schema.params_pydantic_model(**json_data)` (`src/agents/tool.py:1847-1853`). On `ValidationError` it raises `ModelBehaviorError(f"Invalid JSON input for tool {tool_name}: {e}")`. A `failure_error_function` callback can transform that into a model-visible error message (default: `default_tool_error_function`).
+### 13.3 Streaming tools
+🔴 **Not native**. A function tool returns when its coroutine returns; there is no "yield partial result to the model" primitive. `ShellTool` streams command output and the sandbox has PTY output handling, but those are tool-family specific. For long-running work: return a job id and poll with another tool, or use a sub-agent whose events reach the parent via `on_stream`.
 
-Output types: the SDK supports rich tool outputs via `ToolOutputText`, `ToolOutputImage`, `ToolOutputFileContent` (`src/agents/tool.py:92-167`).
-
-### 13.5 Streaming tools
-🔴 **Not native**. A tool returns when its async function returns. There's no "yield partial result to the model mid-execution" primitive in the canonical function-tool API.
-
-The hosted `ShellTool` does stream stdout deltas, and the `ApplyPatchTool` streams patch progress — but those are special-cased hosted-tool flows, not a generic API.
-
-For long-running tools you would: (a) return a "started, see job_id=X" message and let the LLM poll a `check_job` tool; or (b) use a sub-agent that streams via the parent's `on_stream` callback.
+### 13.4 Tool sandboxing / permission model
+🟢 **Multi-layered, default-allow.**
+- **Approval (HITL)**: `needs_approval=True | callable(ctx, params, call_id)` (`src/agents/tool.py:499-512`) on function, shell, apply-patch, custom and agent tools; `require_approval` per MCP server (`src/agents/mcp/server.py:568`). Callable policies only see raw arguments when validation preserves them; otherwise approval is manual.
+- **Tool guardrails** (Q18): input/output, now also pre-approval and MCP-server-wide.
+- **Visibility**: `is_enabled` per tool/handoff (Q6.5); MCP `tool_filter`.
+- **Invocation mode**: `allowed_callers` restricts tools to direct and/or programmatic calls.
+- **Timeouts**: per tool and per model call.
+- **Sandbox providers** (Sandbox Agents, beta): `DockerSandboxClient` and `UnixLocalSandboxClient` in core (`src/agents/sandbox/sandboxes/`), plus seven hosted providers under `src/agents/extensions/sandbox/`: **Blaxel, Cloudflare, Daytona, E2B, Modal, Runloop, Vercel**. Hardening since 0.17: mount credential-placement validation with explicit acknowledgements and redacted errors (0.20, `src/agents/sandbox/_mount_security.py`), Docker network disable and container labels (0.21.1/0.22.1), Unix-local host-environment allowlisting (`inherit_host_environment=False`, `docs/sandbox/clients.md:42-44`), run-scoped working directories, opt-in Docker removal protection (`main`). The docs are explicit that Unix-local on Linux "adds no OS-level confinement" (`docs/sandbox/clients.md:19`).
+- **Hosted shell network policy**: `ShellToolContainerNetworkPolicyAllowlist` / `Disabled` / `DomainSecret` (`src/agents/tool.py:1327-1350`).
+- **Default posture**: **default-allow** — any tool passed in `Agent(tools=[...])` is callable. There is no global allow/deny list or default-deny mode; opt into approvals and guardrails per tool. Shell network policies are the one place where default-deny allowlists exist.
 
 ---
 
 ## 14. MCP (Model Context Protocol) Support
 
 ### 14.1 MCP client support
-🟢 **First-class.** `src/agents/mcp/server.py:223` defines `class MCPServer(abc.ABC)` — the SDK's MCP *client* interface. Concrete subclasses:
-- `MCPServerStdio` (`server.py:1091`) — subprocess via stdio transport.
-- `MCPServerSse` (`server.py:1212`) — SSE transport.
-- `MCPServerStreamableHttp` (`server.py:1347`) — newer streamable-HTTP transport.
+🟢 **First-class.** `class MCPServer(abc.ABC)` (`src/agents/mcp/server.py:562`) is the client interface. Concrete classes:
+- `MCPServerStdio` (`:1962`) — subprocess via stdio.
+- `MCPServerSse` (`:2112`) — SSE.
+- `MCPServerStreamableHttp` (`:2290`) — streamable HTTP.
 
-You attach them to an agent via `Agent(mcp_servers=[...])` (`src/agents/agent.py:188`). Tools are auto-discovered (`AgentBase.get_mcp_tools`).
-
-`MCPServerManager` (`agents.mcp`) keeps connect/cleanup paired (the docstring at `src/agents/agent.py:194-197` recommends this).
+Attach via `Agent(mcp_servers=[...])` (`src/agents/agent.py:201`); tools are auto-discovered per turn. `MCPServerManager` (`src/agents/mcp/manager.py`) keeps connect/cleanup paired and, since 0.20, serializes overlapping lifecycle operations with finite default timeouts. `HostedMCPTool` covers OpenAI-hosted connectors. **MCP Python SDK v2** is supported since 0.20 with automatic protocol probing and v1 fallback (`docs/mcp.md:29-55`).
 
 ### 14.2 MCP server support
-🟡 **Partial via `HostedMCPTool`** — the agent can consume an OpenAI-hosted MCP server. There is no "expose-my-tools-as-an-MCP-server" wrapper in the box (you'd use the `mcp` SDK directly).
+🔴 **Not provided.** There is no "expose my agent/tools as an MCP server" wrapper; use the `mcp` SDK directly. (`HostedMCPTool` consumes OpenAI-hosted servers; it does not serve.)
 
 ### 14.3 Transports
 - **stdio** ✔ (`MCPServerStdio`)
 - **SSE** ✔ (`MCPServerSse`)
-- **HTTP** ✔ (`MCPServerStreamableHttp` — the streamable HTTP variant)
-- **In-process / SDK transport** 🟡 — possible via the `mcp` library but no first-party `InProcessMCPServer` ships.
+- **Streamable HTTP** ✔ (`MCPServerStreamableHttp`, with `session_id` resumability since 0.13)
+- **Hosted** ✔ (`HostedMCPTool`, executed by the Responses API)
+- **In-process / SDK transport** 🔴 — no first-party in-process transport.
 
 ### 14.4 In-process MCP
-🔴 No first-party in-process MCP server. The recommended pattern is to just use `@function_tool` directly.
+🔴 **Not provided.** The recommended pattern is to use `@function_tool` directly.
 
 ### 14.5 Auth / lifecycle
-- Credentials: passed via HTTP headers (`MCPServerSseParams.headers`, `MCPServerStreamableHttpParams.headers`) or stdio environment variables.
-- Connection lifecycle: `connect()` / `cleanup()` explicit; `MCPServerManager` for grouped lifecycle.
-- Reconnection: `_InitializedNotificationTolerantStreamableHTTPTransport` (`server.py:112`) handles a known edge case where the initialized notification arrives out of order; 0.13.0 added `session_id` so streamable-HTTP sessions can be resumed across reconnects or stateless workers.
-- Version negotiation: via the MCP protocol's `InitializeResult`.
-- Approval: `require_approval` parameter accepts `"always" | "never" | dict | callable` (`server.py:55-91`).
+- **Credentials**: HTTP headers (`MCPServerSseParams.headers`, `MCPServerStreamableHttpParams.headers`), custom `httpx`/`httpx2` auth or client factories (migrate to `httpx2` under MCP v2), or stdio env vars.
+- **Per-call metadata**: `tool_meta_resolver` injects `_meta` (e.g. tenant id, trace context) before each `call_tool()` (`docs/mcp.md:281-304`).
+- **Lifecycle**: explicit `connect()` / `cleanup()`; `MCPServerManager` for groups. `max_retry_attempts` with a configurable retry backoff ceiling (0.21) (`src/agents/mcp/server.py:903`); configurable listing page limits `max_list_pages` (`:914`, `main`).
+- **Reconnection / version negotiation**: `_InitializedNotificationTolerantStreamableHTTPTransport` (`:446`) tolerates out-of-order initialized notifications (v1 only); MCP v2 uses `mcp.Client(mode="auto")` to negotiate the newest protocol and fall back (`docs/release.md:57`).
+- **Approval**: `require_approval` (`"always" | "never" | tool-list dict | mapping | callable | bool`, policy normalization `:741-842`).
+- **Guardrails (new, 0.22.1)**: server-wide `tool_input_guardrails` / `tool_output_guardrails` applied to every MCP tool after filtering (`:573-574`, `docs/mcp.md:463-494`); not applied to `HostedMCPTool`.
 
 ---
 
 ## 15. Multi-model Routing & Fallback
 
 ### 15.1 Multi-provider support
-🟢 Rich. From `MultiProvider` (`src/agents/models/multi_provider.py:61`):
-- **Native OpenAI** (Responses + Chat Completions, plus WebSocket transport for Responses) via `OpenAIProvider` (`src/agents/models/openai_provider.py`). Default.
-- **LiteLLM** via `agents.extensions.models.litellm_provider.LitellmProvider` (`src/agents/extensions/models/litellm_provider.py`). Optional dep. Routes any LiteLLM-supported provider (Anthropic, Gemini, Bedrock, Vertex, Azure, OpenRouter, …).
-- **Any-LLM** via `agents.extensions.models.any_llm_provider.AnyLLMProvider`. Optional dep.
+🟢 Rich. `MultiProvider` (`src/agents/models/multi_provider.py:62`):
+- **Native OpenAI** (Responses + Chat Completions, plus WebSocket transport for Responses) via `OpenAIProvider` (`src/agents/models/openai_provider.py`). Default model `gpt-5.6-luna` since 0.20 (`docs/models/index.md:26`).
+- **LiteLLM** via `agents.extensions.models.litellm_provider.LitellmProvider` — Anthropic, Gemini, Bedrock, Vertex, Azure, OpenRouter, ….
+- **Any-LLM** via `agents.extensions.models.any_llm_provider.AnyLLMProvider` (Python ≥3.11).
+- **Experimental**: `OpenAIHostedMultiAgentModel` (Q9).
 
-Routing: the model string `"litellm/anthropic/claude-3-7-sonnet"` is split on `/`; prefix routes the call.
+Routing: `"litellm/anthropic/claude-…"` is split on `/`; the prefix selects the provider. Register custom prefixes with `MultiProviderMap` (`:18`, passed at `:76-79`). Responses-only features (tool search, PTC, hosted multi-agent, compaction) are rejected on Chat Completions/other backends.
 
-Per `MultiProvider.__init__` you can register a custom `MultiProviderMap` with your own prefix→provider mapping.
-
-### 15.2 Per-task model selection
-🟢 **Per-agent model override** (`Agent.model: str | Model | None` at `src/agents/agent.py:311`) and **per-run model override** (`RunConfig.model` at `src/agents/run_config.py:206`). The latter forces every agent in the run to use a specific model regardless of the agent-level setting.
-
-### 15.3 Automatic fallback chain
+### 15.2 Automatic fallback chain
 🟡 **Retry yes; cross-provider fallback BYO**.
-- **Retry**: `RetryPolicy` (`src/agents/retry.py`) wraps individual model calls with structured retry advice (`ModelRetryAdvice`, `ModelRetryBackoffSettings`, `retry_policies`). See `examples/basic/retry.py` and `examples/basic/retry_litellm.py`.
-- **Cross-provider fallback** (e.g. OpenAI down → call Anthropic): not provided. You implement it by wrapping `Runner.run` in a try/except and re-running with a different `RunConfig.model`. There is no `init_chat_model` + `with_fallbacks` builder (that's a LangChain idiom; OpenAI Agents Py does not have it).
+- **Retry**: `ModelRetrySettings` + `RetryPolicy` (`src/agents/retry.py:185`, `:210`) with structured provider advice (`ModelRetryAdvice`, `RetryDecision`). 0.19 preserves session history across retries and retries WebSocket overloads that occur before a response starts; 0.20 lets a policy set `RetryDecision(approve_unsafe_replay=True)` for non-streaming requests (`docs/release.md:59`). Retries are disabled for unsafe replays when Programmatic Tool Calling is present. See `examples/basic/retry.py`, `examples/basic/retry_litellm.py`.
+- **Timeouts**: `ModelSettings.timeout` (0.21.1, `src/agents/model_settings.py:215`) raises `ModelTimeoutError` per attempt.
+- **Cross-provider fallback** (OpenAI down → Anthropic): not provided. Wrap `Runner.run` in try/except and re-run with a different `RunConfig.model`, or implement a custom `Model` that delegates to a list of models.
 
-### 15.4 Mid-stream model switching
-🔴 **Not provided**. Model is fixed at agent / run start. To switch you handoff to a different agent (which is allowed to have a different model).
+### 15.3 Mid-stream model switching
+🟡 **At turn boundaries via handoff or run config, not within a turn.** The model is resolved per agent per turn: `Agent.model` (`src/agents/agent.py:360`), overridden run-wide by `RunConfig.model` (`src/agents/run_config.py:357`). To switch models mid-conversation, hand off to an agent with a different model, or start the next `Runner.run` (same session) with a different `RunConfig.model`. There is no per-turn `prepareStep`-style model selector.
 
-### 15.5 Sub-agent model overrides
-🟢 **Yes**. Each `Agent` has its own `model` field, so a supervisor on `gpt-5.1` can dispatch to a worker on `gpt-5-mini` via `as_tool()` or handoff.
+Sub-agent model override is covered in Q9.8.
 
 ---
 
 ## 16. Chat UI Layer
 
-### 16.1 Streaming chat hook
-🔴 **No first-party frontend SDK.** This is a backend-only Python library. The recommended pattern is to serialize `RunResultStreaming.stream_events()` over SSE and consume it from React via Vercel AI SDK's `useChat`, or from a custom hook.
+### 16.1 Generative UI components
+🔴 **Not provided.** No frontend SDK.
 
 ### 16.2 Tool call rendering primitives
-🔴 None. You parse `RunItemStreamEvent` events (`name="tool_called"`, `"tool_output"`) and render them yourself.
+🔴 **Not provided.** Parse `RunItemStreamEvent` (`tool_called`, `tool_output`) and render yourself; `ToolCallOutputItem.custom_data` (`src/agents/items.py:447`) is a convenient channel for UI-only payloads that the model never sees.
 
-### 16.3 Generative UI components
-🔴 None.
+### 16.3 Streaming chat hook
+🔴 **Not provided.** No React `useChat`-style hook.
 
 ### 16.4 BYO pattern
-SSE → React state. The closest first-party UI helper is the Python REPL (`run_demo_loop`, `src/agents/repl.py:15`) — a terminal REPL for manual testing, not a web UI.
+Serialize `RunResultStreaming.stream_events()` over SSE/WebSocket into your own React state (or adapt to Vercel AI SDK's `useChat` protocol). The closest first-party UI helper is the terminal REPL `run_demo_loop` (`src/agents/repl.py:15`). The realtime examples include a small web app for voice (`examples/realtime/app/`).
 
 ---
 
 ## 17. Memory & Knowledge
 
 ### 17.1 Long-term memory / semantic recall
-🔴 **Not built in.** The 10 Session backends store conversation history (turn-level), but there is no vector-search-backed long-term memory primitive.
+🟡 **File-based memory for sandbox agents; no vector-backed semantic recall.** The sandbox `Memory()` capability (`src/agents/sandbox/capabilities/memory.py:18`, `docs/sandbox/memory.md`) distills lessons from prior runs into workspace files: after a sandbox session closes, a memory-generating model extracts conversation summaries and a consolidation agent writes `MEMORY.md` and `memory_summary.md`; future runs get the summary injected and search the index on demand. Memory persists only if you keep or snapshot the sandbox workspace. Consolidation turns became configurable on `main`. This capability existed at 0.17.2 but was not covered in the previous analysis.
+
+For regular (non-sandbox) agents: 🔴 not built in. The 10 Session backends store conversation history only.
 
 ### 17.2 RAG / knowledge retrieval integration
-🟡 **Via hosted tools**: `FileSearchTool` integrates with OpenAI's hosted Vector Stores (`src/agents/tool.py` re-exported from `openai.types.responses.file_search_tool_param`). For non-OpenAI RAG, you write a `@function_tool` that queries your own vector store (Qdrant, Pinecone, pgvector, …).
+🟡 **Via hosted tools**: `FileSearchTool` over OpenAI Vector Stores (`src/agents/tool.py:798`, with `max_num_results`, `filters`, `ranking_options`, `include_search_results`). For non-OpenAI RAG, write a `@function_tool` against your own vector store. No chunkers, retrievers or citation primitives.
 
 ### 17.3 Per-tenant memory scoping
-🔴 **BYO** — namespace your vector indexes by `tenant_id`.
+🟡 **BYO with one helper.** Sandbox memory isolation is by `MemoryLayoutConfig` (`memories_dir`, `sessions_dir`), "not on agent name" (`docs/sandbox/memory.md:136-160`) — you can give each tenant its own layout or its own sandbox snapshot. Vector indexes: namespace by `tenant_id` yourself; `FileSearchTool(filters=...)` can scope hosted vector-store search.
 
 ---
 
-## 18. Safety, Guardrails & Tool Sandboxing
+## 18. Safety & Policy
 
-**OpenAI Agents Py's strongest area alongside sessions.** This is the single best guardrail surface in the 11-stack comparison.
+**OpenAI Agents Py's strongest area alongside sessions** — the most granular guardrail surface in the comparison.
 
-### 18.1 Input/output guardrails — 4 decorator types
+### 18.1 Input/output guardrails
+
 | Decorator | Receives | Behavior on trip | File |
 |---|---|---|---|
 | `@input_guardrail` | `(RunContextWrapper, Agent, str \| list[TResponseInputItem])` → `GuardrailFunctionOutput(tripwire_triggered, output_info)` | Raise `InputGuardrailTripwireTriggered` → halts run | `src/agents/guardrail.py:72` |
-| `@output_guardrail` | `(RunContextWrapper, Agent, Any)` → `GuardrailFunctionOutput` | Raise `OutputGuardrailTripwireTriggered` | `src/agents/guardrail.py:134` |
-| `@tool_input_guardrail` | `ToolInputGuardrailData(context: ToolContext, agent: Agent)` → `ToolGuardrailFunctionOutput(behavior: allow \| reject_content \| raise_exception)` | Per-behavior: continue / synthesize message / raise `ToolInputGuardrailTripwireTriggered` | `src/agents/tool_guardrails.py:152` |
+| `@output_guardrail` | `(RunContextWrapper, Agent, Any)` → `GuardrailFunctionOutput` | Raise `OutputGuardrailTripwireTriggered`; blocked terminal tool output replaced in history (0.22) | `src/agents/guardrail.py:134` |
+| `@tool_input_guardrail` | `ToolInputGuardrailData(context: ToolContext, agent)` → `ToolGuardrailFunctionOutput` | `allow` / `reject_content` / `raise_exception` | `src/agents/tool_guardrails.py:152` |
 | `@tool_output_guardrail` | `ToolOutputGuardrailData(context, agent, output)` → `ToolGuardrailFunctionOutput` | Same three behaviors | `src/agents/tool_guardrails.py:181` |
 
-**Tripwire mechanism**: a guardrail function returns `GuardrailFunctionOutput(output_info=..., tripwire_triggered=True)`. The runner inspects this immediately and, if triggered:
-- For input/output guardrails, raises `InputGuardrailTripwireTriggered` / `OutputGuardrailTripwireTriggered` (`src/agents/exceptions.py`), which can be intercepted by `RunErrorHandlers`.
-- For tool input/output guardrails, behavior is split (`src/agents/tool_guardrails.py:40-77`):
-  - `AllowBehavior`: continue normally.
-  - `RejectContentBehavior(message=...)`: skip the tool call and send `message` back to the LLM as if it were the tool result.
-  - `RaiseExceptionBehavior`: raise `ToolInputGuardrailTripwireTriggered` / `ToolOutputGuardrailTripwireTriggered` and halt the run.
+**Tool-guardrail behaviors** (`src/agents/tool_guardrails.py:40-117`):
+- `AllowBehavior`: continue.
+- `RejectContentBehavior(message=...)`: skip the tool call (input) or replace its result (output) and send `message` to the LLM as the tool result — a graceful, recoverable short-circuit.
+- `RaiseExceptionBehavior`: raise `ToolInputGuardrailTripwireTriggered` / `ToolOutputGuardrailTripwireTriggered` and halt.
 
-The tool-level guardrails are uniquely powerful: `reject_content` is a *graceful* short-circuit that the LLM sees as a tool result, so the agent can recover. `raise_exception` is a *hard* halt for irrecoverable violations (SSN leak, etc.). No other stack in the comparison exposes this allow/reject/raise tri-state at the tool-input AND tool-output layer.
+**What changed since 0.17**:
+- **Pre-approval tool input guardrails** (0.17.6): `RunConfig(tool_execution=ToolExecutionConfig(pre_approval_tool_input_guardrails=True))` (`src/agents/run_config.py:146`) runs input guardrails *before* emitting an approval interruption, then again after approval (`docs/guardrails.md:77`). Useful so reviewers never see calls that a policy would reject anyway.
+- **MCP server-wide tool guardrails** (0.22.1): `MCPServerStdio/Sse/StreamableHttp(tool_input_guardrails=[...], tool_output_guardrails=[...])` (`src/agents/mcp/server.py:573-574`) — e.g. block secret-bearing arguments on every MCP tool (`docs/mcp.md:463-494`).
+- **Output-guardrail data isolation** (0.22.0): rejected terminal function-tool output is replaced by a fixed placeholder in session, `RunState` and stream state; customizable via `RunConfig.output_guardrail_blocked_message` (`src/agents/run_config.py:499`).
+- **Redacted errors**: handoff and tool failures can raise data-redacted errors that drop tracebacks/payloads (`src/agents/handoffs/__init__.py:49-67`), and 0.19 hardened logging across models, tools, MCP and tracing.
 
-Parallel execution: input guardrails support `run_in_parallel=True` (default) so they run concurrently with the model call (`src/agents/guardrail.py:100`). Output guardrails run after final output; tool guardrails run inline around tool invocation.
+Input guardrails default to `run_in_parallel=True` (concurrent with the model call, `src/agents/guardrail.py:100`); set `False` to block the model call until they pass. Input guardrails run only for the first agent (`docs/guardrails.md:14`).
 
-### 18.2 Tool sandboxing / permission model
-🟢 **Multi-layered.**
-- **Approval (HITL)**: `function_tool(needs_approval=True | callable)` — runtime pauses and surfaces a `ToolApprovalItem` (`src/agents/tool.py:328`). Approve/reject via `RunState.approve/reject`.
-- **MCP-server-level approval**: `require_approval` setting per server (`src/agents/mcp/server.py:226-251`).
-- **Tool-level guardrails**: the 4 decorators above.
-- **Tool visibility**: `is_enabled` per tool / handoff (Q6.5).
+PII redaction, prompt-injection detection and hallucination detection are **not shipped as ready-made guardrails** — you implement them as guardrail functions (often a small agent; see `examples/agent_patterns/input_guardrails.py`, `output_guardrails.py`, `examples/basic/tool_guardrails.py`). The framework is first-party; the detectors are BYO.
 
-There is no general allow/deny *list* setting (like Claude Agent SDK's `allowed_tools` / `disallowed_tools` config), but the building blocks compose to the same effect.
-
-### 18.3 Sandbox provider integrations
-🟢 **Best in class — 7 first-party sandbox providers.** Under `src/agents/extensions/sandbox/`:
-- **`blaxel`** — Blaxel sandbox.
-- **`cloudflare`** — Cloudflare Worker sandbox.
-- **`daytona`** — Daytona dev sandboxes.
-- **`e2b`** — E2B code interpreter / sandbox.
-- **`modal`** — Modal sandbox.
-- **`runloop`** — Runloop sandbox.
-- **`vercel`** — Vercel sandbox.
-
-Each provider has its own `mounts.py` + `sandbox.py` exposing a `BaseSandboxClient` that the `SandboxRuntime` (`src/agents/sandbox/runtime.py`) uses to create / resume sessions. The core `agents.sandbox` package has its own ~30+ files (capabilities, entries, manifest, materialization, session, snapshot, sandboxes/UnixLocalSandboxClient).
-
-Plus `agents.computer.AsyncComputer` for browser/computer-use sandboxes (Anthropic Computer Use, OpenAI Operator).
-
-### 18.4 Default-deny vs. default-allow
-**Default-allow** for tools (any tool you pass via `Agent(tools=[...])` is callable). The opt-in is `needs_approval=True` and the guardrail decorators. There is no global default-deny mode.
-
-For shell sandboxes, the network policy is explicit per `ShellTool` env: `ShellToolContainerNetworkPolicyAllowlist` (default-deny + explicit allowlist), `ShellToolContainerNetworkPolicyDisabled` (deny all), `ShellToolContainerNetworkPolicyDomainSecret` (allow specific authenticated domains).
+Tool sandboxing and permission posture are covered in Q13.4.
 
 ---
 
 ## 19. Eval, Testing & CI Gates
 
 ### 19.1 Golden datasets / regression suites
-🔴 **Not provided as first-party.** The community pattern is to use the partner integrations (Braintrust, Phoenix, Langfuse, LangSmith, etc.) which all consume the SDK's traces and provide dataset/eval primitives.
+🟡 **Deterministic orchestration tests: first-party (new in 0.21). Behavioral golden datasets: BYO.** `agents.testing` (`src/agents/testing/__init__.py`) provides `ScriptedModel`, `ModelStep`, `assistant_message()`, `function_call()`, call inspection (`calls`, `first_call`, `last_call`) and `assert_complete()` for "workflow drift"; `scripted_sandbox_session()` for Sandbox Agents; `agents.realtime.testing` and `agents.voice.testing` for Realtime/Voice (`docs/testing.md:7-206`). These make no model, sandbox-provider or Realtime API calls. They test what *your code and the SDK* do (tool loops, handoffs, guardrails, retries, streaming, sessions), not model quality. Dataset-driven regression of model behavior is left to partner platforms (Braintrust, Phoenix, Langfuse, LangSmith, …) consuming SDK traces.
 
 ### 19.2 LLM-as-judge scoring
-🔴 **Not first-party.** Example pattern shown in `examples/agent_patterns/llm_as_a_judge.py` — but that's a usage example, not a built-in scorer.
+🔴 **Not first-party.** `examples/agent_patterns/llm_as_a_judge.py` is a usage pattern, not a scorer.
 
 ### 19.3 CI eval gates / pre-merge
-🔴 **BYO.**
+🟡 **Partial.** `ScriptedModel` + pytest gives deterministic, offline CI tests for orchestration; `assert_complete()` catches accidental workflow changes (`docs/testing.md:196-206`). No eval-score gates; BYO via partner platforms.
 
 ### 19.4 Trace replay for skill iteration
-🟢 Via partner tools: LangSmith, Braintrust, Phoenix, MLflow all support trace replay if you've sent traces there. The OpenAI Traces dashboard is read-only but viewable.
+🟡 Via partner tools (LangSmith, Braintrust, Phoenix, MLflow, Langfuse) if traces are exported there; the OpenAI Traces dashboard is viewable but not a replay tool. No first-party local trace replay.
 
 ---
 
 ## 20. Local Sandbox & Dev UX
 
 ### 20.1 Local agent runner
-🟢 **`run_demo_loop` REPL** (`src/agents/repl.py:15`) — a terminal REPL that loops, taking user input, streaming model output, surfacing tool calls. Useful for quick manual smoke tests.
+🟢 **`run_demo_loop` REPL** (`src/agents/repl.py:15`) — terminal loop that streams output and surfaces tool calls.
 
 ```python
 from agents import Agent, run_demo_loop
 await run_demo_loop(Agent(name="Joke", instructions="Tell jokes."), stream=True)
 ```
 
-No web playground / TUI / Mastra-style local dev UI.
+`UnixLocalSandboxClient` and `DockerSandboxClient` run Sandbox Agents locally; `agents.testing` runs whole workflows offline. No web playground / TUI / Mastra-style dev UI. The `temporal` extra pulls `textual` for Temporal examples, not a general TUI.
 
 ### 20.2 Trace inspection
-Via the OpenAI Traces dashboard (free, hosted) or any of the 25+ partner exporters.
+Via the OpenAI Traces dashboard (hosted) or any partner exporter. No local trace viewer.
 
 ### 20.3 Tenant / org switching
-🔴 N/A at SDK level — you switch by changing the `context=...` you pass to `Runner.run`.
+🔴 Not provided at SDK level — switch by changing the `context=...` passed to `Runner.run` (and the session id / layout).
 
 ### 20.4 Hot reload
-🔴 N/A — this is a library; reload semantics depend on your host (uvicorn `--reload`, etc.).
+🔴 Not provided — library; reload depends on your host (`uvicorn --reload`, etc.). Lazy skills are re-listed per `Skills` instance, so creating a new agent per request picks up edited `SKILL.md` files without a restart.
 
 ---
 
@@ -1756,22 +1706,22 @@ graph TB
         HTTP --> RUNNER
 
         subgraph SDK["agents (Python SDK, in-process)"]
-            RUNNER[Runner.run / run_streamed<br/>src/agents/run.py:195]
-            RUNNER --> RC[RunContextWrapper TContext<br/>src/agents/run_context.py:43]
-            RUNNER --> CFG[RunConfig<br/>src/agents/run_config.py:202]
-            RUNNER --> RS[RunState — durable snapshot<br/>src/agents/run_state.py]
-            RUNNER --> LOOP[run_loop.run_single_turn<br/>src/agents/run_internal/run_loop.py]
+            RUNNER[Runner.run / run_streamed<br/>src/agents/run.py:259]
+            RUNNER --> RC[RunContextWrapper TContext<br/>src/agents/run_context.py:176]
+            RUNNER --> CFG[RunConfig<br/>src/agents/run_config.py:354]
+            RUNNER --> RS[RunState — durable snapshot<br/>src/agents/run_state.py:790]
+            RUNNER --> LOOP[run_loop / turn_resolution<br/>src/agents/run_internal/]
 
             LOOP --> IG[Input Guardrails<br/>tripwire halts]
-            LOOP --> MODEL[Model call]
-            MODEL --> TC[ToolContext<br/>src/agents/tool_context.py:36]
-            TC --> TG[Tool I/O Guardrails<br/>allow / reject_content / raise]
-            TG --> TOOLDISP[Tool dispatch<br/>function_tool / shell / apply_patch / MCP / computer]
+            LOOP --> MODEL[Model call<br/>timeout + RetryPolicy]
+            MODEL --> TC[ToolContext<br/>src/agents/tool_context.py:43]
+            TC --> TG[Tool I/O Guardrails<br/>allow / reject_content / raise<br/>pre-approval option]
+            TG --> TOOLDISP[Tool dispatch<br/>function / shell / apply_patch / MCP / computer / PTC]
             TOOLDISP --> HOOKS[RunHooks / AgentHooks]
             LOOP --> OG[Output Guardrails]
             LOOP --> HANDOFF[Handoff / agents-as-tool]
 
-            RUNNER --> SESS[Session protocol<br/>src/agents/memory/session.py:14]
+            RUNNER --> SESS[Session protocol<br/>src/agents/memory/session.py:53<br/>optional wrapper=ctx]
             RUNNER --> TRACE[TracingProcessor pipeline]
         end
 
@@ -1779,7 +1729,7 @@ graph TB
             S1[SQLiteSession]
             S2[OpenAIConversationsSession]
             S3[OpenAIResponsesCompactionSession]
-            S4[AdvancedSQLiteSession]
+            S4[AdvancedSQLiteSession — branches, usage]
             S5[AsyncSQLiteSession]
             S6[SQLAlchemySession — Postgres/MySQL]
             S7[RedisSession]
@@ -1791,13 +1741,16 @@ graph TB
         SESS -.-> S1
         SESS -.-> S2
         SESS -.-> S3
+        SESS -.-> S4
         SESS -.-> S6
         SESS -.-> S7
         SESS -.-> S8
         SESS -.-> S9
         SESS -.-> S10
 
-        subgraph SANDBOX["Sandbox providers (7 + local)"]
+        subgraph SANDBOX["Sandbox clients (2 core + 7 hosted)"]
+            SBD[Docker]
+            SBL[UnixLocal]
             SB1[Blaxel]
             SB2[Cloudflare]
             SB3[Daytona]
@@ -1805,17 +1758,17 @@ graph TB
             SB5[Modal]
             SB6[Runloop]
             SB7[Vercel]
-            SBL[UnixLocalSandboxClient]
         end
 
         TOOLDISP -.-> SANDBOX
 
         subgraph MODELS["MultiProvider routing"]
-            P1[OpenAI Responses API]
+            P1[OpenAI Responses API HTTP/WS]
             P2[OpenAI Chat Completions]
             P3[LiteLLM — 100+ providers]
             P4[Any-LLM]
             P5[OpenAI Realtime WS]
+            P6[Hosted multi-agent beta]
         end
 
         MODEL --> P1
@@ -1823,15 +1776,16 @@ graph TB
         MODEL --> P3
         MODEL --> P4
         MODEL -.-> P5
+        MODEL -.-> P6
 
-        subgraph EXPORTERS["Trace exporters (25+)"]
+        subgraph EXPORTERS["Trace exporters (30+)"]
             T1[OpenAI Traces — default]
             T2[Langfuse]
             T3[LangSmith]
             T4[Phoenix]
-            T5[Braintrust]
+            T5[Datadog]
             T6[MLflow]
-            T7[…and 19 more]
+            T7[…and 25 more]
         end
 
         TRACE --> T1
@@ -1845,7 +1799,7 @@ graph TB
     subgraph EXT["External services (your infra)"]
         DB[(Postgres / Redis / Mongo)]
         VEC[(Vector store — BYO RAG)]
-        MCP[MCP servers — stdio / SSE / HTTP]
+        MCP[MCP servers — stdio / SSE / Streamable HTTP]
     end
 
     S6 -.-> DB
@@ -1858,26 +1812,19 @@ graph TB
 
 ## Appendix — Files worth reading first
 
-- `src/agents/run.py` — the public `Runner` class and `AgentRunner.run` orchestration (start here for "how does a run work").
-- `src/agents/run_internal/run_loop.py` — the actual per-turn loop, tool dispatch, streaming.
-- `src/agents/agent.py` — `Agent`, `AgentBase`, `as_tool()`, `clone()`, tool filtering via `is_enabled`.
-- `src/agents/tool.py` — `FunctionTool` dataclass, `@function_tool` decorator, and the full hosted-tool catalog.
-- `src/agents/tool_context.py` — the `ToolContext` (`RunContextWrapper` + per-tool metadata) every tool author should know.
-- `src/agents/run_context.py` — `RunContextWrapper[TContext]` and the approval bookkeeping.
-- `src/agents/guardrail.py` + `src/agents/tool_guardrails.py` — all 4 guardrail decorators with tripwire mechanism. The stack's standout feature.
-- `src/agents/memory/session.py` — the `Session` Protocol + `SessionABC`. Start of the sessions story.
-- `src/agents/memory/sqlite_session.py` — reference Session implementation; minimal SQL schema.
-- `src/agents/extensions/memory/encrypt_session.py` — `EncryptedSession` wrapper with Fernet+HKDF + TTL.
-- `src/agents/extensions/memory/sqlalchemy_session.py` / `redis_session.py` / `mongodb_session.py` / `dapr_session.py` — the production-grade session backends.
-- `src/agents/run_state.py` — the 3,305-line durable snapshot type. `to_json` / `from_json` is the HITL/resume primitive.
-- `src/agents/stream_events.py` — the 62-line file that defines the entire stream-event vocabulary (3 types).
-- `src/agents/items.py` — every `RunItem` subclass; how OpenAI Responses items are wrapped.
-- `src/agents/lifecycle.py` — `RunHooks` and `AgentHooks` — every observable lifecycle event.
-- `src/agents/models/multi_provider.py` — model routing by prefix (`openai/`, `litellm/`, `any-llm/`).
-- `src/agents/mcp/server.py` — full MCP client (stdio/SSE/streamable-HTTP) + approval policy normalization.
-- `src/agents/sandbox/capabilities/skills.py` — the `Skill` model + lazy loader + sandbox skill injection.
-- `src/agents/tracing/__init__.py` — `TracingProcessor` + `add_trace_processor` extension point for the 25+ partner exporters.
-- `examples/agent_patterns/human_in_the_loop.py` — canonical HITL pattern with `RunState` serialization.
-- `examples/basic/tool_guardrails.py` — concrete examples of all 3 tool-guardrail behaviors.
-- `examples/agent_patterns/parallelization.py` — agents-in-parallel via `asyncio.gather`.
-- `docs/release.md` — in-repo changelog with explicit breaking-change notes (read before bumping minors).
+- `src/agents/run.py` — the public `Runner` class (`:259`) and `AgentRunner` orchestration (`:548`).
+- `src/agents/run_internal/run_loop.py` + `turn_resolution.py` — the per-turn loop, tool dispatch, interruption resume.
+- `src/agents/agent.py` — `Agent`, `AgentBase.get_all_tools` (`is_enabled` filtering), `as_tool()`, `clone()`.
+- `src/agents/tool.py` — `FunctionTool`, `@function_tool`, hosted tools, `ProgrammaticToolCallingTool`, shell skill references.
+- `src/agents/tool_context.py` + `src/agents/run_context.py` — `ToolContext` and `RunContextWrapper[TContext]` (tenant identity path, approvals).
+- `src/agents/guardrail.py` + `src/agents/tool_guardrails.py` — all 4 guardrail types with tripwire mechanism.
+- `src/agents/run_config.py` — `RunConfig`, `ToolExecutionConfig` (concurrency, pre-approval guardrails), `call_model_input_filter`.
+- `src/agents/memory/session.py` — `Session` Protocol, `SessionABC`, and the context-aware `wrapper` contract.
+- `src/agents/extensions/memory/` — production session backends and `EncryptedSession`.
+- `src/agents/run_state.py` — the 5,472-line durable snapshot; `to_json` / `from_json` / `add_input` / `approve`.
+- `src/agents/mcp/server.py` — MCP client (stdio/SSE/streamable HTTP), approvals, server-wide guardrails, `tool_meta_resolver`.
+- `src/agents/sandbox/capabilities/skills.py` + `memory.py` — sandbox skills (lazy loader) and file-based memory.
+- `src/agents/testing/` — `ScriptedModel` and scripted sandbox sessions for deterministic CI tests.
+- `src/agents/extensions/experimental/hosted_multi_agent/model.py` — OpenAI-hosted sub-agents (experimental).
+- `docs/human_in_the_loop.md` — server-side HITL and RunState trust boundary (read before building approval endpoints).
+- `docs/release.md` — breaking-change changelog (read before bumping minors).
